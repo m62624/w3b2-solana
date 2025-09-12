@@ -10,7 +10,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signer;
 use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::transaction::VersionedTransaction;
-use w3b2_bridge_program::types::{AccountType, CommandMode, UserAccount};
+use w3b2_bridge_program::types::{CommandMode, UserAccount, WalletType};
 
 const PATH_SBF: &str = "../target/deploy/w3b2_bridge_program.so";
 
@@ -54,7 +54,7 @@ fn user_pda_for(authority: &Pubkey) -> (Pubkey, u8) {
 /// Borsh structs for instructions
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 struct RegisterUserArgs {
-    account_type: AccountType,
+    account_type: WalletType,
     linked_wallet: Option<[u8; 32]>,
 }
 
@@ -86,7 +86,7 @@ fn make_register_user_ix(
     program_id: &Pubkey,
     authority: &Pubkey,
     payer: &Pubkey,
-    account_type: AccountType,
+    account_type: WalletType,
     linked_wallet: Option<[u8; 32]>,
 ) -> solana_sdk::instruction::Instruction {
     let (user_pda, _) = user_pda_for(authority);
@@ -149,7 +149,7 @@ fn test_register_user_success() {
         &PROGRAM_ID,
         &authority.pubkey(),
         &payer.pubkey(),
-        AccountType::ExistingWallet,
+        WalletType::ExistingWallet,
         Some(authority.pubkey().to_bytes()),
     );
 
@@ -164,7 +164,7 @@ fn test_register_user_success() {
     let acc = svm.get_account(&user_pda).unwrap();
     let parsed = deserialize_user_pda(&acc.data).unwrap();
     assert_eq!(parsed.profile.owner, authority.pubkey().to_bytes());
-    assert_eq!(parsed.profile.account_type, AccountType::ExistingWallet);
+    assert_eq!(parsed.profile.account_type, WalletType::ExistingWallet);
     assert_eq!(parsed.linked_wallet, Some(authority.pubkey().to_bytes()));
 }
 
@@ -182,14 +182,14 @@ fn test_register_user_already_registered() {
         &PROGRAM_ID,
         &authority.pubkey(),
         &payer.pubkey(),
-        AccountType::ExistingWallet,
+        WalletType::ExistingWallet,
         None,
     );
     let ix2 = make_register_user_ix(
         &PROGRAM_ID,
         &authority.pubkey(),
         &payer.pubkey(),
-        AccountType::NewWallet,
+        WalletType::NewWallet,
         None,
     );
 
@@ -226,7 +226,7 @@ fn test_dispatch_command_owner() {
         &PROGRAM_ID,
         &authority.pubkey(),
         &payer.pubkey(),
-        AccountType::ExistingWallet,
+        WalletType::ExistingWallet,
         None,
     );
     let blockhash = svm.latest_blockhash();

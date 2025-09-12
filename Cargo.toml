@@ -4,7 +4,7 @@ members = ["w3b2-bridge-program"]
 
 [workspace.dependencies]
 # internal
-
+w3b2-bridge-program = { path = "w3b2-bridge-program" }
 
 # external
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
@@ -16,11 +16,17 @@ solana-sdk = { version = "2.2.1", features = ["full"] }
 solana-pubkey = "2.2.1"
 solana-message = "2.2.1"
 solana-program = "2.2.1"
+solana-client = "2.2.1"
+solana-transaction-status = "2.2.1"
 # наверно лучше это заюзаем, чтобы не поднимать каждый раз смарт контракт в local solana
 litesvm = "0.7.0"
+base64 = "0.22.1"
 
+anyhow = "1.0.99"
 sha2 = "0.10.9"
 lazy_static = "1.5.0"
+backoff = { version = "0.4.0", features = ["futures", "tokio"] }
+tokio = "1.47.1"
 
 [profile.release]
 overflow-checks = true

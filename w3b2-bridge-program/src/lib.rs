@@ -6,6 +6,8 @@ pub mod types;
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock;
+use solana_program::program::invoke_signed;
+use solana_program::system_instruction;
 use types::*;
 
 declare_id!("W3B2Bridge111111111111111111111111111111111");
@@ -14,39 +16,52 @@ declare_id!("W3B2Bridge111111111111111111111111111111111");
 pub mod w3b2_bridge_program {
     use super::*;
 
-    /// Register a user PDA.
-    /// - PDA seeds = ["user", authority_pubkey]
-    /// - Stores UserAccount (owner + account_type) from common crate.
-    /// - Optionally stores linked_wallet (raw bytes).
-    pub fn register_user(
-        ctx: Context<RegisterUser>,
-        account_type: AccountType,
-        linked_wallet: Option<[u8; 32]>,
-    ) -> Result<()> {
-        let user_pda = &mut ctx.accounts.user_pda;
+    /// Registers an admin account.
+    pub fn register_admin(ctx: Context<RegisterAdmin>) -> Result<()> {
+        let admin_profile = &mut ctx.accounts.admin_profile;
+        admin_profile.owner = ctx.accounts.authority.key().to_bytes();
+        Ok(())
+    }
 
-        // prevent double registration (convention: zeroed owner == uninitialized)
+    /// Funds a user wallet from the admin account.
+    /// This instruction is called by the admin service.
+    pub fn fund_user_wallet(ctx: Context<FundUserWallet>, amount: u64) -> Result<()> {
+        let admin_profile = &ctx.accounts.admin_profile;
+
+        // Verify that the signer is the registered admin
         require!(
-            user_pda.profile.owner == [0u8; 32],
-            BridgeError::AlreadyRegistered
+            admin_profile.owner == ctx.accounts.authority.key().to_bytes(),
+            BridgeError::Unauthorized
         );
 
-        // fill profile (owner + account_type)
-        user_pda.profile = UserAccount {
-            owner: ctx.accounts.authority.key().to_bytes(),
-            account_type,
-        };
+        // Get the bump seed for the PDA. No unwrap needed.
+        let bump = ctx.bumps.admin_profile;
 
-        user_pda.linked_wallet = linked_wallet;
-        user_pda.created_at = clock::Clock::get()?.unix_timestamp as u64;
+        // Define the seeds for the PDA signer
+        let pda_seeds = &[b"admin".as_ref(), admin_profile.owner.as_ref(), &[bump]];
 
-        // emit compact event (bytes, not Pubkey) — off-chain converts to Pubkey if needed
-        emit!(UserRegistered {
-            owner: user_pda.profile.owner,
-            account_type: user_pda.profile.account_type,
-            linked_wallet,
-            ts: user_pda.created_at as i64,
-        });
+        // Create the transfer instruction
+        let transfer_instruction = system_instruction::transfer(
+            // Correct way to get the key from the Account struct:
+            // Use `.to_account_info()` to get the Pubkey
+            ctx.accounts.admin_profile.to_account_info().key,
+            ctx.accounts.user_wallet.key,
+            amount,
+        );
+
+        // Invoke the instruction, signing on behalf of the PDA
+        invoke_signed(
+            &transfer_instruction,
+            &[
+                ctx.accounts.admin_profile.to_account_info(),
+                ctx.accounts.user_wallet.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            &[pda_seeds],
+        )?;
+
+        // Log the event
+        msg!("Transferred {} lamports to user wallet", amount);
 
         Ok(())
     }
@@ -81,83 +96,14 @@ pub mod w3b2_bridge_program {
 
         Ok(())
     }
-}
 
-#[account]
-pub struct UserPda {
-    /// Common user profile (owner + account_type) from w3b2_common.
-    pub profile: UserAccount,
-    /// Optional linked wallet (raw bytes).
-    pub linked_wallet: Option<[u8; 32]>,
-    /// Unix timestamp when created.
-    pub created_at: u64,
-}
-
-// Space calculation:
-// - Anchor discriminator: 8
-// - profile.owner: 32
-// - profile.account_type: 1
-// - linked_wallet: 1 + 32 = 33 (option tag + bytes)
-// - created_at: 8
-// total = 8 + 32 + 1 + 33 + 8 = 82
-// add margin/padding -> 96
-#[derive(Accounts)]
-pub struct RegisterUser<'info> {
-    #[account(
-        init_if_needed,
-        payer = payer,
-        space = 96,
-        seeds = [b"user", authority.key().as_ref()],
-        bump
-    )]
-    pub user_pda: Account<'info, UserPda>,
-
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    /// Wallet that signs and will be registered (controller)
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct DispatchCommand<'info> {
-    #[account(mut, seeds = [b"user", authority.key().as_ref()], bump)]
-    pub user_pda: Account<'info, UserPda>,
-    /// signer issuing the command
-    pub authority: Signer<'info>,
-}
-
-/* ---------- Events ---------- */
-
-/// Use raw bytes for on-chain events to avoid borsh-version headaches across crates.
-/// Off-chain listeners convert bytes -> Pubkey if they want.
-#[event]
-pub struct UserRegistered {
-    /// registrant pubkey as raw bytes ([u8;32])
-    pub owner: [u8; 32],
-    pub account_type: AccountType,
-    pub linked_wallet: Option<[u8; 32]>,
-    pub ts: i64,
-}
-
-#[event]
-pub struct CommandEvent {
-    /// sender pubkey as raw bytes ([u8;32])
-    pub sender: [u8; 32],
-    pub command_id: u64,
-    pub mode: CommandMode,
-    pub payload: Vec<u8>,
-    pub ts: i64,
-}
-
-/* ---------- Errors ---------- */
-
-#[error_code]
-pub enum BridgeError {
-    #[msg("PDA already registered for this owner")]
-    AlreadyRegistered,
-    #[msg("Payload too large")]
-    PayloadTooLarge,
-    #[msg("Unauthorized: signer does not match PDA owner or linked wallet")]
-    Unauthorized,
+    #[error_code]
+    pub enum BridgeError {
+        #[msg("PDA already registered for this owner")]
+        AlreadyRegistered,
+        #[msg("Payload too large")]
+        PayloadTooLarge,
+        #[msg("Unauthorized: signer does not match PDA owner or linked wallet")]
+        Unauthorized,
+    }
 }
