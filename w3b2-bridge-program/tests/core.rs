@@ -27,9 +27,6 @@ fn anchor_discriminator(method: &str) -> [u8; 8] {
     d
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
-struct RegisterAdminArgs;
-
 fn make_register_admin_ix(program_id: &Pubkey, authority: &Pubkey, payer: &Pubkey) -> Instruction {
     let (_, bump) = Pubkey::find_program_address(&[b"admin", authority.as_ref()], program_id);
     let admin_pda =

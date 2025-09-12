@@ -13,11 +13,9 @@ borsh = "0.10.3"
 # снижаем версию на 2.2.1 вместо 3.0.0, кто бы думал, 
 # но anchor юзает пока что ещё 2 api solana sdk
 solana-sdk = { version = "2.2.1", features = ["full"] }
-solana-pubkey = "2.2.1"
 solana-message = "2.2.1"
 solana-program = "2.2.1"
 solana-client = "2.2.1"
-solana-transaction-status = "2.2.1"
 # наверно лучше это заюзаем, чтобы не поднимать каждый раз смарт контракт в local solana
 litesvm = "0.7.0"
 base64 = "0.22.1"
