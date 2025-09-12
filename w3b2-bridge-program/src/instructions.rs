@@ -1,9 +1,42 @@
 use super::*;
+use solana_program::program::invoke;
 use solana_program::{program::invoke_signed, system_instruction};
 
-pub fn register_admin(ctx: Context<RegisterAdmin>) -> Result<()> {
+fn check_rent_and_balance(account: &AccountInfo, additional: u64) -> Result<()> {
+    let rent = Rent::get()?;
+    let min_balance = rent.minimum_balance(account.data_len());
+    require!(
+        account.lamports() >= min_balance.saturating_add(additional),
+        BridgeError::InsufficientFundsForRent
+    );
+    Ok(())
+}
+
+pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Result<()> {
     let admin_profile = &mut ctx.accounts.admin_profile;
     admin_profile.owner = ctx.accounts.authority.key();
+
+    let required_lamports = Rent::get()?
+        .minimum_balance(admin_profile.to_account_info().data_len())
+        .saturating_add(funding_amount);
+
+    check_rent_and_balance(&ctx.accounts.authority.to_account_info(), required_lamports)?;
+
+    let ix = system_instruction::transfer(
+        &ctx.accounts.authority.key(),
+        &ctx.accounts.admin_profile.to_account_info().key,
+        required_lamports,
+    );
+
+    invoke(
+        &ix,
+        &[
+            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.admin_profile.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+    )?;
+
     Ok(())
 }
 
@@ -50,6 +83,11 @@ pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
 
     // Define the seeds for the PDA signer
     let pda_seeds = &[b"admin".as_ref(), admin_profile.owner.as_ref(), &[bump]];
+
+    check_rent_and_balance(
+        &ctx.accounts.admin_profile.to_account_info(),
+        funding_request.amount,
+    )?;
 
     // Create the transfer instruction
     let transfer_instruction = system_instruction::transfer(

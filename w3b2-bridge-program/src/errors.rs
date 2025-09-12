@@ -10,4 +10,6 @@ pub enum BridgeError {
     Unauthorized,
     #[msg("Funding request has already been processed")]
     RequestAlreadyProcessed,
+    #[msg("Insufficient funds in admin profile to approve funding request")]
+    InsufficientFundsForRent,
 }
