@@ -53,7 +53,7 @@ pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
     // Create the transfer instruction
     let transfer_instruction = system_instruction::transfer(
         ctx.accounts.admin_profile.to_account_info().key,
-        &funding_request.user_wallet,
+        ctx.accounts.user_wallet.to_account_info().key,
         funding_request.amount,
     );
 

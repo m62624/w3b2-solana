@@ -45,10 +45,10 @@ pub struct ApproveFunding<'info> {
         bump,
     )]
     pub admin_profile: Account<'info, AdminAccount>,
-
     #[account(mut)]
     pub funding_request: Account<'info, FundingRequest>,
-
+    #[account(mut)]
+    pub user_wallet: SystemAccount<'info>,
     pub admin_authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
