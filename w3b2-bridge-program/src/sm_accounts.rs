@@ -74,8 +74,6 @@ pub struct FundUserWallet<'info> {
 /// Command dispatcher
 #[derive(Debug, Accounts)]
 pub struct DispatchCommand<'info> {
-    #[account(mut, seeds = [b"user", authority.key().as_ref()], bump)]
-    pub user_pda: Account<'info, UserPda>,
     pub authority: Signer<'info>,
 }
 
@@ -94,31 +92,4 @@ pub struct FundingRequest {
     pub target_admin: Pubkey,
     pub amount: u64,
     pub status: u8,
-}
-
-/// User PDA
-#[account]
-#[derive(Debug)]
-pub struct UserPda {
-    pub profile: UserAccount,
-    pub linked_wallet: Option<Pubkey>,
-    pub created_at: u64,
-}
-
-/// User registration
-#[derive(Debug, Accounts)]
-pub struct RegisterUser<'info> {
-    #[account(
-        init_if_needed,
-        payer = payer,
-        space = 96,
-        seeds = [b"user", authority.key().as_ref()],
-        bump
-    )]
-    pub user_pda: Account<'info, UserPda>,
-
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    pub authority: Signer<'info>,
-    pub system_program: Program<'info, System>,
 }

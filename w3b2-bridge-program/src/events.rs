@@ -20,15 +20,6 @@ pub struct FundingApproved {
 
 #[derive(Debug)]
 #[event]
-pub struct UserRegistered {
-    pub owner: Pubkey,
-    pub account_type: WalletType,
-    pub linked_wallet: Option<Pubkey>,
-    pub ts: i64,
-}
-
-#[derive(Debug)]
-#[event]
 pub struct CommandEvent {
     pub sender: Pubkey,
     pub target_admin: Pubkey,

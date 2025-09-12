@@ -150,7 +150,7 @@ fn test_register_user_success() {
         &authority.pubkey(),
         &payer.pubkey(),
         WalletType::ExistingWallet,
-        Some(authority.pubkey().to_bytes()),
+        Some(authority.pubkey()),
     );
 
     let blockhash = svm.latest_blockhash();
@@ -163,9 +163,9 @@ fn test_register_user_success() {
     let (user_pda, _) = user_pda_for(&authority.pubkey());
     let acc = svm.get_account(&user_pda).unwrap();
     let parsed = deserialize_user_pda(&acc.data).unwrap();
-    assert_eq!(parsed.profile.owner, authority.pubkey().to_bytes());
+    assert_eq!(parsed.profile.owner, authority.pubkey());
     assert_eq!(parsed.profile.account_type, WalletType::ExistingWallet);
-    assert_eq!(parsed.linked_wallet, Some(authority.pubkey().to_bytes()));
+    assert_eq!(parsed.linked_wallet, Some(authority.pubkey()));
 }
 
 /// Test: prevent double registration
@@ -263,6 +263,6 @@ fn test_dispatch_command_owner() {
     let (user_pda, _) = user_pda_for(&authority.pubkey());
     let acc = svm.get_account(&user_pda).unwrap();
     let parsed = deserialize_user_pda(&acc.data).unwrap();
-    assert_eq!(parsed.profile.owner, authority.pubkey().to_bytes());
+    assert_eq!(parsed.profile.owner, authority.pubkey());
     assert_eq!(parsed.linked_wallet, None);
 }

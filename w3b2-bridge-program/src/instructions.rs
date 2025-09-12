@@ -94,23 +94,15 @@ pub fn dispatch_command(
 ) -> Result<()> {
     require!(payload.len() <= 1024, BridgeError::PayloadTooLarge);
 
-    let pda = &ctx.accounts.user_pda;
-    let signer_bytes = ctx.accounts.authority.key();
-
-    // signer must be owner or linked_wallet
-    let is_owner = pda.profile.owner == signer_bytes;
-    let is_linked = pda.linked_wallet.map_or(false, |lk| lk == signer_bytes);
-    require!(is_owner || is_linked, BridgeError::Unauthorized);
-
-    let ts = clock::Clock::get()?.unix_timestamp;
+    let signer = ctx.accounts.authority.key(); // user_wallet
 
     emit!(CommandEvent {
-        sender: signer_bytes,
+        sender: signer,
+        target_admin,
         command_id,
         mode,
         payload,
-        ts,
-        target_admin: target_admin,
+        ts: clock::Clock::get()?.unix_timestamp,
     });
 
     Ok(())
