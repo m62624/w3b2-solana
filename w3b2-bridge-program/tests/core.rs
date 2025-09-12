@@ -55,7 +55,7 @@ fn user_pda_for(authority: &Pubkey) -> (Pubkey, u8) {
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 struct RegisterUserArgs {
     account_type: WalletType,
-    linked_wallet: Option<[u8; 32]>,
+    linked_wallet: Option<Pubkey>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -69,7 +69,7 @@ struct DispatchCommandArgs {
 #[derive(Debug, BorshDeserialize)]
 struct UserPdaData {
     profile: UserAccount,
-    linked_wallet: Option<[u8; 32]>,
+    linked_wallet: Option<Pubkey>,
     created_at: u64,
 }
 
@@ -87,7 +87,7 @@ fn make_register_user_ix(
     authority: &Pubkey,
     payer: &Pubkey,
     account_type: WalletType,
-    linked_wallet: Option<[u8; 32]>,
+    linked_wallet: Option<Pubkey>,
 ) -> solana_sdk::instruction::Instruction {
     let (user_pda, _) = user_pda_for(authority);
     let accounts = vec![

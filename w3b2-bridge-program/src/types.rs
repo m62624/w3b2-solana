@@ -5,7 +5,7 @@ use super::*;
 #[derive(AnchorSerialize, AnchorDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UserAccount {
     /// Controller / registrant pubkey as raw bytes ([u8;32]).
-    pub owner: [u8; 32],
+    pub owner: Pubkey,
     /// Whether created wallet or linked existing.
     pub account_type: WalletType,
 }
@@ -33,7 +33,7 @@ pub enum CommandMode {
 #[derive(AnchorSerialize, AnchorDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct CommandRecord {
     /// Sender pubkey as raw bytes (author of transaction).
-    pub sender: [u8; 32],
+    pub sender: Pubkey,
     /// Numeric command id (protocol-level).
     pub command_id: u64,
     /// Command mode (RequestResponse / OneWay).

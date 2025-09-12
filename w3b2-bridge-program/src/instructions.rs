@@ -98,7 +98,7 @@ pub fn dispatch_command(
     let signer_bytes = ctx.accounts.authority.key();
 
     // signer must be owner or linked_wallet
-    let is_owner = pda.profile.owner == signer_bytes.to_bytes();
+    let is_owner = pda.profile.owner == signer_bytes;
     let is_linked = pda.linked_wallet.map_or(false, |lk| lk == signer_bytes);
     require!(is_owner || is_linked, BridgeError::Unauthorized);
 
