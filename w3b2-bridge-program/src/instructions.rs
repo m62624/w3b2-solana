@@ -3,39 +3,42 @@ use solana_program::{program::invoke_signed, system_instruction};
 
 pub fn register_admin(ctx: Context<RegisterAdmin>) -> Result<()> {
     let admin_profile = &mut ctx.accounts.admin_profile;
-    admin_profile.owner = ctx.accounts.authority.key().to_bytes();
+    admin_profile.owner = ctx.accounts.authority.key();
     Ok(())
 }
 
-pub fn request_funding(ctx: Context<RequestFunding>, amount: u64) -> Result<()> {
+pub fn request_funding(
+    ctx: Context<RequestFunding>,
+    amount: u64,
+    target_admin: Pubkey,
+) -> Result<()> {
     let funding_request = &mut ctx.accounts.funding_request;
 
-    // Set the request details
     funding_request.user_wallet = ctx.accounts.user_wallet.key();
     funding_request.amount = amount;
     funding_request.status = FundingStatus::Pending as u8;
+    funding_request.target_admin = target_admin;
 
-    // Emit event for off-chain service to pick up
     emit!(FundingRequested {
         user_wallet: funding_request.user_wallet,
         amount: funding_request.amount,
         ts: clock::Clock::get()?.unix_timestamp,
+        target_admin: funding_request.target_admin,
     });
 
     Ok(())
 }
-
 pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
     let admin_profile = &ctx.accounts.admin_profile;
     let funding_request = &mut ctx.accounts.funding_request;
 
-    // Check that the admin is the one approving
+    //Checks the admin to whom the request was originally sent (target_admin in FundingRequest).
+    // Each request is linked to a specific administrator, and only he can approve or reject the request.
     require!(
-        admin_profile.owner == ctx.accounts.admin_authority.key().to_bytes(),
+        funding_request.target_admin == ctx.accounts.admin_authority.key(),
         BridgeError::Unauthorized
     );
 
-    // Check if the request is still pending
     require!(
         funding_request.status == FundingStatus::Pending as u8,
         BridgeError::RequestAlreadyProcessed
@@ -76,6 +79,7 @@ pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
         user_wallet: funding_request.user_wallet,
         amount: funding_request.amount,
         ts: clock::Clock::get()?.unix_timestamp,
+        approved_by: funding_request.target_admin,
     });
 
     Ok(())
@@ -86,14 +90,15 @@ pub fn dispatch_command(
     command_id: u64,
     mode: CommandMode,
     payload: Vec<u8>,
+    target_admin: Pubkey,
 ) -> Result<()> {
     require!(payload.len() <= 1024, BridgeError::PayloadTooLarge);
 
     let pda = &ctx.accounts.user_pda;
-    let signer_bytes = ctx.accounts.authority.key().to_bytes();
+    let signer_bytes = ctx.accounts.authority.key();
 
     // signer must be owner or linked_wallet
-    let is_owner = pda.profile.owner == signer_bytes;
+    let is_owner = pda.profile.owner == signer_bytes.to_bytes();
     let is_linked = pda.linked_wallet.map_or(false, |lk| lk == signer_bytes);
     require!(is_owner || is_linked, BridgeError::Unauthorized);
 
@@ -105,6 +110,7 @@ pub fn dispatch_command(
         mode,
         payload,
         ts,
+        target_admin: target_admin,
     });
 
     Ok(())

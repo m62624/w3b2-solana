@@ -4,6 +4,7 @@ use super::*;
 #[event]
 pub struct FundingRequested {
     pub user_wallet: Pubkey,
+    pub target_admin: Pubkey,
     pub amount: u64,
     pub ts: i64,
 }
@@ -12,6 +13,7 @@ pub struct FundingRequested {
 #[event]
 pub struct FundingApproved {
     pub user_wallet: Pubkey,
+    pub approved_by: Pubkey,
     pub amount: u64,
     pub ts: i64,
 }
@@ -19,18 +21,17 @@ pub struct FundingApproved {
 #[derive(Debug)]
 #[event]
 pub struct UserRegistered {
-    /// registrant pubkey as raw bytes ([u8;32])
     pub owner: [u8; 32],
     pub account_type: WalletType,
-    pub linked_wallet: Option<[u8; 32]>,
+    pub linked_wallet: Option<Pubkey>,
     pub ts: i64,
 }
 
 #[derive(Debug)]
 #[event]
 pub struct CommandEvent {
-    /// sender pubkey as raw bytes ([u8;32])
-    pub sender: [u8; 32],
+    pub sender: Pubkey,
+    pub target_admin: Pubkey,
     pub command_id: u64,
     pub mode: CommandMode,
     pub payload: Vec<u8>,

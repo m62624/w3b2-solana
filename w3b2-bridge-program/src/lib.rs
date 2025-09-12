@@ -29,8 +29,12 @@ pub mod w3b2_bridge_program {
 
     /// User requests funding.
     /// This instruction is called by the user's wallet.
-    pub fn request_funding(ctx: Context<RequestFunding>, amount: u64) -> Result<()> {
-        instructions::request_funding(ctx, amount)
+    pub fn request_funding(
+        ctx: Context<RequestFunding>,
+        amount: u64,
+        target_admin: Pubkey,
+    ) -> Result<()> {
+        instructions::request_funding(ctx, amount, target_admin)
     }
 
     /// Admin approves and funds a user's request.
@@ -46,7 +50,8 @@ pub mod w3b2_bridge_program {
         command_id: u64,
         mode: CommandMode,
         payload: Vec<u8>,
+        target_admin: Pubkey,
     ) -> Result<()> {
-        instructions::dispatch_command(ctx, command_id, mode, payload)
+        instructions::dispatch_command(ctx, command_id, mode, payload, target_admin)
     }
 }

@@ -83,7 +83,7 @@ pub struct DispatchCommand<'info> {
 #[account]
 #[derive(Debug)]
 pub struct AdminAccount {
-    pub owner: [u8; 32],
+    pub owner: Pubkey,
 }
 
 /// Funding request storage
@@ -91,6 +91,7 @@ pub struct AdminAccount {
 #[derive(Debug)]
 pub struct FundingRequest {
     pub user_wallet: Pubkey,
+    pub target_admin: Pubkey,
     pub amount: u64,
     pub status: u8,
 }
@@ -100,7 +101,7 @@ pub struct FundingRequest {
 #[derive(Debug)]
 pub struct UserPda {
     pub profile: UserAccount,
-    pub linked_wallet: Option<[u8; 32]>,
+    pub linked_wallet: Option<Pubkey>,
     pub created_at: u64,
 }
 
