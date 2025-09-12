@@ -12,9 +12,9 @@ pub mod w3b2_bridge_program {
     use super::*;
 
     /// Register a user PDA.
-    /// - Creates PDA seeded by ["user", authority_pubkey].
-    /// - Stores UserAccount (owner + account_type).
-    /// - Optionally stores linked_wallet if provided.
+    /// - PDA seeds = ["user", authority_pubkey]
+    /// - Stores UserAccount (owner + account_type) from common crate.
+    /// - Optionally stores linked_wallet (raw bytes).
     pub fn register_user(
         ctx: Context<RegisterUser>,
         account_type: AccountType,
@@ -22,22 +22,25 @@ pub mod w3b2_bridge_program {
     ) -> Result<()> {
         let user_pda = &mut ctx.accounts.user_pda;
 
-        // prevent double registration
+        // prevent double registration (convention: zeroed owner == uninitialized)
         require!(
             user_pda.profile.owner == [0u8; 32],
             BridgeError::AlreadyRegistered
         );
 
+        // fill profile (owner + account_type)
         user_pda.profile = UserAccount {
             owner: ctx.accounts.authority.key().to_bytes(),
             account_type,
         };
+
         user_pda.linked_wallet = linked_wallet;
         user_pda.created_at = clock::Clock::get()?.unix_timestamp as u64;
 
+        // emit compact event (bytes, not Pubkey) — off-chain converts to Pubkey if needed
         emit!(UserRegistered {
-            owner: ctx.accounts.authority.key(),
-            account_type,
+            owner: user_pda.profile.owner,
+            account_type: user_pda.profile.account_type,
             linked_wallet,
             ts: user_pda.created_at as i64,
         });
@@ -46,6 +49,7 @@ pub mod w3b2_bridge_program {
     }
 
     /// Dispatch a command: validate signer is registered and emit event with payload.
+    /// - payload typically contains encrypted Borsh(CommandConfig) for the service.
     pub fn dispatch_command(
         ctx: Context<DispatchCommand>,
         command_id: u64,
@@ -65,7 +69,7 @@ pub mod w3b2_bridge_program {
         let ts = clock::Clock::get()?.unix_timestamp;
 
         emit!(CommandEvent {
-            sender: ctx.accounts.authority.key(),
+            sender: signer_bytes,
             command_id,
             mode,
             payload,
@@ -76,25 +80,24 @@ pub mod w3b2_bridge_program {
     }
 }
 
-/* ---------- Accounts ---------- */
-
 #[account]
 pub struct UserPda {
-    /// Common user profile (owner + account_type).
+    /// Common user profile (owner + account_type) from w3b2_common.
     pub profile: UserAccount,
-    /// optional linked wallet pubkey bytes
+    /// Optional linked wallet (raw bytes).
     pub linked_wallet: Option<[u8; 32]>,
-    /// unix timestamp when created
+    /// Unix timestamp when created.
     pub created_at: u64,
 }
 
-// space calculation:
-// discriminator: 8
-// UserAccount: owner [u8;32] + account_type (u8) = 33
-// linked_wallet: Option<[u8;32]> = 1 + 32 = 33
-// created_at: 8
-// total = 8 + 33 + 33 + 8 = 82
-// add margin for alignment = 96
+// Space calculation:
+// - Anchor discriminator: 8
+// - profile.owner: 32
+// - profile.account_type: 1
+// - linked_wallet: 1 + 32 = 33 (option tag + bytes)
+// - created_at: 8
+// total = 8 + 32 + 1 + 33 + 8 = 82
+// add margin/padding -> 96
 #[derive(Accounts)]
 pub struct RegisterUser<'info> {
     #[account(
@@ -109,7 +112,7 @@ pub struct RegisterUser<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The wallet that signs and will be registered (controller)
+    /// Wallet that signs and will be registered (controller)
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
@@ -127,9 +130,12 @@ pub struct DispatchCommand<'info> {
 
 /* ---------- Events ---------- */
 
+/// Use raw bytes for on-chain events to avoid borsh-version headaches across crates.
+/// Off-chain listeners convert bytes -> Pubkey if they want.
 #[event]
 pub struct UserRegistered {
-    pub owner: Pubkey,
+    /// registrant pubkey as raw bytes ([u8;32])
+    pub owner: [u8; 32],
     pub account_type: AccountType,
     pub linked_wallet: Option<[u8; 32]>,
     pub ts: i64,
@@ -137,7 +143,8 @@ pub struct UserRegistered {
 
 #[event]
 pub struct CommandEvent {
-    pub sender: Pubkey,
+    /// sender pubkey as raw bytes ([u8;32])
+    pub sender: [u8; 32],
     pub command_id: u64,
     pub mode: CommandMode,
     pub payload: Vec<u8>,
@@ -150,8 +157,6 @@ pub struct CommandEvent {
 pub enum BridgeError {
     #[msg("PDA already registered for this owner")]
     AlreadyRegistered,
-    #[msg("Invalid account type")]
-    InvalidAccountType,
     #[msg("Payload too large")]
     PayloadTooLarge,
     #[msg("Unauthorized: signer does not match PDA owner or linked wallet")]
