@@ -124,7 +124,6 @@ pub struct DispatchCommand<'info> {
     #[account(mut, seeds = [b"user", authority.key().as_ref()], bump)]
     pub user_pda: Account<'info, UserPda>,
     /// signer issuing the command
-    #[account(mut)]
     pub authority: Signer<'info>,
 }
 
