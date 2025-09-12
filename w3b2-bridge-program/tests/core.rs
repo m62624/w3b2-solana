@@ -1,27 +1,29 @@
-// w3b2-bridge-program/tests/litesvm_integration.rs
+#![allow(dead_code)]
+
 use anchor_lang::{prelude::Pubkey as AnchorPubkey, system_program};
 use borsh::{BorshDeserialize, BorshSerialize};
 use litesvm::LiteSVM;
 use sha2::{Digest, Sha256};
 use solana_message::Message;
 use solana_message::VersionedMessage;
+use solana_sdk::hash::Hash;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signer;
 use solana_sdk::signer::keypair::Keypair;
+use solana_sdk::transaction::Transaction;
 use solana_sdk::transaction::VersionedTransaction;
-use w3b2_common::{AccountType, CommandMode, UserAccount};
+use w3b2_bridge_program::types::AccountType;
+use w3b2_bridge_program::types::CommandMode;
+use w3b2_bridge_program::types::UserAccount;
+
+const PATH_SBF: &str = "../target/deploy/w3b2_bridge_program.so";
 
 fn to_anchor_pubkey(pubkey: &Pubkey) -> AnchorPubkey {
     AnchorPubkey::new_from_array(pubkey.to_bytes())
 }
-
 use solana_sdk::instruction::AccountMeta;
-
-lazy_static::lazy_static! {
-    static ref PROGRAM_ID: Pubkey = Pubkey::new_from_array(w3b2_bridge_program::id().to_bytes());
-}
-
+lazy_static::lazy_static! { static ref PROGRAM_ID: Pubkey = Pubkey::new_from_array(w3b2_bridge_program::id().to_bytes()); }
 fn anchor_discriminator(method: &str) -> [u8; 8] {
     let mut h = Sha256::new();
     h.update(format!("global:{}", method).as_bytes());
@@ -30,27 +32,23 @@ fn anchor_discriminator(method: &str) -> [u8; 8] {
     d.copy_from_slice(&out[..8]);
     d
 }
-
 fn anchor_instruction_data<T: BorshSerialize>(method: &str, args: &T) -> Vec<u8> {
     let mut data = Vec::new();
     data.extend_from_slice(&anchor_discriminator(method));
     args.serialize(&mut data).expect("borsh serialize");
     data
 }
-
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 struct RegisterUserArgs {
     account_type: AccountType,
     linked_wallet: Option<[u8; 32]>,
 }
-
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 struct DispatchCommandArgs {
     command_id: u64,
     mode: CommandMode,
     payload: Vec<u8>,
 }
-
 fn user_pda_for(authority: &Pubkey) -> (Pubkey, u8) {
     let authority_anchor = AnchorPubkey::new_from_array(authority.to_bytes());
     let (pda, bump) = AnchorPubkey::find_program_address(
@@ -59,14 +57,12 @@ fn user_pda_for(authority: &Pubkey) -> (Pubkey, u8) {
     );
     (Pubkey::new_from_array(pda.to_bytes()), bump)
 }
-
 #[derive(Debug, BorshDeserialize)]
 struct UserPdaData {
     profile: UserAccount,
     linked_wallet: Option<[u8; 32]>,
     created_at: u64,
 }
-
 fn make_register_user_ix(
     program_id: &Pubkey,
     authority: &Pubkey,
@@ -92,7 +88,6 @@ fn make_register_user_ix(
         data,
     }
 }
-
 fn make_dispatch_command_ix(
     program_id: &Pubkey,
     authority: &Pubkey,
@@ -117,7 +112,6 @@ fn make_dispatch_command_ix(
         data,
     }
 }
-
 fn deserialize_user_pda(data: &[u8]) -> Option<UserPdaData> {
     if data.len() < 8 {
         return None;
@@ -134,7 +128,7 @@ fn test_register_user_success() {
 
     // Загружаем программу в VM
     let program_id = *PROGRAM_ID;
-    svm.add_program_from_file(program_id, "../../target/deploy/w3b2_bridge_program.so")
+    svm.add_program_from_file(program_id, PATH_SBF)
         .expect("add program");
 
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();

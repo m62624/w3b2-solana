@@ -5169,15 +5169,8 @@ dependencies = [
  "litesvm",
  "sha2 0.10.9",
  "solana-message",
+ "solana-program",
  "solana-sdk",
- "w3b2-common",
-]
-
-[[package]]
-name = "w3b2-common"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
 ]
 
 [[package]]

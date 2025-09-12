@@ -19,4 +19,4 @@ wallet = "~/.config/solana/id.json"
 w3b2_bridge_program = "W3B2Bridge111111111111111111111111111111111"
 
 [workspace]
-members = ["w3b2-bridge-program", "w3b2-common"]
+members = ["w3b2-bridge-program"]

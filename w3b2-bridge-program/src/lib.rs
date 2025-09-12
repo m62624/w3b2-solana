@@ -1,10 +1,12 @@
+//! Anchor program for W3B2 bridge.
 #![allow(deprecated)]
 
-//! Anchor program for W3B2 bridge.
+pub mod command;
+pub mod types;
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock;
-use w3b2_common::{AccountType, CommandMode, UserAccount};
+use types::*;
 
 declare_id!("W3B2Bridge111111111111111111111111111111111");
 

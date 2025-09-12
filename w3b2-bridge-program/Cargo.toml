@@ -1,27 +1,12 @@
 [package]
 name = "w3b2-bridge-program"
 version = "0.1.0"
-
-# 21 редакция нужна для anchor
+description = "Created with Anchor"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "w3b2_bridge_program"
-
-[dependencies]
-w3b2-common.workspace = true
-anchor-lang = { workspace = true, features = ["init-if-needed"] }
-
-[dev-dependencies]
-solana-sdk.workspace = true
-solana-message.workspace = true
-
-litesvm.workspace = true
-
-borsh.workspace = true
-sha2.workspace = true
-lazy_static.workspace = true
 
 [features]
 default = []
@@ -30,3 +15,18 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
+
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+
+[dev-dependencies]
+solana-sdk = { workspace = true, features = ["full"] }
+solana-message.workspace = true
+solana-program.workspace = true
+borsh.workspace = true
+# наверно лучше это заюзаем, чтобы не поднимать каждый раз смарт контракт в local solana
+litesvm = "0.7.0"
+
+sha2 = "0.10.9"
+lazy_static = "1.5.0"

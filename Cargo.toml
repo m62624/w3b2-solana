@@ -1,10 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["w3b2-bridge-program", "w3b2-common"]
+members = ["w3b2-bridge-program"]
 
 [workspace.dependencies]
 # internal
-w3b2-common = { path = "w3b2-common" }
 
 
 # external
