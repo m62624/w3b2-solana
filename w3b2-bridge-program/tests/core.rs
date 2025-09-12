@@ -9,6 +9,7 @@ use solana_sdk::{
     message::VersionedMessage, pubkey::Pubkey, signature::Keypair, signer::Signer,
     transaction::VersionedTransaction,
 };
+use w3b2_bridge_program::sm_accounts::FundingRequest;
 
 const PATH_SBF: &str = "../target/deploy/w3b2_bridge_program.so";
 
@@ -47,83 +48,232 @@ fn make_register_admin_ix(program_id: &Pubkey, authority: &Pubkey, payer: &Pubke
     }
 }
 
-#[test]
-fn test_register_admin_success() {
-    let mut svm = LiteSVM::new();
-    let payer = Keypair::new();
-    let authority = Keypair::new();
+mod fn_register_admin {
+    use super::*;
 
-    svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
+    #[test]
+    fn test_register_admin_success() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let authority = Keypair::new();
 
-    let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &authority])
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
+
+        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &authority])
+                .unwrap();
+
+        svm.send_transaction(tx)
+            .expect("register_admin should succeed");
+
+        let (_, bump) =
+            Pubkey::find_program_address(&[b"admin", authority.pubkey().as_ref()], &PROGRAM_ID);
+        let admin_pda = Pubkey::create_program_address(
+            &[b"admin", authority.pubkey().as_ref(), &[bump]],
+            &PROGRAM_ID,
+        )
         .unwrap();
+        let acc = svm.get_account(&admin_pda).unwrap();
+        assert_eq!(acc.data[8..40], authority.pubkey().to_bytes()); // owner pubkey stored
+    }
 
-    svm.send_transaction(tx)
-        .expect("register_admin should succeed");
+    #[test]
+    fn test_register_admin_already_registered() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let authority = Keypair::new();
 
-    let (_, bump) =
-        Pubkey::find_program_address(&[b"admin", authority.pubkey().as_ref()], &PROGRAM_ID);
-    let admin_pda = Pubkey::create_program_address(
-        &[b"admin", authority.pubkey().as_ref(), &[bump]],
-        &PROGRAM_ID,
-    )
-    .unwrap();
-    let acc = svm.get_account(&admin_pda).unwrap();
-    assert_eq!(acc.data[8..40], authority.pubkey().to_bytes()); // owner pubkey stored
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
+
+        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let blockhash = svm.latest_blockhash();
+        let msg1 = Message::new_with_blockhash(&[ix.clone()], Some(&payer.pubkey()), &blockhash);
+        let tx1 =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&payer, &authority])
+                .unwrap();
+        svm.send_transaction(tx1)
+            .expect("first register_admin should succeed");
+
+        // second registration -> should fail
+        let msg2 = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
+        let tx2 =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&payer, &authority])
+                .unwrap();
+        let res = svm.send_transaction(tx2);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_register_admin_wrong_signer() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let authority = Keypair::new();
+        let attacker = Keypair::new();
+
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+
+        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
+
+        // пытаемся подписать транзакцию "неправильным" authority
+        let tx_result =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &attacker]);
+        assert!(
+            tx_result.is_err(),
+            "Transaction creation should fail due to signer mismatch"
+        );
+    }
 }
 
-#[test]
-fn test_register_admin_already_registered() {
-    let mut svm = LiteSVM::new();
-    let payer = Keypair::new();
-    let authority = Keypair::new();
-
-    svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
-
-    let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
-    let blockhash = svm.latest_blockhash();
-    let msg1 = Message::new_with_blockhash(&[ix.clone()], Some(&payer.pubkey()), &blockhash);
-    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&payer, &authority])
-        .unwrap();
-    svm.send_transaction(tx1)
-        .expect("first register_admin should succeed");
-
-    // second registration -> should fail
-    let msg2 = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&payer, &authority])
-        .unwrap();
-    let res = svm.send_transaction(tx2);
-    assert!(res.is_err());
+#[derive(BorshSerialize, BorshDeserialize)]
+struct RequestFundingArgs {
+    amount: u64,
+    target_admin: Pubkey,
 }
 
-#[test]
-fn test_register_admin_wrong_signer() {
-    let mut svm = LiteSVM::new();
-    let payer = Keypair::new();
-    let authority = Keypair::new();
-    let attacker = Keypair::new();
+/// Derive PDA for funding request
+fn funding_request_pda_for(user_wallet: &Pubkey, payer: &Pubkey) -> (Pubkey, u8) {
+    let seeds = [b"funding", user_wallet.as_ref(), &payer.to_bytes()];
+    Pubkey::find_program_address(&seeds, &*PROGRAM_ID)
+}
 
-    svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
-    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+/// Construct request_funding instruction
+fn make_request_funding_ix(
+    program_id: &Pubkey,
+    user_wallet: &Pubkey,
+    payer: &Pubkey,
+    amount: u64,
+    target_admin: Pubkey,
+) -> Instruction {
+    let (funding_pda, bump) = funding_request_pda_for(user_wallet, payer);
+    let accounts = vec![
+        AccountMeta::new(funding_pda, false),
+        AccountMeta::new(*payer, true),
+        AccountMeta::new_readonly(*user_wallet, true),
+        AccountMeta::new_readonly(system_program::ID, false),
+    ];
+    let args = RequestFundingArgs {
+        amount,
+        target_admin,
+    };
+    let mut data = anchor_discriminator("request_funding").to_vec();
+    data.extend_from_slice(&args.try_to_vec().unwrap());
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
 
-    let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
+/// Deserialize FundingRequest PDA
+fn try_deserialize(data: &[u8]) -> Option<FundingRequest> {
+    if data.len() < 8 {
+        return None;
+    }
+    FundingRequest::try_from_slice(&data[8..]).ok()
+}
 
-    // пытаемся подписать транзакцию "неправильным" authority
-    let tx_result =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &attacker]);
-    assert!(
-        tx_result.is_err(),
-        "Transaction creation should fail due to signer mismatch"
-    );
+mod fn_request_funding {
+    use w3b2_bridge_program::types::FundingStatus;
+
+    use super::*;
+
+    #[test]
+    fn test_request_funding_success() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let user = Keypair::new();
+        let admin = Keypair::new();
+
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&user.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
+
+        // создаём админа
+        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
+            .unwrap();
+        svm.send_transaction(tx).unwrap();
+
+        // запрос финансирования
+        let amount = 1_000_000;
+        let req_ix = make_request_funding_ix(
+            &PROGRAM_ID,
+            &user.pubkey(),
+            &payer.pubkey(),
+            amount,
+            admin.pubkey(),
+        );
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[req_ix], Some(&payer.pubkey()), &blockhash);
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &user]).unwrap();
+        svm.send_transaction(tx).unwrap();
+
+        // проверяем FundingRequest PDA
+        let (funding_pda, _) = funding_request_pda_for(&user.pubkey(), &payer.pubkey());
+        let acc = svm.get_account(&funding_pda).unwrap();
+        let parsed: FundingRequest = try_deserialize(&acc.data).unwrap();
+        assert_eq!(parsed.user_wallet, user.pubkey());
+        assert_eq!(parsed.target_admin, admin.pubkey());
+        assert_eq!(parsed.amount, amount);
+        assert_eq!(parsed.status, FundingStatus::Pending as u8);
+    }
+
+    #[test]
+    fn test_request_funding_duplicate() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let user = Keypair::new();
+        let admin = Keypair::new();
+
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&user.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
+
+        // создаём админа
+        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
+            .unwrap();
+        svm.send_transaction(tx).unwrap();
+
+        // первый запрос финансирования
+        let req_ix1 = make_request_funding_ix(
+            &PROGRAM_ID,
+            &user.pubkey(),
+            &payer.pubkey(),
+            1_000_000,
+            admin.pubkey(),
+        );
+        let blockhash = svm.latest_blockhash();
+        let msg1 =
+            Message::new_with_blockhash(&[req_ix1.clone()], Some(&payer.pubkey()), &blockhash);
+        let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&payer, &user])
+            .unwrap();
+        svm.send_transaction(tx1).unwrap();
+
+        // второй запрос -> должен упасть (PDA уже существует)
+        let msg2 = Message::new_with_blockhash(&[req_ix1], Some(&payer.pubkey()), &blockhash);
+        let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&payer, &user])
+            .unwrap();
+        let res = svm.send_transaction(tx2);
+        assert!(res.is_err(), "Duplicate funding request should fail");
+    }
 }
