@@ -1,15 +1,11 @@
 use super::*;
 use solana_program::program::invoke;
-use solana_program::{program::invoke_signed, system_instruction};
+use solana_program::system_instruction;
 
-fn check_rent_and_balance(account: &AccountInfo, additional: u64) -> Result<()> {
+fn check_rent_and_balance(account: &AccountInfo, additional: u64) -> Result<bool> {
     let rent = Rent::get()?;
     let min_balance = rent.minimum_balance(account.data_len());
-    require!(
-        account.lamports() >= min_balance.saturating_add(additional),
-        BridgeError::InsufficientFundsForRent
-    );
-    Ok(())
+    Ok(account.lamports() >= min_balance.saturating_add(additional))
 }
 
 pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Result<()> {
@@ -20,10 +16,13 @@ pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Resul
         .minimum_balance(admin_profile.to_account_info().data_len())
         .saturating_add(funding_amount);
 
-    check_rent_and_balance(&ctx.accounts.authority.to_account_info(), required_lamports)?;
+    require!(
+        ctx.accounts.payer.lamports() >= required_lamports,
+        BridgeError::InsufficientFundsForAdmin
+    );
 
     let ix = system_instruction::transfer(
-        &ctx.accounts.authority.key(),
+        &ctx.accounts.payer.key(),
         &ctx.accounts.admin_profile.to_account_info().key,
         required_lamports,
     );
@@ -31,7 +30,7 @@ pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Resul
     invoke(
         &ix,
         &[
-            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.payer.to_account_info(),
             ctx.accounts.admin_profile.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
         ],
@@ -55,15 +54,14 @@ pub fn request_funding(
     emit!(FundingRequested {
         user_wallet: funding_request.user_wallet,
         amount: funding_request.amount,
-        ts: clock::Clock::get()?.unix_timestamp,
         target_admin: funding_request.target_admin,
+        ts: clock::Clock::get()?.unix_timestamp,
     });
 
     Ok(())
 }
 
 pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
-    let admin_profile = &ctx.accounts.admin_profile;
     let funding_request = &mut ctx.accounts.funding_request;
 
     //Checks the admin to whom the request was originally sent (target_admin in FundingRequest).
@@ -78,37 +76,25 @@ pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
         BridgeError::RequestAlreadyProcessed
     );
 
-    // Get the bump seed for the PDA.
-    let bump = ctx.bumps.admin_profile;
-
-    // Define the seeds for the PDA signer
-    let pda_seeds = &[b"admin".as_ref(), admin_profile.owner.as_ref(), &[bump]];
-
-    check_rent_and_balance(
-        &ctx.accounts.admin_profile.to_account_info(),
-        funding_request.amount,
-    )?;
-
-    // Create the transfer instruction
-    let transfer_instruction = system_instruction::transfer(
-        ctx.accounts.admin_profile.to_account_info().key,
-        ctx.accounts.user_wallet.to_account_info().key,
-        funding_request.amount,
+    require!(
+        check_rent_and_balance(
+            &ctx.accounts.admin_profile.to_account_info(),
+            funding_request.amount
+        )?,
+        BridgeError::InsufficientFundsForFunding
     );
 
-    let funding_request_info = ctx.accounts.funding_request.to_account_info();
-    let funding_request = &mut ctx.accounts.funding_request;
+    // decrease the admin profile balance
+    ctx.accounts
+        .admin_profile
+        .to_account_info()
+        .sub_lamports(funding_request.amount)?;
 
-    invoke_signed(
-        &transfer_instruction,
-        &[
-            ctx.accounts.admin_profile.to_account_info(),
-            funding_request_info,
-            ctx.accounts.admin_authority.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-        ],
-        &[pda_seeds],
-    )?;
+    // increase the user wallet balance
+    ctx.accounts
+        .user_wallet
+        .to_account_info()
+        .add_lamports(funding_request.amount)?;
 
     // Update the request status
     funding_request.status = FundingStatus::Approved as u8;
@@ -117,8 +103,8 @@ pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
     emit!(FundingApproved {
         user_wallet: funding_request.user_wallet,
         amount: funding_request.amount,
-        ts: clock::Clock::get()?.unix_timestamp,
         approved_by: funding_request.target_admin,
+        ts: clock::Clock::get()?.unix_timestamp,
     });
 
     Ok(())

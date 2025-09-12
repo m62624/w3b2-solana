@@ -24,8 +24,8 @@ pub mod w3b2_bridge_program {
     use super::*;
 
     /// Registers an admin account.
-    pub fn register_admin(ctx: Context<RegisterAdmin>) -> Result<()> {
-        instructions::register_admin(ctx)
+    pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Result<()> {
+        instructions::register_admin(ctx, funding_amount)
     }
 
     /// User requests funding.

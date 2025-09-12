@@ -1,8 +1,11 @@
+use anchor_lang::InstructionData;
+use anchor_lang::{AnchorDeserialize, AnchorSerialize};
 #[allow(deprecated)]
 use borsh::{BorshDeserialize, BorshSerialize};
 use lazy_static::lazy_static;
 use litesvm::LiteSVM;
 use sha2::{Digest, Sha256};
+use solana_program::rent::Rent;
 use solana_program::system_program;
 use solana_sdk::{
     instruction::AccountMeta, instruction::Instruction, message::Message,
@@ -27,18 +30,31 @@ fn anchor_discriminator(method: &str) -> [u8; 8] {
     d
 }
 
-fn make_register_admin_ix(program_id: &Pubkey, authority: &Pubkey, payer: &Pubkey) -> Instruction {
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct RegisterAdminArgs {
+    pub funding_amount: u64,
+}
+
+fn make_register_admin_ix(
+    program_id: &Pubkey,
+    authority: &Pubkey,
+    payer: &Pubkey,
+    funding_amount: u64,
+) -> Instruction {
     let (_, bump) = Pubkey::find_program_address(&[b"admin", authority.as_ref()], program_id);
     let admin_pda =
         Pubkey::create_program_address(&[b"admin", authority.as_ref(), &[bump]], program_id)
-            .expect("PDA derivation failed");
+            .unwrap();
+
+    let data = w3b2_bridge_program::instruction::RegisterAdmin { funding_amount }.data();
+
     let accounts = vec![
         AccountMeta::new(admin_pda, false),
         AccountMeta::new(*payer, true),
         AccountMeta::new_readonly(*authority, true),
         AccountMeta::new_readonly(system_program::ID, false),
     ];
-    let data = anchor_discriminator("register_admin").to_vec(); // пустой args
+
     Instruction {
         program_id: *program_id,
         accounts,
@@ -56,10 +72,16 @@ mod fn_register_admin {
         let authority = Keypair::new();
 
         svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
-        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-        svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&authority.pubkey(), 0).unwrap();
 
-        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let funding_amount = 10000;
+        let ix = make_register_admin_ix(
+            &PROGRAM_ID,
+            &authority.pubkey(),
+            &payer.pubkey(),
+            funding_amount,
+        );
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
         let tx =
@@ -77,7 +99,45 @@ mod fn_register_admin {
         )
         .unwrap();
         let acc = svm.get_account(&admin_pda).unwrap();
-        assert_eq!(acc.data[8..40], authority.pubkey().to_bytes()); // owner pubkey stored
+
+        // Проверяем, что owner записан корректно
+        assert_eq!(acc.data[8..40], authority.pubkey().to_bytes());
+
+        // Проверяем, что на PDA зачислено хотя бы rent + funding_amount
+        let rent = Rent::default();
+        let min_balance = rent.minimum_balance(acc.data.len()) + funding_amount;
+        assert!(acc.lamports >= min_balance, "PDA balance too low");
+    }
+
+    #[test]
+    fn test_register_admin_insufficient_balance() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let authority = Keypair::new();
+
+        svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
+        // payer имеет недостаточно lamports
+        svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&authority.pubkey(), 0).unwrap();
+
+        let ix = make_register_admin_ix(
+            &PROGRAM_ID,
+            &authority.pubkey(),
+            &payer.pubkey(),
+            1_000_000_000,
+        );
+        let blockhash = svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
+        let tx =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &authority])
+                .unwrap();
+
+        let res = svm.send_transaction(tx);
+        println!("Result: {:?}", res);
+        assert!(
+            res.is_err(),
+            "Should fail due to insufficient payer balance"
+        );
     }
 
     #[test]
@@ -90,22 +150,26 @@ mod fn_register_admin {
         svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
         svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
 
-        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let ix =
+            make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg1 = Message::new_with_blockhash(&[ix.clone()], Some(&payer.pubkey()), &blockhash);
         let tx1 =
             VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&payer, &authority])
                 .unwrap();
-        svm.send_transaction(tx1)
+        let res0 = svm
+            .send_transaction(tx1)
             .expect("first register_admin should succeed");
 
-        // second registration -> should fail
+        println!("First registration result: {:?}", res0);
+        // Попытка повторной регистрации -> должна упасть
         let msg2 = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
         let tx2 =
             VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&payer, &authority])
                 .unwrap();
         let res = svm.send_transaction(tx2);
-        assert!(res.is_err());
+        println!("Second registration result: {:?}", res);
+        assert!(res.is_err(), "Second registration should fail");
     }
 
     #[test]
@@ -120,7 +184,8 @@ mod fn_register_admin {
         svm.airdrop(&authority.pubkey(), 1_000_000_000).unwrap();
         svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
-        let ix = make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey());
+        let ix =
+            make_register_admin_ix(&PROGRAM_ID, &authority.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &blockhash);
 
@@ -194,12 +259,13 @@ mod fn_request_funding {
         let admin = Keypair::new();
 
         svm.add_program_from_file(*PROGRAM_ID, PATH_SBF).unwrap();
-        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-        svm.airdrop(&user.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&user.pubkey(), 1_000_000).unwrap();
         svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
 
         // создаём админа
-        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let reg_admin_ix =
+            make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
@@ -244,7 +310,8 @@ mod fn_request_funding {
         svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
 
         // создаём админа
-        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let reg_admin_ix =
+            make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
@@ -271,6 +338,7 @@ mod fn_request_funding {
         let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&payer, &user])
             .unwrap();
         let res = svm.send_transaction(tx2);
+        println!("Result: {:?}", res);
         assert!(res.is_err(), "Duplicate funding request should fail");
     }
 }
@@ -279,6 +347,7 @@ pub fn make_approve_funding_ix(
     program_id: &Pubkey,
     funding_request: &Pubkey,
     admin_authority: &Pubkey,
+    user_wallet: &Pubkey,
 ) -> Instruction {
     let (_, bump) = Pubkey::find_program_address(&[b"admin", admin_authority.as_ref()], program_id);
     let admin_pda =
@@ -286,9 +355,15 @@ pub fn make_approve_funding_ix(
             .expect("PDA derivation failed");
 
     let accounts = vec![
+        // 1. admin_profile: mutable, не signer
         AccountMeta::new(admin_pda, false),
+        // 2. funding_request: mutable, не signer
         AccountMeta::new(*funding_request, false),
-        AccountMeta::new(*admin_authority, true),
+        // 3. user_wallet: mutable, не signer
+        AccountMeta::new(*user_wallet, false),
+        // 4. admin_authority: не mutable, но signer
+        AccountMeta::new_readonly(*admin_authority, true),
+        // 5. system_program: не mutable, не signer
         AccountMeta::new_readonly(system_program::ID, false),
     ];
 
@@ -300,22 +375,10 @@ pub fn make_approve_funding_ix(
     }
 }
 
-// TODO: разобраться с ошибкой AccountNotSigner в тестах
-// TODO: сами алгоритмы работают, но тесты падают с ошибкой AccountNotSigner (проблема с PDA и invoke_signed?)
-/*
-Код approve_funding использует PDA с invoke_signed, что верно.
-
-Ошибка AccountNotSigner в тесте появляется из-за того, что LiteSVM либо не учитывает invoke_signed для системного transfer с PDA, либо PDA не имеет lamports для подписи.
-
-В реальной сети Solana такой код корректно работает: PDA с invoke_signed может быть signer для transfer.
-
-То есть тест нужно поправить, чтобы он корректно эмулировал PDA с lamports и invoke_signed.
-*/
 mod fn_approve_funding {
     use super::*;
 
     #[test]
-    #[ignore = "TODO: разобраться с ошибкой AccountNotSigner в тестах"]
     fn test_approve_funding_success() {
         let mut svm = LiteSVM::new();
         let payer = Keypair::new();
@@ -328,7 +391,8 @@ mod fn_approve_funding {
         svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
 
         // создаём админа
-        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let reg_admin_ix =
+            make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
@@ -352,20 +416,25 @@ mod fn_approve_funding {
 
         // админ одобряет запрос
         let (funding_pda, _) = funding_request_pda_for(&user.pubkey(), &payer.pubkey());
-        let approve_ix = make_approve_funding_ix(&PROGRAM_ID, &funding_pda, &admin.pubkey());
+        let approve_ix =
+            make_approve_funding_ix(&PROGRAM_ID, &funding_pda, &admin.pubkey(), &user.pubkey());
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[approve_ix], Some(&admin.pubkey()), &blockhash);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+        let tx = VersionedTransaction::try_new(
+            VersionedMessage::Legacy(msg),
+            &[&admin], // только admin подписывает
+        )
+        .unwrap();
         svm.send_transaction(tx).unwrap();
 
         // проверяем статус FundingRequest
         let acc = svm.get_account(&funding_pda).unwrap();
         let parsed: FundingRequest = try_deserialize(&acc.data).unwrap();
+        println!("Parsed FundingRequest: {:?}", parsed);
         assert_eq!(parsed.status, FundingStatus::Approved as u8);
     }
 
     #[test]
-    #[ignore = "TODO: разобраться с ошибкой AccountNotSigner в тестах"]
     fn test_approve_funding_wrong_admin() {
         let mut svm = LiteSVM::new();
         let payer = Keypair::new();
@@ -379,14 +448,26 @@ mod fn_approve_funding {
         svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
         svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
-        // создаём админа и запрос
-        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        // создаём легитимного админа
+        let reg_admin_ix =
+            make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
             .unwrap();
         svm.send_transaction(tx).unwrap();
 
+        // создаём "чужого" админа (attacker) PDA, чтобы Anchor не ругался на AccountNotInitialized
+        let reg_attacker_ix =
+            make_register_admin_ix(&PROGRAM_ID, &attacker.pubkey(), &payer.pubkey(), 1_000_000);
+        let blockhash = svm.latest_blockhash();
+        let msg =
+            Message::new_with_blockhash(&[reg_attacker_ix], Some(&payer.pubkey()), &blockhash);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &attacker])
+            .unwrap();
+        svm.send_transaction(tx).unwrap();
+
+        // создаём запрос финансирования для легитимного админа
         let req_ix = make_request_funding_ix(
             &PROGRAM_ID,
             &user.pubkey(),
@@ -400,19 +481,26 @@ mod fn_approve_funding {
             VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &user]).unwrap();
         svm.send_transaction(tx).unwrap();
 
-        // "чужой" админ пытается одобрить
+        // "чужой" админ пытается одобрить запрос
         let (funding_pda, _) = funding_request_pda_for(&user.pubkey(), &payer.pubkey());
-        let approve_ix = make_approve_funding_ix(&PROGRAM_ID, &funding_pda, &attacker.pubkey());
+        let approve_ix = make_approve_funding_ix(
+            &PROGRAM_ID,
+            &funding_pda,
+            &attacker.pubkey(),
+            &user.pubkey(),
+        );
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[approve_ix], Some(&attacker.pubkey()), &blockhash);
         let tx =
             VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
         let res = svm.send_transaction(tx);
+
+        // Anchor теперь выдаст BridgeError::Unauthorized
+        println!("Result: {:?}", res);
         assert!(res.is_err());
     }
 
     #[test]
-    #[ignore = "TODO: разобраться с ошибкой AccountNotSigner в тестах"]
     fn test_approve_funding_already_processed() {
         let mut svm = LiteSVM::new();
         let payer = Keypair::new();
@@ -425,7 +513,8 @@ mod fn_approve_funding {
         svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
 
         // создаём админа и запрос
-        let reg_admin_ix = make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey());
+        let reg_admin_ix =
+            make_register_admin_ix(&PROGRAM_ID, &admin.pubkey(), &payer.pubkey(), 1_000_000);
         let blockhash = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[reg_admin_ix], Some(&payer.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &admin])
@@ -447,7 +536,8 @@ mod fn_approve_funding {
 
         // первый одобряем
         let (funding_pda, _) = funding_request_pda_for(&user.pubkey(), &payer.pubkey());
-        let approve_ix = make_approve_funding_ix(&PROGRAM_ID, &funding_pda, &admin.pubkey());
+        let approve_ix =
+            make_approve_funding_ix(&PROGRAM_ID, &funding_pda, &admin.pubkey(), &user.pubkey());
         let blockhash = svm.latest_blockhash();
         let msg =
             Message::new_with_blockhash(&[approve_ix.clone()], Some(&admin.pubkey()), &blockhash);
@@ -460,6 +550,7 @@ mod fn_approve_funding {
             Message::new_with_blockhash(&[approve_ix.clone()], Some(&admin.pubkey()), &blockhash);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
         let res = svm.send_transaction(tx);
+        println!("Result: {:?}", res);
         assert!(res.is_err());
     }
 }
