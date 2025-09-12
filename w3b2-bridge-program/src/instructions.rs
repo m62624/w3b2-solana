@@ -28,6 +28,7 @@ pub fn request_funding(
 
     Ok(())
 }
+
 pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
     let admin_profile = &ctx.accounts.admin_profile;
     let funding_request = &mut ctx.accounts.funding_request;

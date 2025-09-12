@@ -22,12 +22,12 @@ pub struct RegisterAdmin<'info> {
 #[derive(Debug, Accounts)]
 pub struct RequestFunding<'info> {
     #[account(
-        init,
-        payer = payer,
-        space = 8 + 32 + 8 + 1, // discriminator + user_wallet + amount + status
-        seeds = [b"funding", user_wallet.key().as_ref(), &payer.key().to_bytes()],
-        bump
-    )]
+    init,
+    payer = payer,
+    space = 8 + 32 + 32 + 8 + 1, // discriminator + user_wallet + target_admin + amount + status
+    seeds = [b"funding", user_wallet.key().as_ref(), &payer.key().to_bytes()],
+    bump
+)]
     pub funding_request: Account<'info, FundingRequest>,
 
     #[account(mut)]
