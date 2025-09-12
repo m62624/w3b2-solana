@@ -1,5 +1,6 @@
 //! Anchor program for W3B2 bridge.
 #![allow(deprecated)]
+#![allow(unexpected_cfgs)]
 
 pub mod command;
 pub mod errors;

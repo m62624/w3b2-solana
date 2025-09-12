@@ -1,5 +1,4 @@
 use super::*;
-use anchor_lang::prelude::*;
 
 /// Admin registration
 #[derive(Debug, Accounts)]
