@@ -1,8 +1,9 @@
+#![allow(deprecated)]
+
 //! Anchor program for W3B2 bridge.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock;
-
 use w3b2_common::{AccountType, CommandMode, UserAccount};
 
 declare_id!("W3B2Bridge111111111111111111111111111111111");
@@ -111,10 +112,8 @@ pub struct RegisterUser<'info> {
 
     #[account(mut)]
     pub payer: Signer<'info>,
-
     /// Wallet that signs and will be registered (controller)
     pub authority: Signer<'info>,
-
     pub system_program: Program<'info, System>,
 }
 
@@ -122,7 +121,6 @@ pub struct RegisterUser<'info> {
 pub struct DispatchCommand<'info> {
     #[account(mut, seeds = [b"user", authority.key().as_ref()], bump)]
     pub user_pda: Account<'info, UserPda>,
-
     /// signer issuing the command
     #[account(mut)]
     pub authority: Signer<'info>,

@@ -1,0 +1,22 @@
+# обязательно ставим 2.1.*, почему то новое API ещё не стабильно
+[toolchain]
+package_manager = "yarn"
+anchor_version = "0.31.1"
+solana_version = "2.1.0"
+
+[features]
+resolution = true
+skip-lint = false
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[programs.localnet]
+w3b2_bridge_program = "W3B2Bridge111111111111111111111111111111111"
+
+[workspace]
+members = ["w3b2-bridge-program", "w3b2-common"]

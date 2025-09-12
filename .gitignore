@@ -2,3 +2,8 @@ target
 .env
 node_modules
 .vscode
+.anchor
+.DS_Store
+**/*.rs.bk
+test-ledger
+.yarn

@@ -1,7 +1,17 @@
 [package]
 name = "w3b2-common"
 version = "0.1.0"
-edition = "2024"
+
+# 21 редакция нужна для anchor
+edition = "2021"
 
 [dependencies]
-borsh.workspace = true
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
