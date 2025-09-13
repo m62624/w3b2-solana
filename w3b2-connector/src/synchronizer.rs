@@ -4,7 +4,7 @@ use crate::storage::Storage;
 use crate::{catchup, live};
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tokio_stream::{Stream, wrappers::ReceiverStream};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 pub struct Synchronizer;
 

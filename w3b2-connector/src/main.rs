@@ -121,6 +121,9 @@ impl BridgeService for BridgeServer {
 
             while let Some(event) = event_stream.next().await {
                 let proto_event = convert_event_to_proto(event);
+                if proto_event.event.is_none() {
+                    continue;
+                }
                 if tx.send(Ok(proto_event)).await.is_err() {
                     break;
                 }
