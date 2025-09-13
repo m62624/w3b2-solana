@@ -7167,7 +7167,9 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anyhow",
+ "base64 0.22.1",
  "bincode 2.0.1",
+ "borsh 0.10.4",
  "serde",
  "sled",
  "solana-client",

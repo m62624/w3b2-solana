@@ -1,6 +1,7 @@
 use anyhow::Result;
 use sled::Db;
 
+#[derive(Clone)]
 pub struct Storage {
     db: Db,
 }
@@ -25,5 +26,18 @@ impl Storage {
     pub fn set_last_slot(&self, slot: u64) {
         let _ = self.db.insert("last_slot", slot.to_string().as_bytes());
         let _ = self.db.flush();
+    }
+
+    pub fn set_last_sig(&self, sig: &str) {
+        let _ = self.db.insert("last_sig", sig.as_bytes());
+        let _ = self.db.flush();
+    }
+
+    pub fn get_last_sig(&self) -> Option<String> {
+        self.db
+            .get("last_sig")
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v.to_vec()).ok())
     }
 }

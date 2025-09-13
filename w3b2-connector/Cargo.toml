@@ -6,9 +6,11 @@ edition = "2024"
 [dependencies]
 anchor-lang.workspace = true
 anyhow.workspace = true
+base64 = "0.22.1"
 bincode.workspace = true
+borsh.workspace = true
 serde.workspace = true
-sled = "0.34.7"
+sled.workspace = true
 solana-client.workspace = true
 solana-rpc-client-api.workspace = true
 solana-sdk.workspace = true

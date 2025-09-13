@@ -1,4 +1,5 @@
 use crate::config::SyncConfig;
+use crate::events::try_parse_log;
 use crate::storage::Storage;
 use anyhow::Result;
 use solana_client::nonblocking::pubsub_client::PubsubClient;
@@ -28,11 +29,12 @@ pub async fn run_live(cfg: SyncConfig, storage: Storage) -> Result<()> {
 
         for log in value.logs {
             if log.contains(&cfg.program_id) {
-                println!("[LIVE] slot={} log={}", slot, log);
+                if let Ok(ev) = try_parse_log(&log) {
+                    println!("[LIVE] slot={} event={:?}", slot, ev);
+                }
             }
         }
 
-        // Обновляем последний обработанный слот в хранилище
         storage.set_last_slot(slot);
     }
 

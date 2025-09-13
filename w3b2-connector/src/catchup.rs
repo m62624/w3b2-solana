@@ -1,3 +1,7 @@
+use crate::config::SyncConfig;
+use crate::storage::Storage;
+use crate::{events::BridgeEvent, events::try_parse_log};
+
 use anyhow::Result;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
@@ -6,23 +10,18 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::signature::Signature;
 use tokio::time::{Duration, sleep};
 
-use crate::config::SyncConfig;
-use crate::storage::Storage;
-
-/// catch-up worker: догоняет историю
-pub async fn run_catchup(cfg: SyncConfig, storage: Storage) -> Result<()> {
+/// catch-up worker: догоняет историю и возвращает события
+pub async fn run_catchup(cfg: SyncConfig, storage: Storage) -> Result<Vec<BridgeEvent>> {
     let client = RpcClient::new(cfg.rpc_url.clone());
+    let mut collected = Vec::new();
 
     loop {
         let last_slot = storage.get_last_slot();
         let current_slot = client.get_slot().await?;
         if current_slot <= last_slot {
             sleep(Duration::from_secs(3)).await;
-            continue;
+            return Ok(collected); // пока нечего нового
         }
-
-        let from_slot = last_slot + 1;
-        let to_slot = std::cmp::min(current_slot, from_slot + 500);
 
         let sigs = client
             .get_signatures_for_address_with_config(
@@ -53,7 +52,9 @@ pub async fn run_catchup(cfg: SyncConfig, storage: Storage) -> Result<()> {
                     if let Some(logs) = Option::<Vec<String>>::from(meta.log_messages) {
                         for l in logs {
                             if l.contains(&cfg.program_id) {
-                                println!("[CATCH-UP] slot={} log={}", tx.slot, l);
+                                if let Ok(ev) = try_parse_log(&l) {
+                                    collected.push(ev);
+                                }
                             }
                         }
                     }
@@ -61,6 +62,7 @@ pub async fn run_catchup(cfg: SyncConfig, storage: Storage) -> Result<()> {
             }
         }
 
-        storage.set_last_slot(to_slot);
+        storage.set_last_slot(current_slot);
+        return Ok(collected);
     }
 }

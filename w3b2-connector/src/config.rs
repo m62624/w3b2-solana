@@ -10,8 +10,8 @@ pub struct SyncConfig {
     pub program_id: String,
     /// Max slots to go back during catch-up
     pub max_catchup_depth: u64,
-    /// Whether to skip old events (true = strict TTL)
-    pub skip_stale: bool,
+    /// Max age of a funding request in minutes to be processed
+    pub max_request_age_minutes: u64,
 }
 
 impl Default for SyncConfig {
@@ -20,8 +20,8 @@ impl Default for SyncConfig {
             rpc_url: "http://127.0.0.1:8899".into(),
             ws_url: "ws://127.0.0.1:8900".into(),
             program_id: w3b2_bridge_program::ID.to_string(),
-            max_catchup_depth: 10_000,
-            skip_stale: false,
+            max_catchup_depth: 5_000,
+            max_request_age_minutes: 60, // 1 час
         }
     }
 }
