@@ -168,7 +168,7 @@ pub fn dispatch_command_admin(
 
     emit!(CommandEvent {
         sender: ctx.accounts.authority.key(),
-        target_admin: target_pubkey,
+        target: target_pubkey,
         command_id,
         mode,
         payload,
@@ -193,7 +193,7 @@ pub fn dispatch_command_user(
 
     emit!(CommandEvent {
         sender: ctx.accounts.authority.key(),
-        target_admin: target_pubkey,
+        target: target_pubkey,
         command_id,
         mode,
         payload,

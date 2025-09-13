@@ -16,12 +16,14 @@ pub struct UserRegistered {
     pub ts: i64,
 }
 
+#[derive(Debug)]
 #[event]
 pub struct AdminDeactivated {
     pub admin: Pubkey,
     pub ts: i64,
 }
 
+#[derive(Debug)]
 #[event]
 pub struct UserDeactivated {
     pub user: Pubkey,
@@ -50,7 +52,7 @@ pub struct FundingApproved {
 #[event]
 pub struct CommandEvent {
     pub sender: Pubkey,
-    pub target_admin: Pubkey,
+    pub target: Pubkey,
     pub command_id: u64,
     pub mode: CommandMode,
     pub payload: Vec<u8>,
