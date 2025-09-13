@@ -11,23 +11,21 @@ pub struct RegisterAdmin<'info> {
         bump
     )]
     pub admin_profile: Account<'info, AdminAccount>,
-
     #[account(mut)]
     pub payer: Signer<'info>,
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
-/// User funding request
 #[derive(Debug, Accounts)]
 pub struct RequestFunding<'info> {
     #[account(
-    init,
-    payer = payer,
-    space = 8 + 32 + 32 + 8 + 1, // discriminator + user_wallet + target_admin + amount + status
-    seeds = [b"funding", user_wallet.key().as_ref(), &payer.key().to_bytes()],
-    bump
-)]
+        init,
+        payer = payer,
+        space = 8 + 32 + 32 + 8 + 1, // discriminator + user_wallet + target_admin + amount + status
+        seeds = [b"funding", user_wallet.key().as_ref(), &payer.key().to_bytes()],
+        bump
+    )]
     pub funding_request: Account<'info, FundingRequest>,
 
     #[account(mut)]
