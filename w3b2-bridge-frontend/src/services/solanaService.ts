@@ -149,9 +149,9 @@ export class SolanaService {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: this.programId,
-      data: Buffer.from([
-        CommandId.PUBLISH_PUBKEY,
-        ...this.wallet.publicKey.toBytes(),
+      data: Buffer.concat([
+        Buffer.from([CommandId.PUBLISH_PUBKEY]),
+        this.wallet.publicKey.toBuffer(),
       ]),
     });
 

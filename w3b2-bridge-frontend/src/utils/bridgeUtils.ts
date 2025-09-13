@@ -77,7 +77,7 @@ export class BridgeUtils {
     requestPDA: PublicKey;
     userWallet: PublicKey;
     amount: number;
-    status: FundingStatus;
+    status: typeof FundingStatus[keyof typeof FundingStatus];
   }>> {
     try {
       // В реальной реализации здесь нужно сканировать все аккаунты программы
@@ -185,7 +185,7 @@ export class BridgeUtils {
   /**
    * Получить статус запроса финансирования в текстовом виде
    */
-  getFundingStatusText(status: FundingStatus): string {
+  getFundingStatusText(status: typeof FundingStatus[keyof typeof FundingStatus]): string {
     switch (status) {
       case FundingStatus.Pending:
         return 'Ожидает';
@@ -201,7 +201,7 @@ export class BridgeUtils {
   /**
    * Получить режим команды в текстовом виде
    */
-  getCommandModeText(mode: CommandMode): string {
+  getCommandModeText(mode: typeof CommandMode[keyof typeof CommandMode]): string {
     switch (mode) {
       case CommandMode.RequestResponse:
         return 'Запрос-Ответ';
