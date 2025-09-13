@@ -7,3 +7,5 @@ node_modules
 **/*.rs.bk
 test-ledger
 .yarn
+build
+dist

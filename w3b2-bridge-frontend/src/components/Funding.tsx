@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';
-import { FundingRequest, FundingStatus } from '../types/index.js';
+import { FundingRequest, FundingStatus } from '../types/index';
 import toast from 'react-hot-toast';
 
 const Funding: React.FC = () => {

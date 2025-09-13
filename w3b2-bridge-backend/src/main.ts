@@ -3,11 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { SolanaService } from './services/solanaService.js';
-import { EncryptionService } from './services/encryptionService.js';
-import { DatabaseService } from './services/databaseService.js';
-import { apiRoutes } from './routes/api.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { SolanaService } from './services/solanaService';
+import { EncryptionService } from './services/encryptionService';
+import { DatabaseService } from './services/databaseService';
+import { apiRoutes } from './routes/api';
+import { errorHandler } from './middleware/errorHandler';
 
 // Загружаем переменные окружения
 dotenv.config();

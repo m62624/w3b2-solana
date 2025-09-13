@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { DatabaseRecord, CrudOperation, FundingRequest, UserAccount, AdminAccount } from '../types/index.js';
+import { DatabaseRecord, CrudOperation, FundingRequest, UserAccount, AdminAccount } from '../types/index';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 

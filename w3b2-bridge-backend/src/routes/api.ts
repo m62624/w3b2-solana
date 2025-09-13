@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { ApiResponse, CrudOperation } from '../types/index.js';
+import { ApiResponse, CrudOperation } from '../types/index';
 
 const router = Router();
 

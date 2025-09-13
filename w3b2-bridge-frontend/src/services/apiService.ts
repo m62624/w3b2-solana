@@ -10,7 +10,7 @@ import type {
   CommandConfig,
   CommandId,
   CommandMode
-} from '../types/index.js';
+} from '../types/index';
 
 class ApiService {
   private api: AxiosInstance;

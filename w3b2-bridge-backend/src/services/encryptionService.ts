@@ -1,7 +1,7 @@
-import * as nacl from 'tweetnacl';
+import nacl from 'tweetnacl';
 import { randomBytes } from 'crypto';
 import { PublicKey } from '@solana/web3.js';
-import { EncryptionKeys, SessionData, CommandConfig } from '../types/index.js';
+import { EncryptionKeys, SessionData, CommandConfig } from '../types/index';
 
 export class EncryptionService {
   private serverKeys: EncryptionKeys;

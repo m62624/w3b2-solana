@@ -7,7 +7,7 @@ import {
   SessionData, 
   AppStats,
   DatabaseRecord 
-} from '../types/index.js';
+} from '../types/index';
 
 export const useApi = () => {
   const [isLoading, setIsLoading] = useState(false);

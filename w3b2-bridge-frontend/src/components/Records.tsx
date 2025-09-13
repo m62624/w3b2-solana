@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';
-import { DatabaseRecord, CrudOperation } from '../types/index.js';
+import { DatabaseRecord, CrudOperation } from '../types/index';
 import toast from 'react-hot-toast';
 
 const Records: React.FC = () => {

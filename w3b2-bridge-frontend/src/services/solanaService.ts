@@ -8,7 +8,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import { CommandId, CommandMode, Destination } from '../types/index.js';
+import { CommandId, CommandMode, Destination } from '../types/index';
 
 export class SolanaService {
   private connection: Connection;

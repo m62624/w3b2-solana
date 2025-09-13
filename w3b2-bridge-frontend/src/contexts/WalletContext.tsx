@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useWallet } from '../hooks/useWallet';
-import { WalletInfo } from '../types/index.js';
+import { WalletInfo } from '../types/index';
 
 interface WalletContextType {
   walletInfo: WalletInfo;

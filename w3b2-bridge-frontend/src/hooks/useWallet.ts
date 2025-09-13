@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { solanaService } from '../services/solanaService';
-import { WalletInfo } from '../types/index.js';
+import { WalletInfo } from '../types/index';
 
 export const useWallet = () => {
   const [walletInfo, setWalletInfo] = useState<WalletInfo>({

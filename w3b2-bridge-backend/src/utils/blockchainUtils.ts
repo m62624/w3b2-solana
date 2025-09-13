@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { Destination, CommandConfig } from '../types/index.js';
+import { Destination, CommandConfig } from '../types/index';
 
 // Типы для blockchain (соответствуют Rust структурам)
 export interface BlockchainDestination {

@@ -10,7 +10,7 @@ import {
 import { EventEmitter } from 'events';
 import bs58 from 'bs58';
 import { BlockchainEvent, CommandId, CommandConfig } from '../types/index';
-import { serializeCommandConfig } from '../utils/blockchainUtils.js';
+import { serializeCommandConfig } from '../utils/blockchainUtils';
 
 export class SolanaService extends EventEmitter {
   private connection: Connection;
