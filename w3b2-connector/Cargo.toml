@@ -1,15 +1,13 @@
 [package]
 name = "w3b2-connector"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 anchor-lang.workspace = true
 anyhow.workspace = true
-base64 = "0.22.1"
 bincode.workspace = true
 borsh.workspace = true
-chrono = "0.4.42"
 serde.workspace = true
 sled.workspace = true
 solana-client.workspace = true
@@ -18,6 +16,12 @@ solana-sdk.workspace = true
 solana-transaction-status.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
+anchor-client = "0.31.1"
+base64 = "0.22.1"
+chrono = "0.4.42"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"
 w3b2-bridge-program.workspace = true
+
+[dev-dependencies]
+dirs = "6.0.0"

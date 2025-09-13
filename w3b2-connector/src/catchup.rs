@@ -1,6 +1,6 @@
 use crate::config::SyncConfig;
 use crate::storage::Storage;
-use crate::{events::BridgeEvent, events::try_parse_log};
+use crate::{events::try_parse_log, events::BridgeEvent};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -11,7 +11,7 @@ use solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::signature::Signature;
 use tokio::sync::mpsc;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 const SIGNATURE_FETCH_LIMIT: usize = 1000;
 
@@ -157,6 +157,6 @@ pub async fn run_catchup(
 
         // Вне зависимости от того, были ли новые транзакции, делаем паузу перед следующей проверкой.
         tracing::info!("Catch-up cycle finished. Pausing for 60 seconds before next check.");
-        sleep(Duration::from_secs(60)).await;
+        sleep(Duration::from_secs(3)).await;
     }
 }

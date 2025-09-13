@@ -7,7 +7,6 @@ use w3b2_connector::Synchronizer;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-    // Инициализируем логгер для отладки
 
     // В реальном приложении конфигурация будет загружаться из файла или переменных окружения
     let config = SyncConfig::default();
