@@ -1,27 +1,33 @@
 use anyhow::Result;
-use tokio::task;
+use tokio_stream::StreamExt;
+use w3b2_connector::Storage;
+use w3b2_connector::SyncConfig;
+use w3b2_connector::Synchronizer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let cfg = SyncConfig::default();
-    // let storage = Storage::new("target/sync.db")?;
+    tracing_subscriber::fmt::init();
+    // Инициализируем логгер для отладки
 
-    // let catchup_storage = storage.clone();
-    // let live_storage = storage;
+    // В реальном приложении конфигурация будет загружаться из файла или переменных окружения
+    let config = SyncConfig::default();
+    let storage = Storage::new("./w3b2_db")?;
 
-    // let catchup_task = task::spawn(async move {
-    //     if let Err(e) = run_catchup(cfg.clone(), catchup_storage).await {
-    //         eprintln!("Catch-up error: {:?}", e);
-    //     }
-    // });
+    tracing::info!("Starting synchronizer for program: {}", config.program_id);
 
-    // let live_task = task::spawn(async move {
-    //     if let Err(e) = run_live(cfg, live_storage).await {
-    //         eprintln!("Live sync error: {:?}", e);
-    //     }
-    // });
+    // По умолчанию глубина поиска не ограничена, но ее можно задать через `with_max_catchup_depth`.
+    let mut event_stream = Synchronizer::builder()
+        .with_config(config)
+        .with_storage(storage)
+        // .with_max_catchup_depth(10_000_000) // Пример установки ограничения
+        .start()
+        .await?;
 
-    // tokio::try_join!(catchup_task, live_task)?;
+    tracing::info!("Synchronizer started. Listening for events...");
+
+    while let Some(event) = event_stream.next().await {
+        tracing::info!("[MAIN] Received event: {:?}", event);
+    }
 
     Ok(())
 }
