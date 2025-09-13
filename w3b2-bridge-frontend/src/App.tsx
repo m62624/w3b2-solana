@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { WalletProvider } from './contexts/WalletContext';
@@ -9,6 +8,7 @@ import Wallet from './components/Wallet';
 import Funding from './components/Funding';
 import Records from './components/Records';
 import Settings from './components/Settings';
+import Examples from './components/Examples';
 import './App.css';
 
 function App() {
@@ -24,6 +24,7 @@ function App() {
                 <Route path="/funding" element={<Funding />} />
                 <Route path="/records" element={<Records />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/examples" element={<Examples />} />
               </Routes>
             </Layout>
             <Toaster

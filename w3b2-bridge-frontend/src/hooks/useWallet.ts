@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { solanaService } from '../services/solanaService';
 import type { WalletInfo } from '../types/index';
+import { Connection } from '@solana/web3.js';
 
 export const useWallet = () => {
   const [walletInfo, setWalletInfo] = useState<WalletInfo>({
@@ -12,6 +13,10 @@ export const useWallet = () => {
 
   const [balance, setBalance] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [connection] = useState<Connection>(() => new Connection(
+    process.env.REACT_APP_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    'confirmed'
+  ));
 
   // Инициализация кошелька
   const initializeWallet = useCallback((privateKey?: string) => {
@@ -184,6 +189,7 @@ export const useWallet = () => {
     walletInfo,
     balance,
     isLoading,
+    connection,
     initializeWallet,
     generateWallet,
     importWallet,

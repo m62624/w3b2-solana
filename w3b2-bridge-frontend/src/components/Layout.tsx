@@ -9,7 +9,8 @@ import {
   Menu, 
   X,
   Activity,
-  Shield
+  Shield,
+  Code
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 
@@ -27,6 +28,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Кошелек', href: '/wallet', icon: Wallet },
     { name: 'Финансирование', href: '/funding', icon: CreditCard },
     { name: 'Записи', href: '/records', icon: Database },
+    { name: 'Примеры', href: '/examples', icon: Code },
     { name: 'Настройки', href: '/settings', icon: Settings },
   ];
 

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { PublicKey } from '@solana/web3.js';
 import { ApiResponse } from '../types/index';
 
 export function errorHandler(error: Error, req: Request, res: Response, next: NextFunction): void {
@@ -67,7 +68,7 @@ export function validatePublicKey(
   }
 
   try {
-    new (require('@solana/web3.js').PublicKey)(publicKey);
+    new PublicKey(publicKey);
     next();
   } catch (error) {
     console.error('❌ Ошибка валидации публичного ключа:', error);

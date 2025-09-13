@@ -1,11 +1,13 @@
 import React, { createContext, useContext, type ReactNode } from 'react';
 import { useWallet } from '../hooks/useWallet';
 import { type WalletInfo } from '../types/index';
+import { Connection } from '@solana/web3.js';
 
 interface WalletContextType {
   walletInfo: WalletInfo;
   balance: number;
   isLoading: boolean;
+  connection: Connection;
   initializeWallet: (privateKey?: string) => boolean;
   generateWallet: () => any;
   importWallet: (privateKey: string) => boolean;
