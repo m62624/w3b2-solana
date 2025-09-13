@@ -6,8 +6,6 @@ interface WebSocketContextType {
   isConnected: boolean;
   connectionStatus: ConnectionStatus | null;
   events: WebSocketEvent[];
-  subscribeToEvents: () => void;
-  unsubscribeFromEvents: () => void;
   requestStatus: () => void;
   clearEvents: () => void;
   reconnect: () => void;
@@ -31,6 +29,8 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     // Обработчики событий
     const handleConnected = () => {
       setIsConnected(true);
+      // Автоматически подписываемся на события при подключении
+      webSocketService.subscribeToEvents();
       toast.success('Подключение к серверу установлено');
     };
 
@@ -95,10 +95,6 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     webSocketService.on('status', handleStatus);
     webSocketService.on('error', handleError);
 
-    // Автоматическая подписка на события при подключении
-    if (webSocketService.getConnectionStatus()) {
-      webSocketService.subscribeToEvents();
-    }
 
     // Очистка при размонтировании
     return () => {
@@ -111,13 +107,6 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     };
   }, []);
 
-  const subscribeToEvents = () => {
-    webSocketService.subscribeToEvents();
-  };
-
-  const unsubscribeFromEvents = () => {
-    webSocketService.unsubscribeFromEvents();
-  };
 
   const requestStatus = () => {
     webSocketService.requestStatus();
@@ -135,8 +124,6 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     isConnected,
     connectionStatus,
     events,
-    subscribeToEvents,
-    unsubscribeFromEvents,
     requestStatus,
     clearEvents,
     reconnect,

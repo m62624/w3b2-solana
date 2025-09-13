@@ -50,6 +50,8 @@ export class WebSocketService extends EventEmitter {
       console.log('✅ WebSocket подключен:', this.socket?.id);
       this.isConnected = true;
       this.reconnectAttempts = 0;
+      // Автоматически подписываемся на события при подключении
+      this.subscribeToEvents();
       this.emit('connected', { connected: true, timestamp: Date.now() });
     });
 

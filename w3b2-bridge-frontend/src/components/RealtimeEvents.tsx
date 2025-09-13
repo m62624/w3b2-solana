@@ -19,8 +19,6 @@ const RealtimeEvents: React.FC = () => {
     isConnected, 
     connectionStatus, 
     events, 
-    subscribeToEvents, 
-    unsubscribeFromEvents, 
     requestStatus, 
     clearEvents, 
     reconnect 
@@ -93,15 +91,6 @@ const RealtimeEvents: React.FC = () => {
     return details;
   };
 
-  const handleSubscribe = () => {
-    subscribeToEvents();
-    toast.success('Подписка на события активирована');
-  };
-
-  const handleUnsubscribe = () => {
-    unsubscribeFromEvents();
-    toast.success('Подписка на события отключена');
-  };
 
   const handleClearEvents = () => {
     clearEvents();
@@ -222,24 +211,10 @@ const RealtimeEvents: React.FC = () => {
           </div>
         </div>
 
-        {/* Управление подпиской */}
+        {/* Управление событиями */}
         <div className="mb-6 p-4 bg-slate-800 rounded-lg">
-          <h4 className="text-sm font-semibold text-slate-300 mb-3">Управление подпиской</h4>
+          <h4 className="text-sm font-semibold text-slate-300 mb-3">Управление событиями</h4>
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleSubscribe}
-              disabled={!isConnected}
-              className="btn-primary text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Подписаться на события
-            </button>
-            <button
-              onClick={handleUnsubscribe}
-              disabled={!isConnected}
-              className="btn-outline text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Отписаться от событий
-            </button>
             <button
               onClick={handleClearEvents}
               className="btn-outline text-sm px-4 py-2 text-red-300 hover:bg-red-500/20"
@@ -313,7 +288,7 @@ const RealtimeEvents: React.FC = () => {
                 </p>
                 <p className="text-sm text-slate-500 mt-1">
                   {events.length === 0 
-                    ? 'Подключитесь к серверу и подпишитесь на события'
+                    ? 'Подключитесь к серверу для получения событий'
                     : 'Попробуйте изменить фильтры или поисковый запрос'
                   }
                 </p>

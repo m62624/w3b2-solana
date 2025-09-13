@@ -1,0 +1,13 @@
+{
+  "admin_registered": {
+    "admin": "HDgd6fSUykVEadXrLcRK37RhBn52wJVAVFtzqckg1iFh",
+    "initial_funding": "100000000",
+    "ts": "1757781720"
+  },
+  "event": "admin_registered",
+  "id": "evt_1757781721664_81034s1yq",
+  "processedAt": 1757781721664,
+  "source": "grpc_connector",
+  "eventType": "unknown",
+  "saved_at": 1757781721664
+}
