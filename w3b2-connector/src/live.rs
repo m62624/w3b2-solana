@@ -1,5 +1,5 @@
 use crate::config::SyncConfig;
-use crate::events::{BridgeEvent, try_parse_log};
+use crate::events::{try_parse_log, BridgeEvent};
 use crate::storage::Storage;
 use anyhow::Result;
 use solana_client::nonblocking::pubsub_client::PubsubClient;
@@ -19,7 +19,7 @@ pub async fn run_live(
 
     let (mut stream, _) = client
         .logs_subscribe(
-            RpcTransactionLogsFilter::Mentions(vec![cfg.program_id.clone()]),
+            RpcTransactionLogsFilter::Mentions(vec![w3b2_bridge_program::ID.to_string()]),
             RpcTransactionLogsConfig {
                 commitment: Some(CommitmentConfig::confirmed()),
             },

@@ -1,14 +1,13 @@
+use anyhow::Context;
 use anyhow::Result;
 use chrono::Local;
+use std::fs;
 use std::path::Path;
 use tokio_stream::StreamExt;
 use tonic::{transport::Server, Request, Response, Status};
 use w3b2_bridge_program::types::CommandMode;
 use w3b2_connector::events::BridgeEvent as Event;
 use w3b2_connector::{Storage, SyncConfig, Synchronizer};
-
-pub const DATA_DIR: &str = "./w3b2_db";
-pub const LOG_DIR: &str = "Logs";
 
 pub mod bridge_proto {
     tonic::include_proto!("bridge");
@@ -136,21 +135,30 @@ impl BridgeService for BridgeServer {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let logs_path = Path::new(DATA_DIR).join(LOG_DIR);
-    std::fs::create_dir_all(&logs_path)?;
+    let config_path = "config.toml";
+    let config: SyncConfig = if Path::new(config_path).exists() {
+        let content = fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read {}", config_path))?;
+        toml::from_str(&content).with_context(|| format!("Failed to parse {}", config_path))?
+    } else {
+        let default_config = SyncConfig::default();
+        fs::write(config_path, toml::to_string_pretty(&default_config)?)?;
+        default_config
+    };
 
+    let logs_path = Path::new(&config.data_dir).join(&config.log_dir);
+    fs::create_dir_all(&logs_path)?;
     let date = Local::now().format("%Y-%m-%d").to_string();
     let log_file_path = logs_path.join(format!("w3b2-{}.log", date));
-    let file = std::fs::File::create(log_file_path)?;
+    let file = fs::File::create(log_file_path)?;
 
     tracing_subscriber::fmt()
         .with_writer(file)
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    let storage = Storage::new(DATA_DIR)?;
-    let config = SyncConfig::default();
-
+    tracing::info!("{:#?}", config);
+    let storage = Storage::new(&config.data_dir)?;
     let bridge_service = BridgeServer { storage, config };
 
     let addr = "[::1]:50051".parse().unwrap();

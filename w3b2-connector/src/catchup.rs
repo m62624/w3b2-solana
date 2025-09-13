@@ -22,7 +22,7 @@ pub async fn run_catchup(
     sender: mpsc::Sender<BridgeEvent>,
 ) -> Result<()> {
     let client = RpcClient::new(cfg.rpc_url.clone());
-    let program_id: solana_sdk::pubkey::Pubkey = cfg.program_id.parse()?;
+    let program_id: solana_sdk::pubkey::Pubkey = w3b2_bridge_program::ID;
 
     loop {
         let mut before_sig: Option<Signature> = None;
