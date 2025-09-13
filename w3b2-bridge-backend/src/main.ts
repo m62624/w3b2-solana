@@ -7,7 +7,7 @@ import { SolanaService } from './services/solanaService';
 import { EncryptionService } from './services/encryptionService';
 import { DatabaseService } from './services/databaseService';
 import { apiRoutes } from './routes/api';
-import { errorHandler } from './middleware/errorHandler';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 // Загружаем переменные окружения
 dotenv.config();
@@ -35,10 +35,8 @@ app.locals.databaseService = databaseService;
 // Маршруты
 app.use('/api', apiRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
+// Обработка 404 ошибок
+app.use(notFoundHandler);
 
 // Обработка ошибок
 app.use(errorHandler);

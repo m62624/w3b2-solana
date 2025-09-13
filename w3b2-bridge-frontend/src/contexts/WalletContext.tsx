@@ -15,6 +15,7 @@ interface WalletContextType {
   getPrivateKey: () => string | null;
   checkConnection: () => Promise<boolean>;
   getRecentTransactions: (limit?: number) => Promise<any[]>;
+  requestAirdrop: (lamports?: number) => Promise<string | null>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);

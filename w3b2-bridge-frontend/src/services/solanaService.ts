@@ -8,6 +8,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
+import { Buffer } from 'buffer';
 import { CommandId, CommandMode, type Destination } from '../types/index';
 
 export class SolanaService {
@@ -17,7 +18,7 @@ export class SolanaService {
 
   constructor() {
     this.connection = new Connection(
-      process.env.REACT_APP_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+      process.env.REACT_APP_SOLANA_RPC_URL || 'http://localhost:8899',
       'confirmed'
     );
     this.programId = new PublicKey(
@@ -29,25 +30,28 @@ export class SolanaService {
   initializeWallet(privateKey?: string): Keypair {
     if (privateKey) {
       try {
-        // Декодируем приватный ключ из base58
+        // Декодируем приватный ключ из base64
         const secretKey = Buffer.from(privateKey, 'base64');
         this.wallet = Keypair.fromSecretKey(secretKey);
+        this.saveWalletToStorage();
       } catch (error) {
         console.error('Ошибка загрузки приватного ключа:', error);
         this.wallet = Keypair.generate();
+        this.saveWalletToStorage();
       }
     } else {
       // Проверяем localStorage для сохраненного кошелька
       const savedWallet = this.loadWalletFromStorage();
       if (savedWallet) {
         this.wallet = savedWallet;
+        console.log('📂 Кошелек загружен из localStorage:', this.wallet.publicKey.toBase58());
       } else {
         this.wallet = Keypair.generate();
         this.saveWalletToStorage();
+        console.log('🔑 Новый кошелек сгенерирован:', this.wallet.publicKey.toBase58());
       }
     }
 
-    console.log('🔑 Кошелек инициализирован:', this.wallet.publicKey.toBase58());
     return this.wallet;
   }
 
@@ -392,6 +396,27 @@ export class SolanaService {
   clearWalletFromStorage(): void {
     localStorage.removeItem('w3b2_wallet');
     console.log('🗑️ Кошелек удален из localStorage');
+  }
+
+  // Airdrop для тестовой сети
+  async requestAirdrop(lamports: number = 1 * LAMPORTS_PER_SOL): Promise<string> {
+    if (!this.wallet) throw new Error('Кошелек не инициализирован');
+
+    try {
+      const signature = await this.connection.requestAirdrop(
+        this.wallet.publicKey,
+        lamports
+      );
+      
+      // Ждем подтверждения
+      await this.connection.confirmTransaction(signature);
+      
+      console.log('💰 Airdrop получен:', signature);
+      return signature;
+    } catch (error) {
+      console.error('Ошибка получения airdrop:', error);
+      throw error;
+    }
   }
 }
 

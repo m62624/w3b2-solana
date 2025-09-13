@@ -5,6 +5,18 @@ import { ApiResponse, CrudOperation } from '../types/index';
 
 const router = Router();
 
+// Health check endpoint
+router.get('/health', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+    },
+    timestamp: new Date().toISOString(),
+  } as ApiResponse);
+});
+
 // Middleware для извлечения сервисов из контекста приложения
 const getServices = (req: Request) => ({
   solanaService: req.app.locals.solanaService,

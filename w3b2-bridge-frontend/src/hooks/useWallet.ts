@@ -136,6 +136,24 @@ export const useWallet = () => {
     }
   }, [walletInfo.connected]);
 
+  // Запрос airdrop для тестовой сети
+  const requestAirdrop = useCallback(async (lamports?: number) => {
+    if (!walletInfo.connected) return null;
+
+    try {
+      setIsLoading(true);
+      const signature = await solanaService.requestAirdrop(lamports);
+      // Обновляем баланс после получения airdrop
+      await refreshBalance();
+      return signature;
+    } catch (error) {
+      console.error('Ошибка получения airdrop:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [walletInfo.connected, refreshBalance]);
+
   // Обновление баланса при изменении кошелька
   useEffect(() => {
     if (walletInfo.connected) {
@@ -145,10 +163,22 @@ export const useWallet = () => {
     }
   }, [walletInfo.connected, refreshBalance]);
 
-  // Проверка подключения при монтировании
+  // Инициализация кошелька при монтировании
   useEffect(() => {
-    checkConnection();
-  }, [checkConnection]);
+    const initializeOnMount = async () => {
+      // Сначала проверяем подключение к сети
+      const isConnected = await checkConnection();
+      if (isConnected) {
+        // Если есть подключение, инициализируем кошелек
+        const success = initializeWallet();
+        if (success) {
+          console.log('✅ Кошелек инициализирован при загрузке');
+        }
+      }
+    };
+    
+    initializeOnMount();
+  }, [checkConnection, initializeWallet]);
 
   return {
     walletInfo,
@@ -163,5 +193,6 @@ export const useWallet = () => {
     getPrivateKey,
     checkConnection,
     getRecentTransactions,
+    requestAirdrop,
   };
 };

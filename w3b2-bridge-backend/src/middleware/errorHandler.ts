@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ApiResponse } from '../types/index';
 
-export function errorHandler(error: Error, req: Request, res: Response): void {
+export function errorHandler(error: Error, req: Request, res: Response, next: NextFunction): void {
   console.error('❌ Ошибка:', error);
 
   // Определяем тип ошибки и соответствующий HTTP статус
@@ -44,7 +44,7 @@ export function errorHandler(error: Error, req: Request, res: Response): void {
 }
 
 // Middleware для обработки 404 ошибок
-export function notFoundHandler(req: Request, res: Response): void {
+export function notFoundHandler(req: Request, res: Response, next: NextFunction): void {
   const response: ApiResponse = {
     success: false,
     error: `Маршрут ${req.method} ${req.path} не найден`,

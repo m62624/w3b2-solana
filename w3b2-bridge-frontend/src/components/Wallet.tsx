@@ -29,7 +29,8 @@ const Wallet: React.FC = () => {
     refreshBalance,
     exportWallet,
     getPrivateKey,
-    getRecentTransactions
+    getRecentTransactions,
+    requestAirdrop
   } = useWalletContext();
   
   const { registerUser } = useApiContext();
@@ -170,6 +171,20 @@ const Wallet: React.FC = () => {
   const handleDisconnect = () => {
     disconnect();
     toast.success('Кошелек отключен');
+  };
+
+  const handleAirdrop = async () => {
+    try {
+      const signature = await requestAirdrop();
+      if (signature) {
+        toast.success('Airdrop получен! Обновите баланс');
+        await refreshBalance();
+        await loadRecentTransactions();
+      }
+    } catch (error) {
+      console.error('Ошибка получения airdrop:', error);
+      toast.error('Ошибка получения airdrop');
+    }
   };
 
   const handleCopyPublicKey = () => {
@@ -317,6 +332,14 @@ const Wallet: React.FC = () => {
 
             {/* Действия */}
             <div className="flex space-x-3">
+              <button
+                onClick={handleAirdrop}
+                disabled={isLoading}
+                className="btn-outline flex items-center space-x-2"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>{isLoading ? 'Получение...' : 'Airdrop'}</span>
+              </button>
               <button
                 onClick={handleExportWallet}
                 className="btn-secondary flex items-center space-x-2"
