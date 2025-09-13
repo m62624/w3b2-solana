@@ -18,7 +18,7 @@ tokio.workspace = true
 tokio-stream.workspace = true
 anchor-client = "0.31.1"
 base64 = "0.22.1"
-chrono = "0.4.42"
+chrono = { version = "0.4.42", features = ["serde"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"
 w3b2-bridge-program.workspace = true

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use anchor_client::{
     solana_sdk::{
         signature::{read_keypair_file, Keypair, Signer},
