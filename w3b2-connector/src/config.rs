@@ -25,10 +25,24 @@ pub struct SyncConfig {
     pub max_signature_fetch: Option<usize>,
     pub data_dir: String,
     pub log_dir: String,
+    /// gRPC server host
+    #[serde(default = "default_host")]
+    pub host: String,
+    /// gRPC server port
+    #[serde(default = "default_port")]
+    pub port: u16,
 }
 
 fn default_time_provider() -> DateTime<Utc> {
     Utc::now()
+}
+
+fn default_host() -> String {
+    "[::1]".to_string()
+}
+
+fn default_port() -> u16 {
+    50051
 }
 
 impl Default for SyncConfig {
@@ -44,6 +58,8 @@ impl Default for SyncConfig {
             max_signature_fetch: None,
             data_dir: "./w3b2_db".into(),
             log_dir: "Logs".into(),
+            host: default_host(),
+            port: default_port(),
         }
     }
 }

@@ -158,10 +158,10 @@ async fn main() -> Result<()> {
         .init();
 
     tracing::info!("{:#?}", config);
+    let addr = format!("{}:{}", config.host, config.port).parse()?;
     let storage = Storage::new(&config.data_dir)?;
     let bridge_service = BridgeServer { storage, config };
 
-    let addr = "[::1]:50051".parse().unwrap();
     tracing::info!("gRPC server listening on {}", addr);
 
     Server::builder()
