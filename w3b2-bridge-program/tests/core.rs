@@ -1,6 +1,7 @@
+#![allow(deprecated)]
+
 use anchor_lang::InstructionData;
 use anchor_lang::{AnchorDeserialize, AnchorSerialize};
-#[allow(deprecated)]
 use borsh::{BorshDeserialize, BorshSerialize};
 use lazy_static::lazy_static;
 use litesvm::LiteSVM;
