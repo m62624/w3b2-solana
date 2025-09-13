@@ -17,7 +17,7 @@ use events::*;
 use sm_accounts::*;
 use types::*;
 
-declare_id!("W3B2Bridge111111111111111111111111111111111");
+declare_id!("3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr");
 
 #[program]
 pub mod w3b2_bridge_program {

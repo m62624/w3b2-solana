@@ -9,22 +9,20 @@ fn check_rent_and_balance(account: &AccountInfo, additional: u64) -> Result<bool
 }
 
 pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Result<()> {
-    let admin_profile = &mut ctx.accounts.admin_profile;
-    admin_profile.owner = ctx.accounts.authority.key();
+    {
+        let admin_profile = &mut ctx.accounts.admin_profile;
+        admin_profile.owner = ctx.accounts.authority.key();
 
-    let required_lamports = Rent::get()?
-        .minimum_balance(admin_profile.to_account_info().data_len())
-        .saturating_add(funding_amount);
-
-    require!(
-        ctx.accounts.payer.lamports() >= required_lamports,
-        BridgeError::InsufficientFundsForAdmin
-    );
+        require!(
+            ctx.accounts.payer.lamports() >= funding_amount,
+            BridgeError::InsufficientFundsForAdmin
+        );
+    }
 
     let ix = system_instruction::transfer(
         &ctx.accounts.payer.key(),
-        &ctx.accounts.admin_profile.to_account_info().key,
-        required_lamports,
+        &ctx.accounts.admin_profile.key(),
+        funding_amount,
     );
 
     invoke(
@@ -36,9 +34,14 @@ pub fn register_admin(ctx: Context<RegisterAdmin>, funding_amount: u64) -> Resul
         ],
     )?;
 
+    emit!(AdminRegistered {
+        admin: ctx.accounts.authority.key(),
+        initial_funding: funding_amount,
+        ts: clock::Clock::get()?.unix_timestamp,
+    });
+
     Ok(())
 }
-
 pub fn request_funding(
     ctx: Context<RequestFunding>,
     amount: u64,

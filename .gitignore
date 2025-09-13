@@ -9,3 +9,4 @@ test-ledger
 .yarn
 build
 dist
+w3b2_db

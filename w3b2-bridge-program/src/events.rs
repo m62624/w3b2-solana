@@ -28,3 +28,11 @@ pub struct CommandEvent {
     pub payload: Vec<u8>,
     pub ts: i64,
 }
+
+#[derive(Debug)]
+#[event]
+pub struct AdminRegistered {
+    pub admin: Pubkey,
+    pub initial_funding: u64,
+    pub ts: i64,
+}
