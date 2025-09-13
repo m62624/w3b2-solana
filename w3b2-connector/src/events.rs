@@ -2,12 +2,17 @@ use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use borsh::BorshDeserialize;
-use w3b2_bridge_program::events::{AdminRegistered, FundingRequested};
+use w3b2_bridge_program::events::{
+    AdminDeactivated, AdminRegistered, FundingRequested, UserDeactivated, UserRegistered,
+};
 use w3b2_bridge_program::events::{CommandEvent, FundingApproved};
 
 #[derive(Debug)]
 pub enum BridgeEvent {
     AdminRegistered(AdminRegistered),
+    UserRegistered(UserRegistered),
+    AdminDeactivated(AdminDeactivated),
+    UserDeactivated(UserDeactivated),
     FundingRequested(FundingRequested),
     FundingApproved(FundingApproved),
     CommandEvent(CommandEvent),
@@ -24,6 +29,13 @@ pub fn parse_event_data(data: &[u8]) -> Result<BridgeEvent> {
 
     let admin_registered_disc =
         anchor_lang::solana_program::hash::hash(b"event:AdminRegistered").to_bytes()[0..8].to_vec();
+    let user_registered_disc =
+        anchor_lang::solana_program::hash::hash(b"event:UserRegistered").to_bytes()[0..8].to_vec();
+    let admin_deactivated_disc = anchor_lang::solana_program::hash::hash(b"event:AdminDeactivated")
+        .to_bytes()[0..8]
+        .to_vec();
+    let user_deactivated_disc =
+        anchor_lang::solana_program::hash::hash(b"event:UserDeactivated").to_bytes()[0..8].to_vec();
     let funding_requested_disc = anchor_lang::solana_program::hash::hash(b"event:FundingRequested")
         .to_bytes()[0..8]
         .to_vec();
@@ -35,6 +47,21 @@ pub fn parse_event_data(data: &[u8]) -> Result<BridgeEvent> {
     if discriminator == admin_registered_disc.as_slice() {
         let event = AdminRegistered::try_from_slice(event_data)?;
         return Ok(BridgeEvent::AdminRegistered(event));
+    }
+
+    if discriminator == user_registered_disc.as_slice() {
+        let event = UserRegistered::try_from_slice(event_data)?;
+        return Ok(BridgeEvent::UserRegistered(event));
+    }
+
+    if discriminator == admin_deactivated_disc.as_slice() {
+        let event = AdminDeactivated::try_from_slice(event_data)?;
+        return Ok(BridgeEvent::AdminDeactivated(event));
+    }
+
+    if discriminator == user_deactivated_disc.as_slice() {
+        let event = UserDeactivated::try_from_slice(event_data)?;
+        return Ok(BridgeEvent::UserDeactivated(event));
     }
 
     if discriminator == funding_requested_disc.as_slice() {

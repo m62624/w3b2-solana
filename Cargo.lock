@@ -7328,6 +7328,7 @@ name = "w3b2-bridge-program"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anyhow",
  "borsh 0.10.4",
  "lazy_static",
  "litesvm",
