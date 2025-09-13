@@ -7752,6 +7752,7 @@ dependencies = [
  "borsh 0.10.4",
  "chrono",
  "dirs",
+ "prost",
  "serde",
  "sled",
  "solana-client",
