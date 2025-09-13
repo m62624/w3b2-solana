@@ -26,7 +26,7 @@ export class SolanaService extends EventEmitter {
       'confirmed'
     );
     this.programId = new PublicKey(
-      process.env.PROGRAM_ID || 'W3B2Bridge111111111111111111111111111111111'
+      process.env.PROGRAM_ID || '3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr'
     );
 
     // Генерируем или загружаем ключи администратора
@@ -151,20 +151,40 @@ export class SolanaService extends EventEmitter {
 
           const programId = accountKeys[instruction.programIdIndex];
 
-          // Проверяем, что programId существует и имеет метод equals
-          if (!programId || typeof programId.equals !== 'function') {
+          // Проверяем, что programId существует
+          if (!programId) {
             console.warn(
               `⚠️ Некорректный programId для транзакции ${signature}`
             );
             continue;
           }
 
-          if (programId.equals(this.programId)) {
+          // Преобразуем programId в PublicKey если это строка
+          let programIdPubkey: PublicKey;
+          try {
+            programIdPubkey =
+              typeof programId === 'string'
+                ? new PublicKey(programId)
+                : programId;
+          } catch {
+            console.warn(
+              `⚠️ Некорректный формат programId для транзакции ${signature}:`,
+              programId
+            );
+            continue;
+          }
+
+          if (programIdPubkey.equals(this.programId)) {
+            console.log(`✅ Найдена транзакция W3B2 Bridge: ${signature}`);
             await this.processProgramInstruction(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               instruction as any,
               signature,
               transaction
+            );
+          } else {
+            console.log(
+              `ℹ️ Транзакция ${signature} не относится к W3B2 Bridge. ProgramId: ${programIdPubkey.toString()}, ожидаемый: ${this.programId.toString()}`
             );
           }
         }
@@ -430,7 +450,7 @@ export class SolanaService extends EventEmitter {
         ],
         programId: this.programId,
         data: Buffer.concat([
-          Buffer.from([1]), // request_funding discriminator
+          Buffer.from([181, 251, 230, 32, 73, 41, 179, 115]), // request_funding discriminator
           Buffer.alloc(8)
             .fill(0)
             .map((_, i) => (amount >> (i * 8)) & 0xff), // amount as u64
@@ -607,5 +627,43 @@ export class SolanaService extends EventEmitter {
   stopListening(): void {
     this.isListening = false;
     console.log('🛑 Прослушивание блокчейна остановлено');
+  }
+
+  /**
+   * Получает баланс аккаунта
+   */
+  async getBalance(publicKey: PublicKey): Promise<number> {
+    try {
+      const balance = await this.connection.getBalance(publicKey);
+      return balance / LAMPORTS_PER_SOL;
+    } catch (error) {
+      console.error('❌ Ошибка получения баланса:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Запрашивает airdrop для тестирования
+   */
+  async requestAirdrop(
+    publicKey: PublicKey,
+    solAmount: number = 1
+  ): Promise<string> {
+    try {
+      const lamports = solAmount * LAMPORTS_PER_SOL;
+      const signature = await this.connection.requestAirdrop(
+        publicKey,
+        lamports
+      );
+
+      // Ждем подтверждения
+      await this.connection.confirmTransaction(signature);
+
+      console.log(`💰 Airdrop ${solAmount} SOL получен:`, signature);
+      return signature;
+    } catch (error) {
+      console.error('❌ Ошибка получения airdrop:', error);
+      throw error;
+    }
   }
 }

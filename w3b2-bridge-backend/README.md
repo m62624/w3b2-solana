@@ -14,7 +14,7 @@ npm install
 ```env
 # Solana Configuration
 SOLANA_RPC_URL=https://api.devnet.solana.com
-PROGRAM_ID=W3B2Bridge111111111111111111111111111111111
+PROGRAM_ID=3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr
 
 # Server Configuration
 PORT=3001
@@ -83,7 +83,7 @@ curl -X POST http://localhost:3001/api/request-funding \
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `SOLANA_RPC_URL` | URL Solana RPC | `https://api.devnet.solana.com` |
-| `PROGRAM_ID` | ID программы Solana | `W3B2Bridge111111111111111111111111111111111` |
+| `PROGRAM_ID` | ID программы Solana | `3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr` |
 | `PORT` | Порт сервера | `3001` |
 | `NODE_ENV` | Окружение | `development` |
 | `ADMIN_PRIVATE_KEY` | Приватный ключ администратора | - |

@@ -20,6 +20,8 @@ const Funding: React.FC = () => {
   const [fundingRequests, setFundingRequests] = useState<FundingRequest[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
+  const [userBalance, setUserBalance] = useState<number>(0);
+  const [isRequestingAirdrop, setIsRequestingAirdrop] = useState(false);
   
   // Форма запроса на финансирование
   const [requestForm, setRequestForm] = useState({
@@ -29,7 +31,10 @@ const Funding: React.FC = () => {
 
   useEffect(() => {
     loadFundingRequests();
-  }, []);
+    if (walletInfo.publicKey) {
+      loadUserBalance();
+    }
+  }, [walletInfo.publicKey]);
 
   const loadFundingRequests = async () => {
     try {
@@ -43,6 +48,45 @@ const Funding: React.FC = () => {
       toast.error('Ошибка загрузки запросов на финансирование');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadUserBalance = async () => {
+    if (!walletInfo.publicKey) return;
+    
+    try {
+      const { apiService } = await import('../services/apiService');
+      const response = await apiService.getBalance(walletInfo.publicKey.toBase58());
+      if (response.success && response.data) {
+        setUserBalance(response.data.balance);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки баланса:', error);
+    }
+  };
+
+  const handleRequestAirdrop = async () => {
+    if (!walletInfo.publicKey) {
+      toast.error('Кошелек не подключен');
+      return;
+    }
+
+    try {
+      setIsRequestingAirdrop(true);
+      const { apiService } = await import('../services/apiService');
+      const response = await apiService.requestAirdrop(walletInfo.publicKey.toBase58());
+      
+      if (response.success) {
+        toast.success('Airdrop получен успешно!');
+        await loadUserBalance(); // Обновляем баланс
+      } else {
+        toast.error(response.error || 'Ошибка получения airdrop');
+      }
+    } catch (error) {
+      console.error('Ошибка получения airdrop:', error);
+      toast.error('Ошибка получения airdrop');
+    } finally {
+      setIsRequestingAirdrop(false);
     }
   };
 
@@ -191,8 +235,32 @@ const Funding: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">Текущий баланс</h3>
-                <p className="text-2xl font-bold text-blue-500">{balance.toFixed(4)} SOL</p>
+                <p className="text-2xl font-bold text-blue-500">{userBalance.toFixed(4)} SOL</p>
+                <p className="text-sm text-slate-400">
+                  Минимально требуется: 0.001 SOL для комиссии
+                </p>
               </div>
+            </div>
+            <div className="flex flex-col space-y-2">
+              <button
+                onClick={loadUserBalance}
+                disabled={isLoading}
+                className="btn-outline text-sm"
+              >
+                Обновить баланс
+              </button>
+              <button
+                onClick={handleRequestAirdrop}
+                disabled={isRequestingAirdrop}
+                className="btn-primary text-sm flex items-center space-x-2"
+              >
+                {isRequestingAirdrop ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                <span>Получить Airdrop</span>
+              </button>
             </div>
           </div>
         </div>

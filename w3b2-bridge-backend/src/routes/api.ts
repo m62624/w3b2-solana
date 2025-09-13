@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PublicKey, Keypair } from '@solana/web3.js';
-import bs58 from 'bs58';
+import { Buffer } from 'buffer';
 import { ApiResponse, CrudOperation } from '../types/index';
 
 const router = Router();
@@ -98,8 +98,23 @@ router.post('/request-funding', async (req: Request, res: Response) => {
     const targetAdminPubkey = new PublicKey(targetAdmin);
     const amountNum = parseInt(amount);
 
-    // Создаем keypair из приватного ключа
-    const userKeypair = Keypair.fromSecretKey(bs58.decode(userPrivateKey));
+    // Создаем keypair из приватного ключа (base64)
+    const userKeypair = Keypair.fromSecretKey(
+      Buffer.from(userPrivateKey, 'base64')
+    );
+
+    // Проверяем баланс пользователя
+    const balance = await solanaService.getBalance(userKeypair.publicKey);
+    const minBalance = 0.001; // Минимальный баланс для комиссии
+
+    if (balance < minBalance) {
+      return res.status(400).json({
+        success: false,
+        error: `Недостаточно средств. Текущий баланс: ${balance} SOL. Минимально требуется: ${minBalance} SOL для комиссии. Попробуйте получить airdrop.`,
+        data: { balance, minBalance },
+        timestamp: new Date().toISOString(),
+      } as ApiResponse);
+    }
 
     // Создаем запрос в blockchain
     const signature = await solanaService.requestFunding(
@@ -266,7 +281,9 @@ router.post('/dispatch-command', async (req: Request, res: Response) => {
     const { solanaService } = getServices(req);
 
     const targetAdminPubkey = new PublicKey(targetAdmin);
-    const userKeypair = Keypair.fromSecretKey(bs58.decode(userPrivateKey));
+    const userKeypair = Keypair.fromSecretKey(
+      Buffer.from(userPrivateKey, 'base64')
+    );
 
     // Отправляем команду в blockchain
     const signature = await solanaService.dispatchCommandConfig(
@@ -405,6 +422,79 @@ router.get('/funding-requests', async (req: Request, res: Response) => {
     } as ApiResponse);
   } catch (error) {
     console.error('❌ Ошибка получения запросов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение airdrop для тестирования
+router.post('/airdrop', async (req: Request, res: Response) => {
+  try {
+    const { publicKey } = req.body;
+
+    if (!publicKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Публичный ключ обязателен',
+        timestamp: new Date().toISOString(),
+      } as ApiResponse);
+    }
+
+    const { solanaService } = getServices(req);
+    const userPublicKey = new PublicKey(publicKey);
+
+    // Получаем airdrop (1 SOL для тестирования)
+    const signature = await solanaService.requestAirdrop(userPublicKey, 1);
+
+    res.json({
+      success: true,
+      data: {
+        signature,
+        message: 'Airdrop получен успешно',
+      },
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения airdrop:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение баланса пользователя
+router.get('/balance/:publicKey', async (req: Request, res: Response) => {
+  try {
+    const { publicKey } = req.params;
+
+    if (!publicKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Публичный ключ обязателен',
+        timestamp: new Date().toISOString(),
+      } as ApiResponse);
+    }
+
+    const { solanaService } = getServices(req);
+    const userPublicKey = new PublicKey(publicKey);
+    const balance = await solanaService.getBalance(userPublicKey);
+
+    res.json({
+      success: true,
+      data: {
+        publicKey: publicKey,
+        balance: balance,
+        balanceLamports: balance * 1000000000, // Конвертируем в lamports
+      },
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения баланса:', error);
     res.status(500).json({
       success: false,
       error: 'Внутренняя ошибка сервера',

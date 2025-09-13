@@ -194,6 +194,18 @@ class ApiService {
   removeAuthToken(): void {
     delete this.api.defaults.headers.common['Authorization'];
   }
+
+  // Получение airdrop для тестирования
+  async requestAirdrop(publicKey: string): Promise<ApiResponse<{ signature: string; message: string }>> {
+    const response = await this.api.post('/airdrop', { publicKey });
+    return response.data;
+  }
+
+  // Получение баланса пользователя
+  async getBalance(publicKey: string): Promise<ApiResponse<{ publicKey: string; balance: number; balanceLamports: number }>> {
+    const response = await this.api.get(`/balance/${publicKey}`);
+    return response.data;
+  }
 }
 
 // Экспортируем singleton instance

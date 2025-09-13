@@ -18,11 +18,11 @@ export class SolanaService {
 
   constructor() {
     this.connection = new Connection(
-      process.env.REACT_APP_SOLANA_RPC_URL || 'http://localhost:8899',
+      process.env.REACT_APP_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
       'confirmed'
     );
     this.programId = new PublicKey(
-      process.env.REACT_APP_PROGRAM_ID || 'W3B2Bridge111111111111111111111111111111111'
+      process.env.REACT_APP_PROGRAM_ID || '3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr'
     );
   }
 
@@ -117,7 +117,7 @@ export class SolanaService {
       ],
       programId: this.programId,
       data: Buffer.concat([
-        Buffer.from([1]), // request_funding discriminator
+        Buffer.from([181, 251, 230, 32, 73, 41, 179, 115]), // request_funding discriminator
         Buffer.alloc(8)
           .fill(0)
           .map((_, i) => (amount >> (i * 8)) & 0xff), // amount as u64

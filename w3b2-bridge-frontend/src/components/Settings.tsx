@@ -16,7 +16,7 @@ const Settings: React.FC = () => {
   
   const [settings, setSettings] = useState({
     solanaRpcUrl: process.env.REACT_APP_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-    programId: process.env.REACT_APP_PROGRAM_ID || 'W3B2Bridge111111111111111111111111111111111',
+    programId: process.env.REACT_APP_PROGRAM_ID || '3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr',
     apiUrl: process.env.REACT_APP_API_URL || 'http://localhost:3001/api',
     autoRefresh: true,
     refreshInterval: 30,
@@ -77,7 +77,7 @@ const Settings: React.FC = () => {
   const handleResetSettings = () => {
     const defaultSettings = {
       solanaRpcUrl: 'https://api.devnet.solana.com',
-      programId: 'W3B2Bridge111111111111111111111111111111111',
+      programId: '3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr',
       apiUrl: 'http://localhost:3001/api',
       autoRefresh: true,
       refreshInterval: 30,
@@ -202,7 +202,7 @@ const Settings: React.FC = () => {
               value={settings.programId}
               onChange={(e) => setSettings({ ...settings, programId: e.target.value })}
               className="form-input font-mono"
-              placeholder="W3B2Bridge111111111111111111111111111111111"
+              placeholder="3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr"
             />
           </div>
           

@@ -13,7 +13,7 @@ npm install
 Создайте файл `.env` в корне проекта:
 ```env
 REACT_APP_SOLANA_RPC_URL=https://api.devnet.solana.com
-REACT_APP_PROGRAM_ID=W3B2Bridge111111111111111111111111111111111
+REACT_APP_PROGRAM_ID=3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr
 REACT_APP_API_URL=http://localhost:3001/api
 ```
 
