@@ -1,12 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ApiResponse } from '../types/index';
 
-export function errorHandler(
-  error: Error,
-  req: Request,
-  res: Response
-  // next: NextFunction
-): void {
+export function errorHandler(error: Error, req: Request, res: Response): void {
   console.error('❌ Ошибка:', error);
 
   // Определяем тип ошибки и соответствующий HTTP статус
@@ -28,13 +23,13 @@ export function errorHandler(
   } else if (error.name === 'ConflictError') {
     statusCode = 409;
     message = 'Конфликт данных';
-  } else if (error.message.includes('Invalid public key')) {
+  } else if (error.message && error.message.includes('Invalid public key')) {
     statusCode = 400;
     message = 'Неверный публичный ключ';
-  } else if (error.message.includes('Insufficient funds')) {
+  } else if (error.message && error.message.includes('Insufficient funds')) {
     statusCode = 400;
     message = 'Недостаточно средств';
-  } else if (error.message.includes('Transaction failed')) {
+  } else if (error.message && error.message.includes('Transaction failed')) {
     statusCode = 400;
     message = 'Ошибка транзакции';
   }
