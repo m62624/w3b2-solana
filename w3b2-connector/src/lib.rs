@@ -1,6 +1,6 @@
 mod catchup;
 mod config;
-mod events;
+pub mod events;
 mod live;
 mod storage;
 mod synchronizer;

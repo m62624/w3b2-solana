@@ -8,16 +8,16 @@ w3b2-bridge-program = { path = "w3b2-bridge-program" }
 
 # external
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
-borsh = "0.10.3"
+borsh = "0.10.4"
 
 # снижаем версию на 2.2.1 вместо 3.0.0, кто бы думал, 
 # но anchor юзает пока что ещё 2 api solana sdk
-solana-sdk = { version = "2.2.1", features = ["full"] }
-solana-message = "2.2.1"
-solana-program = "2.2.1"
-solana-client = "2.2.1"
-solana-rpc-client-api = "2.2.1"
-solana-transaction-status = "2.2.1"
+solana-sdk = { version = "2.3.1", features = ["full"] }
+solana-message = "2.4.0"
+solana-program = "2.3.0"
+solana-client = "2.3.9"
+solana-rpc-client-api = "2.3.9"
+solana-transaction-status = "2.3.9"
 # наверно лучше это заюзаем, чтобы не поднимать каждый раз смарт контракт в local solana
 litesvm = "0.7.0"
 
