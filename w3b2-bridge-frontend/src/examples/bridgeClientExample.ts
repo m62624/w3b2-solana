@@ -1,6 +1,5 @@
 import { Connection, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BridgeClient } from '../services/bridgeClient';
-import { CommandMode, CMD_PUBLISH_PUBKEY, type Destination } from '../types/bridge';
 
 /**
  * Пример использования BridgeClient
@@ -41,7 +40,7 @@ export class BridgeClientExample {
         payer: payer.publicKey,
         authority: authority.publicKey,
         coSigner: coSigner.publicKey,
-        initialBalance: 0.1 * LAMPORTS_PER_SOL, // 0.1 SOL
+        fundingAmount: 0.1 * LAMPORTS_PER_SOL, // 0.1 SOL
       }, [payer, authority, coSigner]);
 
       console.log('Админ зарегистрирован:', signature);
@@ -157,60 +156,6 @@ export class BridgeClientExample {
     }
   }
 
-  /**
-   * Пример отправки команды
-   */
-  async dispatchCommandExample() {
-    console.log('=== Отправка команды ===');
-    
-    const authority = Keypair.generate();
-    const targetPubkey = Keypair.generate().publicKey;
-
-    try {
-      // Создаем команду для публикации публичного ключа
-      const pubkeyCommand = this.client.createPublishPubkeyCommand(targetPubkey);
-      
-      const signature = await this.client.dispatchCommandUser({
-        authority: authority.publicKey,
-        targetPubkey,
-        commandId: CMD_PUBLISH_PUBKEY,
-        mode: CommandMode.OneWay,
-        payload: pubkeyCommand,
-      }, [authority]);
-
-      console.log('Команда отправлена:', signature);
-      
-    } catch (error) {
-      console.error('Ошибка при отправке команды:', error);
-    }
-  }
-
-  /**
-   * Пример создания команды запроса соединения
-   */
-  async createConnectionRequestExample() {
-    console.log('=== Создание команды запроса соединения ===');
-    
-    const destination: Destination = {
-      type: 'url',
-      url: 'https://example.com/bridge-endpoint'
-    };
-
-    const encryptedSessionKey = new Uint8Array(80); // Заглушка для примера
-    const meta = new Uint8Array(0);
-
-    const config = this.client.createCommandConfig(
-      12345, // sessionId
-      encryptedSessionKey,
-      destination,
-      meta
-    );
-
-    const payload = this.client.createRequestConnectionCommand(config);
-    
-    console.log('Конфигурация команды создана:', config);
-    console.log('Payload команды:', payload);
-  }
 
   /**
    * Запуск всех примеров
@@ -225,12 +170,6 @@ export class BridgeClientExample {
     console.log('\n');
     
     await this.requestFundingExample();
-    console.log('\n');
-    
-    await this.dispatchCommandExample();
-    console.log('\n');
-    
-    await this.createConnectionRequestExample();
     console.log('\n');
     
     console.log('Все примеры завершены!');

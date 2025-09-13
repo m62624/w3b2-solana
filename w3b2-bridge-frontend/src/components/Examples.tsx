@@ -4,17 +4,14 @@ import {
   CheckCircle, 
   XCircle, 
   Loader2, 
-  ExternalLink,
   Shield,
   User,
   CreditCard,
-  Send,
   Database
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { BridgeClient } from '../services/bridgeClient';
 import { BridgeUtils } from '../utils/bridgeUtils';
-import { CommandMode, CMD_PUBLISH_PUBKEY } from '../types/bridge';
 import { Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import toast from 'react-hot-toast';
 import ExampleResult from './ExampleResult';
@@ -63,7 +60,7 @@ const signature = await client.registerAdmin({
   payer: payer.publicKey,
   authority: authority.publicKey,
   coSigner: coSigner.publicKey,
-  initialBalance: 1000000000, // 1 SOL
+  fundingAmount: 1000000000, // 1 SOL
 }, [payer, authority, coSigner]);`
     },
     {
@@ -113,42 +110,6 @@ const signature = await client.approveFunding({
   fundingRequest: fundingPDA,
   userWallet: userWallet.publicKey,
 }, [adminAuthority]);`
-    },
-    {
-      id: 'dispatch-command',
-      name: 'Отправка команды',
-      description: 'Отправка команды пользователем или админом',
-      icon: Send,
-      color: 'bg-purple-500',
-      code: `const pubkeyCommand = client.createPublishPubkeyCommand(targetPubkey);
-
-const signature = await client.dispatchCommandUser({
-  authority: userWallet.publicKey,
-  targetPubkey,
-  commandId: CMD_PUBLISH_PUBKEY,
-  mode: CommandMode.OneWay,
-  payload: pubkeyCommand,
-}, [userWallet]);`
-    },
-    {
-      id: 'connection-request',
-      name: 'Запрос соединения',
-      description: 'Создание команды для запроса соединения с сервисом',
-      icon: ExternalLink,
-      color: 'bg-indigo-500',
-      code: `const destination = {
-  type: 'url',
-  url: 'https://example.com/bridge-endpoint'
-};
-
-const config = client.createCommandConfig(
-  12345, // sessionId
-  encryptedSessionKey, // 80 bytes
-  destination,
-  new Uint8Array(0) // meta
-);
-
-const payload = client.createRequestConnectionCommand(config);`
     }
   ];
 
@@ -190,7 +151,7 @@ const payload = client.createRequestConnectionCommand(config);`
             payer: payer.publicKey,
             authority: authority.publicKey,
             coSigner: coSigner.publicKey,
-            initialBalance: 0.1 * LAMPORTS_PER_SOL,
+            fundingAmount: 0.1 * LAMPORTS_PER_SOL,
           }, [payer, authority, coSigner]);
 
           const [adminPDA] = await client.getAdminAccountPDA(coSigner.publicKey);
@@ -283,52 +244,6 @@ const payload = client.createRequestConnectionCommand(config);`
           break;
         }
 
-        case 'dispatch-command': {
-          const authority = Keypair.generate();
-          const targetPubkey = Keypair.generate().publicKey;
-
-          const pubkeyCommand = client.createPublishPubkeyCommand(targetPubkey);
-
-          signature = await client.dispatchCommandUser({
-            authority: authority.publicKey,
-            targetPubkey,
-            commandId: CMD_PUBLISH_PUBKEY,
-            mode: CommandMode.OneWay,
-            payload: pubkeyCommand,
-          }, [authority]);
-
-          result = {
-            signature,
-            commandId: CMD_PUBLISH_PUBKEY,
-            mode: 'OneWay',
-            targetPubkey: targetPubkey.toString()
-          };
-          break;
-        }
-
-        case 'connection-request': {
-          const destination = {
-            type: 'url' as const,
-            url: 'https://example.com/bridge-endpoint'
-          };
-
-          const encryptedSessionKey = new Uint8Array(80);
-          const config = client.createCommandConfig(
-            12345,
-            encryptedSessionKey,
-            destination,
-            new Uint8Array(0)
-          );
-
-          const payload = client.createRequestConnectionCommand(config);
-
-          result = {
-            config,
-            payload: Array.from(payload),
-            destination
-          };
-          break;
-        }
 
         default:
           throw new Error('Неизвестный пример');

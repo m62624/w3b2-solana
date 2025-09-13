@@ -128,7 +128,7 @@ export interface RegisterAdminParams {
   payer: PublicKey;
   authority: PublicKey;
   coSigner: PublicKey;
-  initialBalance: number;
+  fundingAmount: number;
 }
 
 export interface RegisterUserParams {

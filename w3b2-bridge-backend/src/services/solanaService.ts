@@ -44,11 +44,9 @@ export class SolanaService extends EventEmitter {
 
   async initialize(): Promise<void> {
     try {
-      // Проверяем подключение к Solana
       const version = await this.connection.getVersion();
       console.log('✅ Подключение к Solana установлено:', version);
 
-      // Проверяем баланс администратора
       const balance = await this.connection.getBalance(
         this.adminKeypair.publicKey
       );
@@ -76,13 +74,11 @@ export class SolanaService extends EventEmitter {
     this.isListening = true;
     console.log('📡 Запуск прослушивания блокчейна...');
 
-    // Получаем текущий слот
     this.lastProcessedSlot = await this.connection.getSlot();
 
-    // Запускаем периодическую проверку новых транзакций
     setInterval(async () => {
       await this.checkForNewTransactions();
-    }, 5000); // Проверяем каждые 5 секунд
+    }, 5000);
   }
 
   private async checkForNewTransactions(): Promise<void> {
@@ -90,7 +86,6 @@ export class SolanaService extends EventEmitter {
       const currentSlot = await this.connection.getSlot();
 
       if (currentSlot > this.lastProcessedSlot) {
-        // Получаем транзакции для нашего программы
         const signatures = await this.connection.getSignaturesForAddress(
           this.programId,
           {
@@ -102,7 +97,15 @@ export class SolanaService extends EventEmitter {
 
         for (const sigInfo of signatures) {
           if (sigInfo.slot > this.lastProcessedSlot) {
-            await this.processTransaction(sigInfo.signature);
+            try {
+              await this.processTransaction(sigInfo.signature);
+            } catch (error) {
+              console.error(
+                `❌ Ошибка обработки транзакции ${sigInfo.signature}:`,
+                error
+              );
+              // Продолжаем обработку других транзакций даже если одна не удалась
+            }
           }
         }
 
@@ -134,7 +137,28 @@ export class SolanaService extends EventEmitter {
               ? message.getAccountKeys()
               : // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (message as any).accountKeys;
+
+          // Проверяем, что accountKeys существует и programIdIndex в пределах массива
+          if (
+            !accountKeys ||
+            instruction.programIdIndex >= accountKeys.length
+          ) {
+            console.warn(
+              `⚠️ Некорректный programIdIndex ${instruction.programIdIndex} для транзакции ${signature}`
+            );
+            continue;
+          }
+
           const programId = accountKeys[instruction.programIdIndex];
+
+          // Проверяем, что programId существует и имеет метод equals
+          if (!programId || typeof programId.equals !== 'function') {
+            console.warn(
+              `⚠️ Некорректный programId для транзакции ${signature}`
+            );
+            continue;
+          }
+
           if (programId.equals(this.programId)) {
             await this.processProgramInstruction(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any

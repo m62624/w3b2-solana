@@ -80,7 +80,7 @@ export class BridgeClient {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: this.programId,
-      data: this.encodeRegisterAdminData(params.initialBalance),
+      data: this.encodeRegisterAdminData(params.fundingAmount),
     });
 
     const transaction = new Transaction().add(instruction);
@@ -199,59 +199,6 @@ export class BridgeClient {
     return await sendAndConfirmTransaction(this.connection, transaction, signers);
   }
 
-  /**
-   * Отправка команды от админа
-   */
-  async dispatchCommandAdmin(
-    params: DispatchCommandParams,
-    signers: Keypair[]
-  ): Promise<TransactionSignature> {
-    const [adminAccountPDA] = await this.getAdminAccountPDA(params.authority);
-    
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: params.authority, isSigner: true, isWritable: false },
-        { pubkey: adminAccountPDA, isSigner: false, isWritable: true },
-      ],
-      programId: this.programId,
-      data: this.encodeDispatchCommandData(
-        params.commandId,
-        params.mode,
-        params.payload,
-        params.targetPubkey
-      ),
-    });
-
-    const transaction = new Transaction().add(instruction);
-    return await sendAndConfirmTransaction(this.connection, transaction, signers);
-  }
-
-  /**
-   * Отправка команды от пользователя
-   */
-  async dispatchCommandUser(
-    params: DispatchCommandParams,
-    signers: Keypair[]
-  ): Promise<TransactionSignature> {
-    const [userAccountPDA] = await this.getUserAccountPDA(params.authority);
-    
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: params.authority, isSigner: true, isWritable: false },
-        { pubkey: userAccountPDA, isSigner: false, isWritable: true },
-      ],
-      programId: this.programId,
-      data: this.encodeDispatchCommandData(
-        params.commandId,
-        params.mode,
-        params.payload,
-        params.targetPubkey
-      ),
-    });
-
-    const transaction = new Transaction().add(instruction);
-    return await sendAndConfirmTransaction(this.connection, transaction, signers);
-  }
 
   /**
    * Получить данные админского аккаунта
@@ -307,35 +254,40 @@ export class BridgeClient {
   }
 
   // Кодирование данных инструкций
-  private encodeRegisterAdminData(initialBalance: number): Buffer {
+  private encodeRegisterAdminData(fundingAmount: number): Buffer {
     const data = Buffer.alloc(8 + 8); // discriminator + u64
-    data.writeUInt32LE(0, 0); // discriminator для register_admin
-    data.writeBigUInt64LE(BigInt(initialBalance), 8);
+    // Дискриминатор для register_admin: [232, 95, 10, 59, 200, 222, 147, 38]
+    data.set([232, 95, 10, 59, 200, 222, 147, 38], 0);
+    data.writeBigUInt64LE(BigInt(fundingAmount), 8);
     return data;
   }
 
   private encodeRegisterUserData(initialBalance: number): Buffer {
     const data = Buffer.alloc(8 + 8); // discriminator + u64
-    data.writeUInt32LE(1, 0); // discriminator для register_user
+    // Дискриминатор для register_user: [2, 241, 150, 223, 99, 214, 116, 97]
+    data.set([2, 241, 150, 223, 99, 214, 116, 97], 0);
     data.writeBigUInt64LE(BigInt(initialBalance), 8);
     return data;
   }
 
   private encodeDeactivateAdminData(): Buffer {
     const data = Buffer.alloc(8);
-    data.writeUInt32LE(2, 0); // discriminator для deactivate_admin
+    // Дискриминатор для deactivate_admin: [186, 94, 190, 12, 33, 207, 53, 6]
+    data.set([186, 94, 190, 12, 33, 207, 53, 6], 0);
     return data;
   }
 
   private encodeDeactivateUserData(): Buffer {
     const data = Buffer.alloc(8);
-    data.writeUInt32LE(3, 0); // discriminator для deactivate_user
+    // Дискриминатор для deactivate_user: [170, 53, 163, 46, 104, 99, 39, 15]
+    data.set([170, 53, 163, 46, 104, 99, 39, 15], 0);
     return data;
   }
 
   private encodeRequestFundingData(amount: number, targetAdmin: PublicKey): Buffer {
     const data = Buffer.alloc(8 + 8 + 32); // discriminator + u64 + pubkey
-    data.writeUInt32LE(4, 0); // discriminator для request_funding
+    // Дискриминатор для request_funding: [181, 251, 230, 32, 73, 41, 179, 115]
+    data.set([181, 251, 230, 32, 73, 41, 179, 115], 0);
     data.writeBigUInt64LE(BigInt(amount), 8);
     data.set(targetAdmin.toBuffer(), 16);
     return data;
@@ -343,39 +295,11 @@ export class BridgeClient {
 
   private encodeApproveFundingData(): Buffer {
     const data = Buffer.alloc(8);
-    data.writeUInt32LE(5, 0); // discriminator для approve_funding
+    // Дискриминатор для approve_funding: [141, 177, 12, 63, 22, 7, 248, 100]
+    data.set([141, 177, 12, 63, 22, 7, 248, 100], 0);
     return data;
   }
 
-  private encodeDispatchCommandData(
-    commandId: number,
-    mode: typeof CommandMode[keyof typeof CommandMode],
-    payload: Uint8Array,
-    targetPubkey: PublicKey
-  ): Buffer {
-    const payloadLength = payload.length;
-    const data = Buffer.alloc(8 + 8 + 1 + 4 + payloadLength + 32); // discriminator + u64 + u8 + u32 + payload + pubkey
-    let offset = 0;
-    
-    data.writeUInt32LE(6, offset); // discriminator для dispatch_command_admin/user
-    offset += 8;
-    
-    data.writeBigUInt64LE(BigInt(commandId), offset);
-    offset += 8;
-    
-    data.writeUInt8(mode, offset);
-    offset += 1;
-    
-    data.writeUInt32LE(payloadLength, offset);
-    offset += 4;
-    
-    data.set(payload, offset);
-    offset += payloadLength;
-    
-    data.set(targetPubkey.toBuffer(), offset);
-    
-    return data;
-  }
 
   // Декодирование данных аккаунтов
   private decodeAdminAccount(data: Buffer): any {
@@ -423,44 +347,4 @@ export class BridgeClient {
     };
   }
 
-  /**
-   * Создать конфигурацию команды
-   */
-  createCommandConfig(
-    sessionId: number,
-    encryptedSessionKey: Uint8Array,
-    destination: Destination,
-    meta: Uint8Array = new Uint8Array(0)
-  ): any {
-    return {
-      sessionId,
-      encryptedSessionKey,
-      destination,
-      meta,
-    };
-  }
-
-  /**
-   * Сериализовать конфигурацию команды в payload
-   */
-  serializeCommandConfig(_config: any): Uint8Array {
-    // Здесь должна быть реализация Borsh сериализации
-    // Для упрощения возвращаем пустой массив
-    // В реальной реализации нужно использовать borsh-js
-    return new Uint8Array(0);
-  }
-
-  /**
-   * Создать команду для публикации публичного ключа
-   */
-  createPublishPubkeyCommand(pubkey: PublicKey): Uint8Array {
-    return pubkey.toBuffer();
-  }
-
-  /**
-   * Создать команду для запроса соединения
-   */
-  createRequestConnectionCommand(config: CommandConfig): Uint8Array {
-    return this.serializeCommandConfig(config);
-  }
 }
