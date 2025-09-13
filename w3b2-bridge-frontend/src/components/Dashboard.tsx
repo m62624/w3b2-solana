@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';
+import RealtimeEvents from './RealtimeEvents';
+import EventHistory from './EventHistory';
 import type { AppStats } from '../types/index';
 import toast from 'react-hot-toast';
 
@@ -206,6 +208,12 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Real-time события */}
+      <RealtimeEvents />
+
+      {/* История событий */}
+      <EventHistory />
 
       {/* Быстрые действия */}
       <div className="card">

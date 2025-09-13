@@ -206,6 +206,72 @@ class ApiService {
     const response = await this.api.get(`/balance/${publicKey}`);
     return response.data;
   }
+
+  // Регистрация администратора
+  async registerAdmin(
+    authority: string,
+    coSigner: string,
+    fundingAmount: number
+  ): Promise<ApiResponse<{ signature: string; adminPublicKey: string; coSignerPublicKey: string; fundingAmount: number; message: string }>> {
+    const response = await this.api.post('/register-admin', {
+      authority,
+      coSigner,
+      fundingAmount,
+    });
+    return response.data;
+  }
+
+  // Получение всех администраторов
+  async getAdmins(): Promise<ApiResponse<any[]>> {
+    const response = await this.api.get('/admins');
+    return response.data;
+  }
+
+  // Получение событий
+  async getEvents(limit: number = 100, offset: number = 0): Promise<ApiResponse<any[]>> {
+    const response = await this.api.get('/events', {
+      params: { limit, offset }
+    });
+    return response.data;
+  }
+
+  // Получение событий по типу
+  async getEventsByType(eventType: string, limit: number = 100): Promise<ApiResponse<any[]>> {
+    const response = await this.api.get(`/events/type/${eventType}`, {
+      params: { limit }
+    });
+    return response.data;
+  }
+
+  // Получение конкретного события
+  async getEvent(eventId: string): Promise<ApiResponse<any>> {
+    const response = await this.api.get(`/events/${eventId}`);
+    return response.data;
+  }
+
+  // Получение статистики событий
+  async getEventStats(): Promise<ApiResponse<{
+    events: {
+      totalEvents: number;
+      eventsByType: Record<string, number>;
+      lastEventTime: number;
+    };
+    grpc: {
+      totalConnections: number;
+      isConnectorConnected: boolean;
+      lastEventTime: number;
+      connectorUrl: string;
+    };
+  }>> {
+    const response = await this.api.get('/events/stats');
+    return response.data;
+  }
+
+  // Очистка старых событий
+  async cleanupOldEvents(maxAge: number = 7 * 24 * 60 * 60 * 1000): Promise<ApiResponse<{ message: string }>> {
+    const response = await this.api.post('/events/cleanup', { maxAge });
+    return response.data;
+  }
 }
 
 // Экспортируем singleton instance

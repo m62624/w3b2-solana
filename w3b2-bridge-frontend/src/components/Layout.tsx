@@ -10,9 +10,13 @@ import {
   X,
   Activity,
   Shield,
-  Code
+  Code,
+  Key,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
+import { useWebSocketContext } from '../contexts/WebSocketContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +25,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { walletInfo, balance } = useWalletContext();
+  const { isConnected: wsConnected } = useWebSocketContext();
   const location = useLocation();
 
   const navigation = [
@@ -28,6 +33,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Кошелек', href: '/wallet', icon: Wallet },
     { name: 'Финансирование', href: '/funding', icon: CreditCard },
     { name: 'Записи', href: '/records', icon: Database },
+    { name: 'Управление кошельками', href: '/wallet-management', icon: Key },
     { name: 'Примеры', href: '/examples', icon: Code },
     { name: 'Настройки', href: '/settings', icon: Settings },
   ];
@@ -66,16 +72,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <span className="text-xl font-bold text-white">W3B2 Bridge</span>
             </div>
 
-            {/* Статус кошелька */}
+            {/* Статус соединений */}
             <div className="p-4 border-b border-slate-700">
-              <div className="flex items-center space-x-2 mb-2">
-                <Activity className={`h-4 w-4 ${walletInfo.connected ? 'text-green-400' : 'text-red-400'}`} />
-                <span className="text-sm text-slate-300">
-                  {walletInfo.connected ? 'Подключено' : 'Отключено'}
-                </span>
+              <div className="space-y-3">
+                {/* Статус кошелька */}
+                <div className="flex items-center space-x-2">
+                  <Activity className={`h-4 w-4 ${walletInfo.connected ? 'text-green-400' : 'text-red-400'}`} />
+                  <span className="text-sm text-slate-300">
+                    Кошелек: {walletInfo.connected ? 'Подключен' : 'Отключен'}
+                  </span>
+                </div>
+                
+                {/* Статус WebSocket */}
+                <div className="flex items-center space-x-2">
+                  {wsConnected ? (
+                    <Wifi className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                  )}
+                  <span className="text-sm text-slate-300">
+                    WebSocket: {wsConnected ? 'Подключен' : 'Отключен'}
+                  </span>
+                </div>
               </div>
+              
               {walletInfo.connected && walletInfo.publicKey && (
-                <div className="space-y-1">
+                <div className="mt-3 space-y-1">
                   <div className="text-xs text-slate-400">Публичный ключ:</div>
                   <div className="text-xs font-mono text-slate-300 break-all">
                     {walletInfo.publicKey.toBase58().slice(0, 8)}...{walletInfo.publicKey.toBase58().slice(-8)}

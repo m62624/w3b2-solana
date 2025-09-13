@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { ApiResponse } from '../types/index';
 
-export function errorHandler(error: Error, req: Request, res: Response, next: NextFunction): void {
+export function errorHandler(error: Error, req: Request, res: Response): void {
   console.error('❌ Ошибка:', error);
 
   // Определяем тип ошибки и соответствующий HTTP статус
@@ -45,7 +45,7 @@ export function errorHandler(error: Error, req: Request, res: Response, next: Ne
 }
 
 // Middleware для обработки 404 ошибок
-export function notFoundHandler(req: Request, res: Response, next: NextFunction): void {
+export function notFoundHandler(req: Request, res: Response): void {
   const response: ApiResponse = {
     success: false,
     error: `Маршрут ${req.method} ${req.path} не найден`,

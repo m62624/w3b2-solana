@@ -30,6 +30,7 @@ export class DatabaseService {
       });
       await fs.mkdir(path.join(this.dataDir, 'sessions'), { recursive: true });
       await fs.mkdir(path.join(this.dataDir, 'records'), { recursive: true });
+      await fs.mkdir(path.join(this.dataDir, 'events'), { recursive: true });
 
       this.isInitialized = true;
       console.log('✅ База данных инициализирована');
@@ -430,6 +431,208 @@ export class DatabaseService {
       }
     } catch (error) {
       console.error('❌ Ошибка очистки старых данных:', error);
+    }
+  }
+
+  // Получение всех администраторов
+  async getAllAdmins(): Promise<AdminAccount[]> {
+    try {
+      const adminsDir = path.join(this.dataDir, 'admins');
+      const files = await fs.readdir(adminsDir);
+      const admins: AdminAccount[] = [];
+
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(adminsDir, file);
+          const data = await fs.readFile(filePath, 'utf8');
+          const admin = JSON.parse(data);
+
+          admins.push({
+            ...admin,
+            public_key: new PublicKey(admin.public_key),
+            co_signer: new PublicKey(admin.co_signer),
+          });
+        }
+      }
+
+      return admins;
+    } catch (error) {
+      console.error('❌ Ошибка получения администраторов:', error);
+      return [];
+    }
+  }
+
+  // Работа с событиями
+  async saveEvent(event: Record<string, unknown>): Promise<void> {
+    try {
+      const eventId =
+        (event.id as string) ||
+        `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const filePath = path.join(this.dataDir, 'events', `${eventId}.json`);
+
+      const eventData = {
+        ...event,
+        id: eventId,
+        saved_at: Date.now(),
+      };
+
+      await fs.writeFile(filePath, JSON.stringify(eventData, null, 2));
+      console.log(`📡 Событие сохранено: ${eventId}`);
+    } catch (error) {
+      console.error('❌ Ошибка сохранения события:', error);
+    }
+  }
+
+  async getEvent(eventId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const filePath = path.join(this.dataDir, 'events', `${eventId}.json`);
+      const data = await fs.readFile(filePath, 'utf8');
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+
+  async getEvents(
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<Record<string, unknown>[]> {
+    try {
+      const eventsDir = path.join(this.dataDir, 'events');
+      const files = await fs.readdir(eventsDir);
+
+      const eventFiles = files.filter(f => f.endsWith('.json'));
+
+      // Получаем статистику файлов для сортировки
+      const fileStats = await Promise.all(
+        eventFiles.map(async file => {
+          const filePath = path.join(eventsDir, file);
+          const stats = await fs.stat(filePath);
+          return { file, mtime: stats.mtime.getTime() };
+        })
+      );
+
+      // Сортируем по времени создания файла (новые сначала)
+      const sortedFiles = fileStats
+        .sort((a, b) => b.mtime - a.mtime)
+        .map(item => item.file);
+
+      const events: Record<string, unknown>[] = [];
+      const startIndex = offset;
+      const endIndex = Math.min(startIndex + limit, sortedFiles.length);
+
+      for (let i = startIndex; i < endIndex; i++) {
+        const file = sortedFiles[i];
+        const filePath = path.join(eventsDir, file);
+        const data = await fs.readFile(filePath, 'utf8');
+        events.push(JSON.parse(data));
+      }
+
+      return events;
+    } catch (error) {
+      console.error('❌ Ошибка получения событий:', error);
+      return [];
+    }
+  }
+
+  async getEventsByType(
+    eventType: string,
+    limit: number = 100
+  ): Promise<Record<string, unknown>[]> {
+    try {
+      const eventsDir = path.join(this.dataDir, 'events');
+      const files = await fs.readdir(eventsDir);
+
+      const events: Record<string, unknown>[] = [];
+      let count = 0;
+
+      for (const file of files) {
+        if (count >= limit) break;
+        if (file.endsWith('.json')) {
+          const filePath = path.join(eventsDir, file);
+          const data = await fs.readFile(filePath, 'utf8');
+          const event = JSON.parse(data) as Record<string, unknown>;
+
+          if (event.eventType === eventType) {
+            events.push(event);
+            count++;
+          }
+        }
+      }
+
+      return events;
+    } catch (error) {
+      console.error('❌ Ошибка получения событий по типу:', error);
+      return [];
+    }
+  }
+
+  async getEventStats(): Promise<{
+    totalEvents: number;
+    eventsByType: Record<string, number>;
+    lastEventTime: number;
+  }> {
+    try {
+      const eventsDir = path.join(this.dataDir, 'events');
+      const files = await fs.readdir(eventsDir);
+
+      const eventsByType: Record<string, number> = {};
+      let totalEvents = 0;
+      let lastEventTime = 0;
+
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(eventsDir, file);
+          const data = await fs.readFile(filePath, 'utf8');
+          const event = JSON.parse(data) as Record<string, unknown>;
+
+          totalEvents++;
+          const eventType = event.eventType as string;
+          eventsByType[eventType] = (eventsByType[eventType] || 0) + 1;
+
+          const processedAt = event.processedAt as number;
+          if (processedAt > lastEventTime) {
+            lastEventTime = processedAt;
+          }
+        }
+      }
+
+      return {
+        totalEvents,
+        eventsByType,
+        lastEventTime,
+      };
+    } catch (error) {
+      console.error('❌ Ошибка получения статистики событий:', error);
+      return { totalEvents: 0, eventsByType: {}, lastEventTime: 0 };
+    }
+  }
+
+  async cleanupOldEvents(
+    maxAge: number = 7 * 24 * 60 * 60 * 1000
+  ): Promise<void> {
+    const now = Date.now();
+    const cutoff = now - maxAge;
+
+    try {
+      const eventsDir = path.join(this.dataDir, 'events');
+      const files = await fs.readdir(eventsDir);
+
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(eventsDir, file);
+          const data = await fs.readFile(filePath, 'utf8');
+          const event = JSON.parse(data) as Record<string, unknown>;
+
+          const processedAt = event.processedAt as number;
+          if (processedAt < cutoff) {
+            await fs.unlink(filePath);
+            console.log(`🧹 Удалено старое событие: ${file}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Ошибка очистки старых событий:', error);
     }
   }
 }

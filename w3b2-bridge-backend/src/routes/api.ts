@@ -22,6 +22,8 @@ const getServices = (req: Request) => ({
   solanaService: req.app.locals.solanaService,
   encryptionService: req.app.locals.encryptionService,
   databaseService: req.app.locals.databaseService,
+  grpcService: req.app.locals.grpcService,
+  webSocketService: req.app.locals.webSocketService,
 });
 
 // Регистрация пользователя
@@ -385,7 +387,12 @@ router.post('/session/close', async (req: Request, res: Response) => {
 // Получение статистики
 router.get('/stats', async (req: Request, res: Response) => {
   try {
-    const { databaseService, encryptionService } = getServices(req);
+    const {
+      databaseService,
+      encryptionService,
+      grpcService,
+      webSocketService,
+    } = getServices(req);
     const [dbStats, sessionStats] = await Promise.all([
       databaseService.getStats(),
       Promise.resolve(encryptionService.getSessionStats()),
@@ -396,6 +403,12 @@ router.get('/stats', async (req: Request, res: Response) => {
       data: {
         database: dbStats,
         sessions: sessionStats,
+        connections: {
+          grpc: {
+            connected: grpcService.isConnectorConnected(),
+          },
+          websocket: webSocketService.getConnectionStats(),
+        },
       },
       timestamp: new Date().toISOString(),
     } as ApiResponse);
@@ -422,6 +435,61 @@ router.get('/funding-requests', async (req: Request, res: Response) => {
     } as ApiResponse);
   } catch (error) {
     console.error('❌ Ошибка получения запросов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Регистрация администратора
+router.post('/register-admin', async (req: Request, res: Response) => {
+  try {
+    const { authority, coSigner, fundingAmount } = req.body;
+
+    if (!authority || !coSigner || !fundingAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Все поля обязательны: authority, coSigner, fundingAmount',
+        timestamp: new Date().toISOString(),
+      } as ApiResponse);
+    }
+
+    const { solanaService, databaseService } = getServices(req);
+
+    const authorityPubkey = new PublicKey(authority);
+    const coSignerPubkey = new PublicKey(coSigner);
+    const fundingAmountNum = parseInt(fundingAmount);
+
+    // Регистрируем администратора в блокчейне
+    const signature = await solanaService.registerAdmin(fundingAmountNum);
+
+    // Сохраняем в базе данных
+    const adminAccount = {
+      public_key: authorityPubkey,
+      co_signer: coSignerPubkey,
+      is_registered: true,
+      funding_amount: fundingAmountNum,
+      created_at: Date.now(),
+      last_activity: Date.now(),
+    };
+
+    await databaseService.createAdmin(adminAccount);
+
+    res.json({
+      success: true,
+      data: {
+        signature,
+        adminPublicKey: authorityPubkey.toBase58(),
+        coSignerPublicKey: coSignerPubkey.toBase58(),
+        fundingAmount: fundingAmountNum,
+        message: 'Администратор зарегистрирован в блокчейне',
+      },
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка регистрации администратора:', error);
     res.status(500).json({
       success: false,
       error: 'Внутренняя ошибка сервера',
@@ -503,6 +571,27 @@ router.get('/balance/:publicKey', async (req: Request, res: Response) => {
   }
 });
 
+// Получение всех администраторов
+router.get('/admins', async (req: Request, res: Response) => {
+  try {
+    const { databaseService } = getServices(req);
+    const admins = await databaseService.getAllAdmins();
+
+    res.json({
+      success: true,
+      data: admins,
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения администраторов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
 // Получение информации о пользователе
 router.get('/user/:publicKey', async (req: Request, res: Response) => {
   try {
@@ -535,6 +624,141 @@ router.get('/user/:publicKey', async (req: Request, res: Response) => {
     } as ApiResponse);
   } catch (error) {
     console.error('❌ Ошибка получения пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение событий
+router.get('/events', async (req: Request, res: Response) => {
+  try {
+    const { limit = 100, offset = 0 } = req.query;
+    const { databaseService } = getServices(req);
+
+    const events = await databaseService.getEvents(
+      parseInt(limit as string),
+      parseInt(offset as string)
+    );
+
+    res.json({
+      success: true,
+      data: events,
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения событий:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение событий по типу
+router.get('/events/type/:eventType', async (req: Request, res: Response) => {
+  try {
+    const { eventType } = req.params;
+    const { limit = 100 } = req.query;
+    const { databaseService } = getServices(req);
+
+    const events = await databaseService.getEventsByType(
+      eventType,
+      parseInt(limit as string)
+    );
+
+    res.json({
+      success: true,
+      data: events,
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения событий по типу:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение конкретного события
+router.get('/events/:eventId', async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+    const { databaseService } = getServices(req);
+
+    const event = await databaseService.getEvent(eventId);
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        error: 'Событие не найдено',
+        timestamp: new Date().toISOString(),
+      } as ApiResponse);
+    }
+
+    res.json({
+      success: true,
+      data: event,
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения события:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Получение статистики событий
+router.get('/events/stats', async (req: Request, res: Response) => {
+  try {
+    const { databaseService, grpcService } = getServices(req);
+
+    const [eventStats, grpcStats] = await Promise.all([
+      databaseService.getEventStats(),
+      Promise.resolve(grpcService.getEventStats()),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        events: eventStats,
+        grpc: grpcStats,
+      },
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка получения статистики событий:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера',
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
+});
+
+// Очистка старых событий
+router.post('/events/cleanup', async (req: Request, res: Response) => {
+  try {
+    const { maxAge = 7 * 24 * 60 * 60 * 1000 } = req.body; // 7 дней по умолчанию
+    const { databaseService } = getServices(req);
+
+    await databaseService.cleanupOldEvents(maxAge);
+
+    res.json({
+      success: true,
+      data: { message: 'Старые события очищены' },
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Ошибка очистки событий:', error);
     res.status(500).json({
       success: false,
       error: 'Внутренняя ошибка сервера',

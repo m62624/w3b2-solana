@@ -3,10 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
 import { SolanaService } from './services/solanaService';
 import { EncryptionService } from './services/encryptionService';
 import { DatabaseService } from './services/databaseService';
 import { GrpcService } from './services/grpcService';
+import { WebSocketService } from './services/websocketService';
 import { apiRoutes } from './routes/api';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -14,8 +16,9 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 dotenv.config();
 
 const app = express();
+const server = createServer(app);
 const PORT = process.env.PORT || 3001;
-const GRPC_PORT = process.env.GRPC_PORT || '50051';
+const GRPC_PORT = process.env.GRPC_PORT || '50052';
 
 // Middleware
 app.use(helmet());
@@ -29,12 +32,14 @@ const solanaService = new SolanaService();
 const encryptionService = new EncryptionService();
 const databaseService = new DatabaseService();
 const grpcService = new GrpcService();
+const webSocketService = new WebSocketService(server);
 
 // Передаем сервисы в контекст приложения
 app.locals.solanaService = solanaService;
 app.locals.encryptionService = encryptionService;
 app.locals.databaseService = databaseService;
 app.locals.grpcService = grpcService;
+app.locals.webSocketService = webSocketService;
 
 // Маршруты
 app.use('/api', apiRoutes);
@@ -44,6 +49,21 @@ app.use(notFoundHandler);
 
 // Обработка ошибок
 app.use(errorHandler);
+
+// Настройка обработки событий от gRPC
+grpcService.on('blockchain_event', async event => {
+  console.log('📡 Получено событие от gRPC:', event);
+
+  // Сохраняем событие в базу данных
+  try {
+    await databaseService.saveEvent(event);
+  } catch (error) {
+    console.error('❌ Ошибка сохранения события в БД:', error);
+  }
+
+  // Пересылаем событие через WebSocket
+  webSocketService.broadcastEvent(event);
+});
 
 // Запуск сервера
 async function startServer() {
@@ -58,9 +78,10 @@ async function startServer() {
     // Запуск прослушивания блокчейна
     await solanaService.startBlockchainListener();
 
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 W3B2 Backend Server запущен на порту ${PORT}`);
       console.log(`🔌 gRPC сервер запущен на порту ${GRPC_PORT}`);
+      console.log(`🌐 WebSocket сервер запущен на порту ${PORT}`);
       console.log(`📡 Прослушивание Solana блокчейна...`);
     });
   } catch (error) {
@@ -76,10 +97,11 @@ process.on('SIGINT', async () => {
   console.log('\n🛑 Получен сигнал SIGINT, завершение работы...');
   try {
     await grpcService.stop();
-    console.log('✅ gRPC сервер остановлен');
+    webSocketService.stop();
+    console.log('✅ Сервисы остановлены');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Ошибка при остановке gRPC сервера:', error);
+    console.error('❌ Ошибка при остановке сервисов:', error);
     process.exit(1);
   }
 });
@@ -88,10 +110,11 @@ process.on('SIGTERM', async () => {
   console.log('\n🛑 Получен сигнал SIGTERM, завершение работы...');
   try {
     await grpcService.stop();
-    console.log('✅ gRPC сервер остановлен');
+    webSocketService.stop();
+    console.log('✅ Сервисы остановлены');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Ошибка при остановке gRPC сервера:', error);
+    console.error('❌ Ошибка при остановке сервисов:', error);
     process.exit(1);
   }
 });

@@ -4,11 +4,9 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { BridgeEvent } from '../types/bridge.proto';
 
-// Получение __dirname в ES модулях
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Загрузка proto файла
 const PROTO_PATH = join(__dirname, '../../proto/bridge.proto');
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,
@@ -21,7 +19,7 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 const bridgeProto = grpc.loadPackageDefinition(packageDefinition) as any;
 
 export class GrpcClient {
-  private client: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  private client: any;
 
   constructor(serverUrl: string = 'localhost:50051') {
     this.client = new bridgeProto.bridge.BridgeService(
@@ -30,7 +28,6 @@ export class GrpcClient {
     );
   }
 
-  // Подключение к стриму событий
   public async connectToEventStream(): Promise<void> {
     console.log('🔌 Подключение к gRPC серверу...');
 
@@ -48,7 +45,6 @@ export class GrpcClient {
       console.error('❌ Ошибка gRPC соединения:', error);
     });
 
-    // Обработка Ctrl+C
     process.on('SIGINT', () => {
       console.log('\n🛑 Отключение от сервера...');
       call.cancel();
@@ -57,7 +53,6 @@ export class GrpcClient {
   }
 }
 
-// Пример использования
 if (import.meta.url === `file://${process.argv[1]}`) {
   const client = new GrpcClient();
   client.connectToEventStream().catch(console.error);
