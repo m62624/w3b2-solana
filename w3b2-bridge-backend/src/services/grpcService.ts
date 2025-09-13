@@ -295,13 +295,26 @@ export class GrpcService extends EventEmitter {
 
     // Определяем тип события
     let eventType = 'unknown';
-    if (event.adminRegistered) eventType = 'admin_registered';
+
+    // Проверяем наличие поля event в данных
+    if ((event as any).event) {
+      eventType = (event as any).event;
+    }
+    // Если поле event отсутствует, проверяем поля события
+    else if (event.adminRegistered) eventType = 'admin_registered';
+    else if ((event as any).admin_registered) eventType = 'admin_registered';
     else if (event.userRegistered) eventType = 'user_registered';
+    else if ((event as any).user_registered) eventType = 'user_registered';
     else if (event.adminDeactivated) eventType = 'admin_deactivated';
+    else if ((event as any).admin_deactivated) eventType = 'admin_deactivated';
     else if (event.userDeactivated) eventType = 'user_deactivated';
+    else if ((event as any).user_deactivated) eventType = 'user_deactivated';
     else if (event.fundingRequested) eventType = 'funding_requested';
+    else if ((event as any).funding_requested) eventType = 'funding_requested';
     else if (event.fundingApproved) eventType = 'funding_approved';
+    else if ((event as any).funding_approved) eventType = 'funding_approved';
     else if (event.commandEvent) eventType = 'command_event';
+    else if ((event as any).command_event) eventType = 'command_event';
 
     return {
       ...event,

@@ -116,17 +116,48 @@ const EventHistory: React.FC<EventHistoryProps> = ({ className = '' }) => {
     return new Date(timestamp).toLocaleString('ru-RU');
   };
 
-  const getEventIcon = (eventType: string) => {
-    switch (eventType) {
-      case 'admin_registered': return '👑';
-      case 'user_registered': return '👤';
-      case 'funding_requested': return '💰';
-      case 'funding_approved': return '✅';
-      case 'command_event': return '📤';
-      case 'admin_deactivated': return '🔒';
-      case 'user_deactivated': return '👤';
-      default: return '📡';
+  const getEventIcon = (event: Event) => {
+    // Сначала проверяем eventType
+    if (event.eventType && event.eventType !== 'unknown') {
+      switch (event.eventType) {
+        case 'admin_registered': return '👑';
+        case 'user_registered': return '👤';
+        case 'funding_requested': return '💰';
+        case 'funding_approved': return '✅';
+        case 'command_event': return '📤';
+        case 'admin_deactivated': return '🔒';
+        case 'user_deactivated': return '👤';
+      }
     }
+    
+    // Если eventType unknown или отсутствует, проверяем поля события
+    if (event.admin_registered || event.adminRegistered) return '👑';
+    if (event.user_registered || event.userRegistered) return '👤';
+    if (event.funding_requested || event.fundingRequested) return '💰';
+    if (event.funding_approved || event.fundingApproved) return '✅';
+    if (event.command_event || event.commandEvent) return '📤';
+    if (event.admin_deactivated || event.adminDeactivated) return '🔒';
+    if (event.user_deactivated || event.userDeactivated) return '👤';
+    
+    return '📡';
+  };
+
+  const getEventTypeName = (event: Event) => {
+    // Сначала проверяем eventType
+    if (event.eventType && event.eventType !== 'unknown') {
+      return event.eventType.replace('_', ' ').toUpperCase();
+    }
+    
+    // Если eventType unknown или отсутствует, определяем по полям события
+    if (event.admin_registered || event.adminRegistered) return 'ADMIN REGISTERED';
+    if (event.user_registered || event.userRegistered) return 'USER REGISTERED';
+    if (event.funding_requested || event.fundingRequested) return 'FUNDING REQUESTED';
+    if (event.funding_approved || event.fundingApproved) return 'FUNDING APPROVED';
+    if (event.command_event || event.commandEvent) return 'COMMAND EVENT';
+    if (event.admin_deactivated || event.adminDeactivated) return 'ADMIN DEACTIVATED';
+    if (event.user_deactivated || event.userDeactivated) return 'USER DEACTIVATED';
+    
+    return 'НЕИЗВЕСТНОЕ СОБЫТИЕ';
   };
 
   const handleRefresh = () => {
@@ -293,11 +324,11 @@ const EventHistory: React.FC<EventHistoryProps> = ({ className = '' }) => {
                   className="p-3 bg-slate-800 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
                 >
                   <div className="flex items-start space-x-3">
-                    <div className="text-lg">{getEventIcon(event.eventType)}</div>
+                    <div className="text-lg">{getEventIcon(event)}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className="text-sm text-slate-300">
-                          {event.eventType?.replace('_', ' ').toUpperCase() || 'Неизвестное событие'}
+                          {getEventTypeName(event)}
                         </p>
                         <span className="text-xs text-slate-500">
                           {formatTimestamp(event.processedAt || event.saved_at)}

@@ -34,37 +34,101 @@ const RealtimeEvents: React.FC = () => {
   };
 
   const getEventIcon = (event: any) => {
-    if (event.adminRegistered) return '👑';
-    if (event.userRegistered) return '👤';
-    if (event.fundingRequested) return '💰';
-    if (event.fundingApproved) return '✅';
-    if (event.commandEvent) return '📤';
-    if (event.adminDeactivated) return '🔒';
-    if (event.userDeactivated) return '👤';
+    // Сначала проверяем eventType
+    if (event.eventType && event.eventType !== 'unknown') {
+      switch (event.eventType) {
+        case 'admin_registered': return '👑';
+        case 'user_registered': return '👤';
+        case 'funding_requested': return '💰';
+        case 'funding_approved': return '✅';
+        case 'command_event': return '📤';
+        case 'admin_deactivated': return '🔒';
+        case 'user_deactivated': return '👤';
+      }
+    }
+    
+    // Если eventType unknown или отсутствует, проверяем поля события
+    if (event.adminRegistered || event.admin_registered) return '👑';
+    if (event.userRegistered || event.user_registered) return '👤';
+    if (event.fundingRequested || event.funding_requested) return '💰';
+    if (event.fundingApproved || event.funding_approved) return '✅';
+    if (event.commandEvent || event.command_event) return '📤';
+    if (event.adminDeactivated || event.admin_deactivated) return '🔒';
+    if (event.userDeactivated || event.user_deactivated) return '👤';
+    
     return '📡';
   };
 
   const getEventDescription = (event: any) => {
+    // Сначала проверяем eventType для определения типа события
+    if (event.eventType && event.eventType !== 'unknown') {
+      switch (event.eventType) {
+        case 'admin_registered':
+          const adminData = event.admin_registered || event.adminRegistered;
+          return adminData ? `Администратор зарегистрирован: ${adminData.admin?.slice(0, 8)}...` : 'Администратор зарегистрирован';
+        case 'user_registered':
+          const userData = event.user_registered || event.userRegistered;
+          return userData ? `Пользователь зарегистрирован: ${userData.user?.slice(0, 8)}...` : 'Пользователь зарегистрирован';
+        case 'funding_requested':
+          const fundingReqData = event.funding_requested || event.fundingRequested;
+          return fundingReqData ? `Запрос на финансирование: ${(fundingReqData.amount / 1000000000).toFixed(4)} SOL` : 'Запрос на финансирование';
+        case 'funding_approved':
+          const fundingAppData = event.funding_approved || event.fundingApproved;
+          return fundingAppData ? `Финансирование одобрено: ${(fundingAppData.amount / 1000000000).toFixed(4)} SOL` : 'Финансирование одобрено';
+        case 'command_event':
+          const commandData = event.command_event || event.commandEvent;
+          return commandData ? `Команда отправлена: ID ${commandData.commandId}` : 'Команда отправлена';
+        case 'admin_deactivated':
+          const adminDeactData = event.admin_deactivated || event.adminDeactivated;
+          return adminDeactData ? `Администратор деактивирован: ${adminDeactData.admin?.slice(0, 8)}...` : 'Администратор деактивирован';
+        case 'user_deactivated':
+          const userDeactData = event.user_deactivated || event.userDeactivated;
+          return userDeactData ? `Пользователь деактивирован: ${userDeactData.user?.slice(0, 8)}...` : 'Пользователь деактивирован';
+      }
+    }
+    
+    // Если eventType unknown или отсутствует, проверяем поля события напрямую
     if (event.adminRegistered) {
       return `Администратор зарегистрирован: ${event.adminRegistered.admin.slice(0, 8)}...`;
+    }
+    if (event.admin_registered) {
+      return `Администратор зарегистрирован: ${event.admin_registered.admin.slice(0, 8)}...`;
     }
     if (event.userRegistered) {
       return `Пользователь зарегистрирован: ${event.userRegistered.user.slice(0, 8)}...`;
     }
+    if (event.user_registered) {
+      return `Пользователь зарегистрирован: ${event.user_registered.user.slice(0, 8)}...`;
+    }
     if (event.fundingRequested) {
       return `Запрос на финансирование: ${(event.fundingRequested.amount / 1000000000).toFixed(4)} SOL`;
+    }
+    if (event.funding_requested) {
+      return `Запрос на финансирование: ${(event.funding_requested.amount / 1000000000).toFixed(4)} SOL`;
     }
     if (event.fundingApproved) {
       return `Финансирование одобрено: ${(event.fundingApproved.amount / 1000000000).toFixed(4)} SOL`;
     }
+    if (event.funding_approved) {
+      return `Финансирование одобрено: ${(event.funding_approved.amount / 1000000000).toFixed(4)} SOL`;
+    }
     if (event.commandEvent) {
       return `Команда отправлена: ID ${event.commandEvent.commandId}`;
+    }
+    if (event.command_event) {
+      return `Команда отправлена: ID ${event.command_event.commandId}`;
     }
     if (event.adminDeactivated) {
       return `Администратор деактивирован: ${event.adminDeactivated.admin.slice(0, 8)}...`;
     }
+    if (event.admin_deactivated) {
+      return `Администратор деактивирован: ${event.admin_deactivated.admin.slice(0, 8)}...`;
+    }
     if (event.userDeactivated) {
       return `Пользователь деактивирован: ${event.userDeactivated.user.slice(0, 8)}...`;
+    }
+    if (event.user_deactivated) {
+      return `Пользователь деактивирован: ${event.user_deactivated.user.slice(0, 8)}...`;
     }
     return 'Неизвестное событие';
   };

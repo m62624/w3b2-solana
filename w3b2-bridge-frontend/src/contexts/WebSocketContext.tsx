@@ -51,14 +51,24 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
       // Показываем уведомление о событии
       if (event.adminRegistered) {
         toast.success(`Администратор зарегистрирован: ${event.adminRegistered.admin}`);
+      } else if (event.admin_registered) {
+        toast.success(`Администратор зарегистрирован: ${event.admin_registered.admin}`);
       } else if (event.userRegistered) {
         toast.success(`Пользователь зарегистрирован: ${event.userRegistered.user}`);
+      } else if (event.user_registered) {
+        toast.success(`Пользователь зарегистрирован: ${event.user_registered.user}`);
       } else if (event.fundingRequested) {
         toast(`Запрос на финансирование: ${event.fundingRequested.amount} lamports`, { icon: '💰' });
+      } else if (event.funding_requested) {
+        toast(`Запрос на финансирование: ${event.funding_requested.amount} lamports`, { icon: '💰' });
       } else if (event.fundingApproved) {
         toast.success(`Финансирование одобрено: ${event.fundingApproved.amount} lamports`);
+      } else if (event.funding_approved) {
+        toast.success(`Финансирование одобрено: ${event.funding_approved.amount} lamports`);
       } else if (event.commandEvent) {
         toast(`Команда отправлена: ${event.commandEvent.commandId}`, { icon: '📤' });
+      } else if (event.command_event) {
+        toast(`Команда отправлена: ${event.command_event.commandId}`, { icon: '📤' });
       }
     };
 

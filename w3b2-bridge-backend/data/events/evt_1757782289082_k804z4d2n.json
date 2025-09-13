@@ -1,0 +1,13 @@
+{
+  "user_registered": {
+    "user": "rpkR9Ba2KyeAufwjWDTTxPGuo13BXjbnzBnxibkgRiL",
+    "initial_balance": "50000000",
+    "ts": "1757782288"
+  },
+  "event": "user_registered",
+  "id": "evt_1757782289082_k804z4d2n",
+  "processedAt": 1757782289082,
+  "source": "grpc_connector",
+  "eventType": "user_registered",
+  "saved_at": 1757782289082
+}
