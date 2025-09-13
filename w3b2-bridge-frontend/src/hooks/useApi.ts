@@ -1,12 +1,7 @@
 import { useState, useCallback } from 'react';
 import { apiService } from '../services/apiService';
-import { 
-  UserAccount, 
-  FundingRequest, 
-  CrudOperation, 
-  SessionData, 
-  AppStats,
-  DatabaseRecord 
+import type{ 
+  CrudOperation
 } from '../types/index';
 
 export const useApi = () => {
@@ -59,12 +54,13 @@ export const useApi = () => {
   const requestFunding = useCallback(async (
     userWallet: string, 
     amount: number, 
-    targetAdmin: string
+    targetAdmin: string,
+    userPrivateKey: string
   ) => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await apiService.requestFunding(userWallet, amount, targetAdmin);
+      const response = await apiService.requestFunding(userWallet, amount, targetAdmin, userPrivateKey);
       return response;
     } catch (error) {
       handleApiError(error);

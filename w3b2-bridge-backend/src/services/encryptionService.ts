@@ -230,7 +230,7 @@ export class EncryptionService {
   // Дешифрование CommandConfig
   decryptCommandConfig(
     encryptedConfig: Uint8Array
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     // _clientPublicKey: Uint8Array
   ): CommandConfig {
     try {

@@ -8,7 +8,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import { CommandId, CommandMode, Destination } from '../types/index';
+import { CommandId, CommandMode, type Destination } from '../types/index';
 
 export class SolanaService {
   private connection: Connection;
@@ -37,7 +37,14 @@ export class SolanaService {
         this.wallet = Keypair.generate();
       }
     } else {
-      this.wallet = Keypair.generate();
+      // Проверяем localStorage для сохраненного кошелька
+      const savedWallet = this.loadWalletFromStorage();
+      if (savedWallet) {
+        this.wallet = savedWallet;
+      } else {
+        this.wallet = Keypair.generate();
+        this.saveWalletToStorage();
+      }
     }
 
     console.log('🔑 Кошелек инициализирован:', this.wallet.publicKey.toBase58());
@@ -63,22 +70,54 @@ export class SolanaService {
     return balance / LAMPORTS_PER_SOL;
   }
 
-  // Запрос на финансирование
+  // Запрос на финансирование согласно W3B2 Bridge Protocol
   async requestFunding(amount: number, targetAdmin: string): Promise<string> {
     if (!this.wallet) throw new Error('Кошелек не инициализирован');
 
     const transaction = new Transaction();
     
+    // Находим PDA для funding request
+    const [fundingRequestPDA] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('funding'),
+        this.wallet.publicKey.toBuffer(),
+        this.wallet.publicKey.toBuffer(), // payer
+      ],
+      this.programId
+    );
+
+    const targetAdminPubkey = new PublicKey(targetAdmin);
+    
     const instruction = new TransactionInstruction({
       keys: [
-        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
-        { pubkey: new PublicKey(targetAdmin), isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        {
+          pubkey: fundingRequestPDA,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: this.wallet.publicKey, // payer
+          isSigner: true,
+          isWritable: true,
+        },
+        {
+          pubkey: this.wallet.publicKey, // user_wallet
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        },
       ],
       programId: this.programId,
-      data: Buffer.from([
-        CommandId.REQUEST_CONNECTION, // Используем команду запроса соединения
-        ...Buffer.alloc(8).fill(amount), // amount
+      data: Buffer.concat([
+        Buffer.from([1]), // request_funding discriminator
+        Buffer.alloc(8)
+          .fill(0)
+          .map((_, i) => (amount >> (i * 8)) & 0xff), // amount as u64
+        targetAdminPubkey.toBuffer(), // target_admin as Pubkey (32 bytes)
       ]),
     });
 
@@ -124,26 +163,38 @@ export class SolanaService {
     return signature;
   }
 
-  // Отправка команды
+  // Отправка команды согласно W3B2 Bridge Protocol
   async dispatchCommand(
-    commandId: CommandId,
-    mode: CommandMode,
+    commandId: number,
+    mode: number,
     payload: Uint8Array,
     targetAdmin: string
   ): Promise<string> {
     if (!this.wallet) throw new Error('Кошелек не инициализирован');
 
     const transaction = new Transaction();
+    const targetAdminPubkey = new PublicKey(targetAdmin);
     
     const data = Buffer.concat([
-      Buffer.from([commandId, mode]),
-      Buffer.from(payload)
+      Buffer.from([3]), // dispatch_command discriminator
+      Buffer.alloc(8)
+        .fill(0)
+        .map((_, i) => (commandId >> (i * 8)) & 0xff), // command_id as u64
+      Buffer.from([mode]), // mode as u8
+      Buffer.alloc(4)
+        .fill(0)
+        .map((_, i) => (payload.length >> (i * 8)) & 0xff), // payload length as u32
+      Buffer.from(payload), // payload
+      targetAdminPubkey.toBuffer(), // target_admin as Pubkey
     ]);
 
     const instruction = new TransactionInstruction({
       keys: [
-        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
-        { pubkey: new PublicKey(targetAdmin), isSigner: false, isWritable: false },
+        {
+          pubkey: this.wallet.publicKey, // authority - пользователь
+          isSigner: true,
+          isWritable: false,
+        },
       ],
       programId: this.programId,
       data,
@@ -229,10 +280,6 @@ export class SolanaService {
     return new TextEncoder().encode(jsonString);
   }
 
-  private deserializeData(data: Uint8Array): any {
-    const jsonString = new TextDecoder().decode(data);
-    return JSON.parse(jsonString);
-  }
 
   // Получение информации о программе
   getProgramId(): PublicKey {
@@ -297,12 +344,54 @@ export class SolanaService {
     try {
       const secretKey = Buffer.from(privateKey, 'base64');
       this.wallet = Keypair.fromSecretKey(secretKey);
+      this.saveWalletToStorage();
       console.log('🔑 Кошелек импортирован:', this.wallet.publicKey.toBase58());
       return true;
     } catch (error) {
       console.error('Ошибка импорта кошелька:', error);
       return false;
     }
+  }
+
+  // Сохранение кошелька в localStorage
+  private saveWalletToStorage(): void {
+    if (!this.wallet) return;
+    
+    try {
+      const walletData = {
+        publicKey: this.wallet.publicKey.toBase58(),
+        privateKey: Buffer.from(this.wallet.secretKey).toString('base64'),
+        timestamp: Date.now()
+      };
+      localStorage.setItem('w3b2_wallet', JSON.stringify(walletData));
+      console.log('💾 Кошелек сохранен в localStorage');
+    } catch (error) {
+      console.error('Ошибка сохранения кошелька:', error);
+    }
+  }
+
+  // Загрузка кошелька из localStorage
+  private loadWalletFromStorage(): Keypair | null {
+    try {
+      const savedData = localStorage.getItem('w3b2_wallet');
+      if (!savedData) return null;
+
+      const walletData = JSON.parse(savedData);
+      const secretKey = Buffer.from(walletData.privateKey, 'base64');
+      const wallet = Keypair.fromSecretKey(secretKey);
+      
+      console.log('📂 Кошелек загружен из localStorage:', wallet.publicKey.toBase58());
+      return wallet;
+    } catch (error) {
+      console.error('Ошибка загрузки кошелька:', error);
+      return null;
+    }
+  }
+
+  // Очистка кошелька из localStorage
+  clearWalletFromStorage(): void {
+    localStorage.removeItem('w3b2_wallet');
+    console.log('🗑️ Кошелек удален из localStorage');
   }
 }
 

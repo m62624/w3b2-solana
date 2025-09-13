@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Keypair } from '@solana/web3.js';
+import bs58 from 'bs58';
 import { ApiResponse, CrudOperation } from '../types/index';
 
 const router = Router();
@@ -69,12 +70,12 @@ router.post('/register-user', async (req: Request, res: Response) => {
 // Запрос на финансирование
 router.post('/request-funding', async (req: Request, res: Response) => {
   try {
-    const { userWallet, amount, targetAdmin } = req.body;
+    const { userWallet, amount, targetAdmin, userPrivateKey } = req.body;
 
-    if (!userWallet || !amount || !targetAdmin) {
+    if (!userWallet || !amount || !targetAdmin || !userPrivateKey) {
       return res.status(400).json({
         success: false,
-        error: 'Все поля обязательны',
+        error: 'Все поля обязательны, включая приватный ключ пользователя',
         timestamp: new Date().toISOString(),
       } as ApiResponse);
     }
@@ -85,11 +86,15 @@ router.post('/request-funding', async (req: Request, res: Response) => {
     const targetAdminPubkey = new PublicKey(targetAdmin);
     const amountNum = parseInt(amount);
 
+    // Создаем keypair из приватного ключа
+    const userKeypair = Keypair.fromSecretKey(bs58.decode(userPrivateKey));
+
     // Создаем запрос в blockchain
     const signature = await solanaService.requestFunding(
       userWalletPubkey,
       amountNum,
-      targetAdminPubkey
+      targetAdminPubkey,
+      userKeypair
     );
 
     // Сохраняем в базе данных
@@ -236,12 +241,12 @@ router.post('/crud', async (req: Request, res: Response) => {
 // Отправка команды в blockchain
 router.post('/dispatch-command', async (req: Request, res: Response) => {
   try {
-    const { commandId, mode, config, targetAdmin } = req.body;
+    const { commandId, mode, config, targetAdmin, userPrivateKey } = req.body;
 
-    if (!commandId || !mode || !config || !targetAdmin) {
+    if (!commandId || !mode || !config || !targetAdmin || !userPrivateKey) {
       return res.status(400).json({
         success: false,
-        error: 'Все поля обязательны',
+        error: 'Все поля обязательны, включая приватный ключ пользователя',
         timestamp: new Date().toISOString(),
       } as ApiResponse);
     }
@@ -249,13 +254,15 @@ router.post('/dispatch-command', async (req: Request, res: Response) => {
     const { solanaService } = getServices(req);
 
     const targetAdminPubkey = new PublicKey(targetAdmin);
+    const userKeypair = Keypair.fromSecretKey(bs58.decode(userPrivateKey));
 
     // Отправляем команду в blockchain
     const signature = await solanaService.dispatchCommandConfig(
       parseInt(commandId),
       parseInt(mode),
       config,
-      targetAdminPubkey
+      targetAdminPubkey,
+      userKeypair
     );
 
     res.json({

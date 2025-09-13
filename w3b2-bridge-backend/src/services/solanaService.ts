@@ -9,7 +9,7 @@ import {
 } from '@solana/web3.js';
 import { EventEmitter } from 'events';
 import bs58 from 'bs58';
-import { BlockchainEvent, CommandId, CommandConfig } from '../types/index';
+import { BlockchainEvent, CommandConfig } from '../types/index';
 import { serializeCommandConfig } from '../utils/blockchainUtils';
 
 export class SolanaService extends EventEmitter {
@@ -151,75 +151,148 @@ export class SolanaService extends EventEmitter {
   }
 
   private async processProgramInstruction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    instruction: any,
+    instruction: { data: Buffer; accounts?: number[] },
     signature: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transaction: any
+    transaction: { slot: number }
   ): Promise<void> {
     try {
       // Декодируем данные инструкции
       const data = instruction.data;
-      const commandId = data.readUInt8(0);
+      const discriminator = data.readUInt8(0);
 
-      const event: BlockchainEvent = {
-        type: 'command_received',
-        data: {
-          commandId,
-          signature,
-          slot: transaction.slot,
-          accounts: instruction.accounts || [],
-        },
-        signature,
-        slot: transaction.slot,
-        timestamp: Date.now(),
-      };
-
-      this.emit('blockchain_event', event);
-
-      // Обрабатываем конкретные команды
-      switch (commandId) {
-        case CommandId.PUBLISH_PUBKEY:
-          await this.handlePublishPubkey(instruction, signature);
+      // Обрабатываем события W3B2 Bridge Protocol
+      switch (discriminator) {
+        case 0: // register_admin
+          await this.handleAdminRegistration(
+            instruction,
+            signature,
+            transaction
+          );
           break;
-        case CommandId.REQUEST_CONNECTION:
-          await this.handleRequestConnection(instruction, signature);
+        case 1: // request_funding
+          await this.handleFundingRequest(instruction, signature, transaction);
           break;
-        case CommandId.CRUD_CREATE:
-        case CommandId.CRUD_READ:
-        case CommandId.CRUD_UPDATE:
-        case CommandId.CRUD_DELETE:
-          await this.handleCrudOperation(instruction, signature, commandId);
+        case 2: // approve_funding
+          await this.handleFundingApproval(instruction, signature, transaction);
+          break;
+        case 3: // dispatch_command
+          await this.handleCommandDispatch(instruction, signature, transaction);
           break;
         default:
-          console.log(`📝 Получена команда ${commandId} от ${signature}`);
+          console.log(
+            `📝 Получена неизвестная инструкция ${discriminator} от ${signature}`
+          );
       }
     } catch (error) {
       console.error('❌ Ошибка обработки инструкции:', error);
     }
   }
 
-  private async handlePublishPubkey(
-    _instruction: any,
-    _signature: string
+  private async handleAdminRegistration(
+    instruction: { data: Buffer; accounts?: number[] },
+    signature: string,
+    transaction: { slot: number }
   ): Promise<void> {
-    console.log('🔑 Получен публичный ключ от клиента');
+    console.log('👑 Администратор зарегистрирован:', signature);
+
+    const event: BlockchainEvent = {
+      type: 'admin_registered',
+      data: {
+        signature,
+        slot: transaction.slot,
+        accounts: instruction.accounts || [],
+      },
+      signature,
+      slot: transaction.slot,
+      timestamp: Date.now(),
+    };
+
+    this.emit('blockchain_event', event);
   }
 
-  private async handleRequestConnection(
-    _instruction: any,
-    _signature: string
+  private async handleFundingRequest(
+    instruction: { data: Buffer; accounts?: number[] },
+    signature: string,
+    transaction: { slot: number }
   ): Promise<void> {
-    console.log('🔌 Запрос на установку соединения');
+    console.log('💰 Получен запрос на финансирование:', signature);
+
+    // Декодируем данные запроса
+    const data = instruction.data;
+    const amount = data.readBigUInt64LE(1); // amount (8 bytes)
+    const targetAdmin = data.slice(9, 41); // target_admin (32 bytes)
+
+    const event: BlockchainEvent = {
+      type: 'funding_requested',
+      data: {
+        signature,
+        slot: transaction.slot,
+        amount: Number(amount),
+        targetAdmin: Buffer.from(targetAdmin).toString('base64'),
+        accounts: instruction.accounts || [],
+      },
+      signature,
+      slot: transaction.slot,
+      timestamp: Date.now(),
+    };
+
+    this.emit('blockchain_event', event);
   }
 
-  private async handleCrudOperation(
-    _instruction: any,
-    _signature: string,
-    commandId: number
+  private async handleFundingApproval(
+    instruction: { data: Buffer; accounts?: number[] },
+    signature: string,
+    transaction: { slot: number }
   ): Promise<void> {
-    console.log(`📊 CRUD операция ${commandId}`);
-    // Здесь можно добавить логику обработки CRUD операций
+    console.log('✅ Финансирование одобрено:', signature);
+
+    const event: BlockchainEvent = {
+      type: 'funding_approved',
+      data: {
+        signature,
+        slot: transaction.slot,
+        accounts: instruction.accounts || [],
+      },
+      signature,
+      slot: transaction.slot,
+      timestamp: Date.now(),
+    };
+
+    this.emit('blockchain_event', event);
+  }
+
+  private async handleCommandDispatch(
+    instruction: { data: Buffer; accounts?: number[] },
+    signature: string,
+    transaction: { slot: number }
+  ): Promise<void> {
+    console.log('📤 Получена команда:', signature);
+
+    // Декодируем данные команды
+    const data = instruction.data;
+    const commandId = data.readBigUInt64LE(1); // command_id (8 bytes)
+    const mode = data.readUInt8(9); // mode (1 byte)
+    const payloadLength = data.readUInt32LE(10); // payload length (4 bytes)
+    const payload = data.slice(14, 14 + payloadLength); // payload
+    const targetAdmin = data.slice(14 + payloadLength, 14 + payloadLength + 32); // target_admin (32 bytes)
+
+    const event: BlockchainEvent = {
+      type: 'command_dispatched',
+      data: {
+        signature,
+        slot: transaction.slot,
+        commandId: Number(commandId),
+        mode,
+        payload: Buffer.from(payload).toString('base64'),
+        targetAdmin: Buffer.from(targetAdmin).toString('base64'),
+        accounts: instruction.accounts || [],
+      },
+      signature,
+      slot: transaction.slot,
+      timestamp: Date.now(),
+    };
+
+    this.emit('blockchain_event', event);
   }
 
   // Методы для работы с blockchain инструкциями
@@ -287,11 +360,13 @@ export class SolanaService extends EventEmitter {
 
   /**
    * Создает запрос на финансирование
+   * ВАЖНО: Эта функция должна вызываться с фронтенда с подписью пользователя
    */
   async requestFunding(
     userWallet: PublicKey,
     amount: number,
-    targetAdmin: PublicKey
+    targetAdmin: PublicKey,
+    userKeypair: Keypair
   ): Promise<string> {
     try {
       const transaction = new Transaction();
@@ -301,7 +376,7 @@ export class SolanaService extends EventEmitter {
         [
           Buffer.from('funding'),
           userWallet.toBuffer(),
-          this.adminKeypair.publicKey.toBuffer(), // payer
+          userKeypair.publicKey.toBuffer(), // payer должен быть пользователь
         ],
         this.programId
       );
@@ -314,7 +389,7 @@ export class SolanaService extends EventEmitter {
             isWritable: true,
           },
           {
-            pubkey: this.adminKeypair.publicKey, // payer
+            pubkey: userKeypair.publicKey, // payer - пользователь
             isSigner: true,
             isWritable: true,
           },
@@ -342,7 +417,7 @@ export class SolanaService extends EventEmitter {
       transaction.add(instruction);
 
       const signature = await this.connection.sendTransaction(transaction, [
-        this.adminKeypair,
+        userKeypair, // подписывает пользователь
       ]);
       await this.connection.confirmTransaction(signature);
 
@@ -419,12 +494,14 @@ export class SolanaService extends EventEmitter {
 
   /**
    * Отправляет команду в blockchain
+   * ВАЖНО: Эта функция должна вызываться с фронтенда с подписью пользователя
    */
   async dispatchCommand(
     commandId: number,
     mode: number,
     payload: Uint8Array,
-    targetAdmin: PublicKey
+    targetAdmin: PublicKey,
+    userKeypair: Keypair
   ): Promise<string> {
     try {
       const transaction = new Transaction();
@@ -445,7 +522,7 @@ export class SolanaService extends EventEmitter {
       const instruction = new TransactionInstruction({
         keys: [
           {
-            pubkey: this.adminKeypair.publicKey, // authority
+            pubkey: userKeypair.publicKey, // authority - пользователь
             isSigner: true,
             isWritable: false,
           },
@@ -457,7 +534,7 @@ export class SolanaService extends EventEmitter {
       transaction.add(instruction);
 
       const signature = await this.connection.sendTransaction(transaction, [
-        this.adminKeypair,
+        userKeypair, // подписывает пользователь
       ]);
       await this.connection.confirmTransaction(signature);
 
@@ -471,12 +548,14 @@ export class SolanaService extends EventEmitter {
 
   /**
    * Отправляет CommandConfig как команду
+   * ВАЖНО: Эта функция должна вызываться с фронтенда с подписью пользователя
    */
   async dispatchCommandConfig(
     commandId: number,
     mode: number,
     config: CommandConfig,
-    targetAdmin: PublicKey
+    targetAdmin: PublicKey,
+    userKeypair: Keypair
   ): Promise<string> {
     try {
       const serializedConfig = serializeCommandConfig(config);
@@ -484,7 +563,8 @@ export class SolanaService extends EventEmitter {
         commandId,
         mode,
         serializedConfig,
-        targetAdmin
+        targetAdmin,
+        userKeypair
       );
     } catch (error) {
       console.error('❌ Ошибка отправки CommandConfig:', error);

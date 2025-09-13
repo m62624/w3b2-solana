@@ -6,13 +6,11 @@ import {
   XCircle, 
   Clock, 
   RefreshCw,
-  DollarSign,
-  User,
-  Calendar
+  DollarSign
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';
-import { FundingRequest, FundingStatus } from '../types/index';
+import { type FundingRequest, FundingStatus } from '../types/index';
 import toast from 'react-hot-toast';
 
 const Funding: React.FC = () => {
@@ -63,10 +61,21 @@ const Funding: React.FC = () => {
 
     try {
       setIsLoading(true);
+      
+      // Получаем приватный ключ из solanaService
+      const { solanaService } = await import('../services/solanaService');
+      const privateKey = solanaService.getPrivateKey();
+      
+      if (!privateKey) {
+        toast.error('Приватный ключ не найден');
+        return;
+      }
+
       const response = await requestFunding(
         walletInfo.publicKey.toBase58(),
         parseFloat(requestForm.amount),
-        requestForm.targetAdmin
+        requestForm.targetAdmin,
+        privateKey
       );
 
       if (response.success) {
@@ -102,7 +111,7 @@ const Funding: React.FC = () => {
     }
   };
 
-  const getStatusIcon = (status: FundingStatus) => {
+  const getStatusIcon = (status: typeof FundingStatus[keyof typeof FundingStatus]) => {
     switch (status) {
       case FundingStatus.Pending:
         return <Clock className="h-4 w-4 text-yellow-500" />;
@@ -115,7 +124,7 @@ const Funding: React.FC = () => {
     }
   };
 
-  const getStatusText = (status: FundingStatus) => {
+  const getStatusText = (status: typeof FundingStatus[keyof typeof FundingStatus]) => {
     switch (status) {
       case FundingStatus.Pending:
         return 'Ожидает';
@@ -128,7 +137,7 @@ const Funding: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: FundingStatus) => {
+  const getStatusColor = (status: typeof FundingStatus[keyof typeof FundingStatus]) => {
     switch (status) {
       case FundingStatus.Pending:
         return 'status-pending';

@@ -5,15 +5,13 @@ import {
   Edit, 
   Trash2, 
   Search, 
-  Filter,
   RefreshCw,
-  Eye,
   Calendar,
   User
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';
-import { DatabaseRecord, CrudOperation } from '../types/index';
+import type { DatabaseRecord } from '../types/index';
 import toast from 'react-hot-toast';
 
 const Records: React.FC = () => {

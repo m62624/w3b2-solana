@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, type ReactNode } from 'react';
 import { useApi } from '../hooks/useApi';
 
 interface ApiContextType {
@@ -7,7 +7,7 @@ interface ApiContextType {
   clearError: () => void;
   registerUser: (publicKey: string) => Promise<any>;
   getUser: (publicKey: string) => Promise<any>;
-  requestFunding: (userWallet: string, amount: number, targetAdmin: string) => Promise<any>;
+  requestFunding: (userWallet: string, amount: number, targetAdmin: string, userPrivateKey: string) => Promise<any>;
   approveFunding: (requestId: string) => Promise<any>;
   getFundingRequests: () => Promise<any>;
   performCrudOperation: (operation: any, owner: string) => Promise<any>;

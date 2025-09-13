@@ -1,6 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
 
-// Типы для команд W3B2
 export enum CommandMode {
   RequestResponse = 0,
   OneWay = 1,

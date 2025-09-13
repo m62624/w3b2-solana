@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PublicKey } from '@solana/web3.js';
 import { solanaService } from '../services/solanaService';
-import { WalletInfo } from '../types/index';
+import type { WalletInfo } from '../types/index';
 
 export const useWallet = () => {
   const [walletInfo, setWalletInfo] = useState<WalletInfo>({
@@ -72,7 +71,8 @@ export const useWallet = () => {
       disconnecting: true,
     });
     
-    // Очищаем кошелек в сервисе
+    // Очищаем кошелек в сервисе и localStorage
+    solanaService.clearWalletFromStorage();
     solanaService.initializeWallet();
     
     setTimeout(() => {

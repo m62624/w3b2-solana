@@ -52,12 +52,14 @@ class ApiService {
   async requestFunding(
     userWallet: string, 
     amount: number, 
-    targetAdmin: string
+    targetAdmin: string,
+    userPrivateKey: string
   ): Promise<ApiResponse<{ requestId: string; signature: string; message: string }>> {
     const response = await this.api.post('/request-funding', {
       userWallet,
       amount,
       targetAdmin,
+      userPrivateKey,
     });
     return response.data;
   }
@@ -76,16 +78,18 @@ class ApiService {
 
   // Отправка команды в blockchain
   async dispatchCommand(
-    commandId: CommandId,
-    mode: CommandMode,
+    commandId: typeof CommandId,
+    mode: typeof CommandMode,
     config: CommandConfig,
-    targetAdmin: string
+    targetAdmin: string,
+    userPrivateKey: string
   ): Promise<ApiResponse<{ signature: string; commandId: number; mode: number; message: string }>> {
     const response = await this.api.post('/dispatch-command', {
       commandId,
       mode,
       config,
       targetAdmin,
+      userPrivateKey,
     });
     return response.data;
   }
@@ -141,9 +145,8 @@ class ApiService {
     const operation: CrudOperation = {
       type: 'read',
     };
-    
     const response = await this.performCrudOperation(operation, owner);
-    return response.data || [];
+    return (response.data as DatabaseRecord[]) || [];
   }
 
   // Обновление записи

@@ -72,7 +72,6 @@ export function validatePublicKey(
   }
 
   try {
-    // Проверяем, что это валидный публичный ключ Solana
     new (require('@solana/web3.js').PublicKey)(publicKey);
     next();
   } catch (error) {

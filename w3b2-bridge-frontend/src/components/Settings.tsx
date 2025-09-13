@@ -1,15 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Settings as SettingsIcon, 
   Save, 
   RefreshCw, 
   Globe, 
   Key, 
-  Database,
-  Shield,
-  Info,
-  CheckCircle,
-  AlertCircle
+  Database
 } from 'lucide-react';
 import { useWalletContext } from '../contexts/WalletContext';
 import { useApiContext } from '../contexts/ApiContext';

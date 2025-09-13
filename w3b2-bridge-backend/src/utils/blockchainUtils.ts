@@ -1,11 +1,28 @@
-import { PublicKey } from '@solana/web3.js';
+// import { PublicKey } from '@solana/web3.js';
 import { Destination, CommandConfig } from '../types/index';
 
 // Типы для blockchain (соответствуют Rust структурам)
 export interface BlockchainDestination {
   type: 'ipv4' | 'ipv6' | 'url';
   ipv4?: [number, number, number, number];
-  ipv6?: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+  ipv6?: [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   port?: number;
   url?: string;
 }
@@ -20,7 +37,9 @@ export interface BlockchainCommandConfig {
 /**
  * Конвертирует Destination из backend формата в blockchain формат
  */
-export function convertDestinationToBlockchain(dest: Destination): BlockchainDestination {
+export function convertDestinationToBlockchain(
+  dest: Destination
+): BlockchainDestination {
   switch (dest.type) {
     case 'ipv4': {
       const parts = dest.address.split('.').map(Number);
@@ -33,43 +52,68 @@ export function convertDestinationToBlockchain(dest: Destination): BlockchainDes
         port: dest.port || 80,
       };
     }
-    
+
     case 'ipv6': {
       // Упрощенная конвертация IPv6 - в реальном проекте нужна более сложная логика
       const parts = dest.address.split(':').map(part => {
         const num = parseInt(part, 16);
         return isNaN(num) ? 0 : num;
       });
-      
+
       // Дополняем до 8 частей
       while (parts.length < 8) {
         parts.push(0);
       }
-      
-      const ipv6: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] = [
-        (parts[0] >> 8) & 0xFF, parts[0] & 0xFF,
-        (parts[1] >> 8) & 0xFF, parts[1] & 0xFF,
-        (parts[2] >> 8) & 0xFF, parts[2] & 0xFF,
-        (parts[3] >> 8) & 0xFF, parts[3] & 0xFF,
-        (parts[4] >> 8) & 0xFF, parts[4] & 0xFF,
-        (parts[5] >> 8) & 0xFF, parts[5] & 0xFF,
-        (parts[6] >> 8) & 0xFF, parts[6] & 0xFF,
-        (parts[7] >> 8) & 0xFF, parts[7] & 0xFF,
+
+      const ipv6: [
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+        number,
+      ] = [
+        (parts[0] >> 8) & 0xff,
+        parts[0] & 0xff,
+        (parts[1] >> 8) & 0xff,
+        parts[1] & 0xff,
+        (parts[2] >> 8) & 0xff,
+        parts[2] & 0xff,
+        (parts[3] >> 8) & 0xff,
+        parts[3] & 0xff,
+        (parts[4] >> 8) & 0xff,
+        parts[4] & 0xff,
+        (parts[5] >> 8) & 0xff,
+        parts[5] & 0xff,
+        (parts[6] >> 8) & 0xff,
+        parts[6] & 0xff,
+        (parts[7] >> 8) & 0xff,
+        parts[7] & 0xff,
       ];
-      
+
       return {
         type: 'ipv6',
         ipv6,
         port: dest.port || 80,
       };
     }
-    
+
     case 'url':
       return {
         type: 'url',
         url: dest.address,
       };
-    
+
     default:
       throw new Error('Неподдерживаемый тип назначения');
   }
@@ -78,7 +122,9 @@ export function convertDestinationToBlockchain(dest: Destination): BlockchainDes
 /**
  * Конвертирует Destination из blockchain формата в backend формат
  */
-export function convertDestinationFromBlockchain(dest: BlockchainDestination): Destination {
+export function convertDestinationFromBlockchain(
+  dest: BlockchainDestination
+): Destination {
   switch (dest.type) {
     case 'ipv4':
       if (!dest.ipv4) {
@@ -89,8 +135,8 @@ export function convertDestinationFromBlockchain(dest: BlockchainDestination): D
         address: dest.ipv4.join('.'),
         port: dest.port,
       };
-    
-    case 'ipv6':
+
+    case 'ipv6': {
       if (!dest.ipv6) {
         throw new Error('Отсутствуют данные IPv6');
       }
@@ -105,7 +151,8 @@ export function convertDestinationFromBlockchain(dest: BlockchainDestination): D
         address: parts.join(':'),
         port: dest.port,
       };
-    
+    }
+
     case 'url':
       if (!dest.url) {
         throw new Error('Отсутствует URL');
@@ -114,7 +161,7 @@ export function convertDestinationFromBlockchain(dest: BlockchainDestination): D
         type: 'url',
         address: dest.url,
       };
-    
+
     default:
       throw new Error('Неподдерживаемый тип назначения');
   }
@@ -123,7 +170,9 @@ export function convertDestinationFromBlockchain(dest: BlockchainDestination): D
 /**
  * Конвертирует CommandConfig из backend формата в blockchain формат
  */
-export function convertCommandConfigToBlockchain(config: CommandConfig): BlockchainCommandConfig {
+export function convertCommandConfigToBlockchain(
+  config: CommandConfig
+): BlockchainCommandConfig {
   if (config.encrypted_session_key.length !== 80) {
     throw new Error('encrypted_session_key должен быть 80 байт');
   }
@@ -139,7 +188,9 @@ export function convertCommandConfigToBlockchain(config: CommandConfig): Blockch
 /**
  * Конвертирует CommandConfig из blockchain формата в backend формат
  */
-export function convertCommandConfigFromBlockchain(config: BlockchainCommandConfig): CommandConfig {
+export function convertCommandConfigFromBlockchain(
+  config: BlockchainCommandConfig
+): CommandConfig {
   if (config.encrypted_session_key.length !== 80) {
     throw new Error('encrypted_session_key должен быть 80 байт');
   }
@@ -157,7 +208,7 @@ export function convertCommandConfigFromBlockchain(config: BlockchainCommandConf
  */
 export function serializeCommandConfig(config: CommandConfig): Uint8Array {
   const blockchainConfig = convertCommandConfigToBlockchain(config);
-  
+
   // Простая сериализация - в реальном проекте используйте Borsh
   const buffer = new ArrayBuffer(1024);
   const view = new DataView(buffer);
@@ -174,27 +225,40 @@ export function serializeCommandConfig(config: CommandConfig): Uint8Array {
   offset += 80;
 
   // destination type (1 byte)
-  const destType = blockchainConfig.destination.type === 'ipv4' ? 0 : 
-                   blockchainConfig.destination.type === 'ipv6' ? 1 : 2;
+  const destType =
+    blockchainConfig.destination.type === 'ipv4'
+      ? 0
+      : blockchainConfig.destination.type === 'ipv6'
+        ? 1
+        : 2;
   view.setUint8(offset, destType);
   offset += 1;
 
   // destination data
-  if (blockchainConfig.destination.type === 'ipv4' && blockchainConfig.destination.ipv4) {
+  if (
+    blockchainConfig.destination.type === 'ipv4' &&
+    blockchainConfig.destination.ipv4
+  ) {
     for (let i = 0; i < 4; i++) {
       view.setUint8(offset + i, blockchainConfig.destination.ipv4[i]);
     }
     offset += 4;
     view.setUint16(offset, blockchainConfig.destination.port || 80, true);
     offset += 2;
-  } else if (blockchainConfig.destination.type === 'ipv6' && blockchainConfig.destination.ipv6) {
+  } else if (
+    blockchainConfig.destination.type === 'ipv6' &&
+    blockchainConfig.destination.ipv6
+  ) {
     for (let i = 0; i < 16; i++) {
       view.setUint8(offset + i, blockchainConfig.destination.ipv6[i]);
     }
     offset += 16;
     view.setUint16(offset, blockchainConfig.destination.port || 80, true);
     offset += 2;
-  } else if (blockchainConfig.destination.type === 'url' && blockchainConfig.destination.url) {
+  } else if (
+    blockchainConfig.destination.type === 'url' &&
+    blockchainConfig.destination.url
+  ) {
     const urlBytes = new TextEncoder().encode(blockchainConfig.destination.url);
     view.setUint32(offset, urlBytes.length, true);
     offset += 4;
@@ -249,7 +313,7 @@ export function deserializeCommandConfig(data: Uint8Array): CommandConfig {
     offset += 4;
     const port = view.getUint16(offset, true);
     offset += 2;
-    
+
     destination = {
       type: 'ipv4',
       address: ipv4.join('.'),
@@ -264,14 +328,14 @@ export function deserializeCommandConfig(data: Uint8Array): CommandConfig {
     offset += 16;
     const port = view.getUint16(offset, true);
     offset += 2;
-    
+
     // Конвертируем обратно в строку IPv6
     const parts: string[] = [];
     for (let i = 0; i < 8; i++) {
       const part = (ipv6[i * 2] << 8) | ipv6[i * 2 + 1];
       parts.push(part.toString(16));
     }
-    
+
     destination = {
       type: 'ipv6',
       address: parts.join(':'),
@@ -281,10 +345,14 @@ export function deserializeCommandConfig(data: Uint8Array): CommandConfig {
     // URL
     const urlLength = view.getUint32(offset, true);
     offset += 4;
-    const urlBytes = new Uint8Array(data.buffer, data.byteOffset + offset, urlLength);
+    const urlBytes = new Uint8Array(
+      data.buffer,
+      data.byteOffset + offset,
+      urlLength
+    );
     const url = new TextDecoder().decode(urlBytes);
     offset += urlLength;
-    
+
     destination = {
       type: 'url',
       address: url,
@@ -294,7 +362,11 @@ export function deserializeCommandConfig(data: Uint8Array): CommandConfig {
   // meta
   const metaLength = view.getUint32(offset, true);
   offset += 4;
-  const meta = new Uint8Array(data.buffer, data.byteOffset + offset, metaLength);
+  const meta = new Uint8Array(
+    data.buffer,
+    data.byteOffset + offset,
+    metaLength
+  );
 
   return {
     session_id,

@@ -9,30 +9,34 @@ export interface ApiResponse<T = any> {
 }
 
 // Типы для команд W3B2
-export enum CommandMode {
-  RequestResponse = 0,
-  OneWay = 1,
-}
+export const CommandMode = {
+  RequestResponse: 0,
+  OneWay: 1,
+} as const;
 
-export enum CommandId {
-  PUBLISH_PUBKEY = 1,
-  REQUEST_CONNECTION = 2,
-  CRUD_CREATE = 5,
-  CRUD_READ = 7,
-  CRUD_UPDATE = 9,
-  CRUD_DELETE = 11,
-  START_SESSION = 13,
-  END_SESSION = 15,
-  ADMIN_AUTHORIZE = 17,
-  ADMIN_ACCESS_CONTROL = 19,
-  GENERIC_COMMAND = 21,
-}
+export const CommandId = {
+  PUBLISH_PUBKEY: 1,
+  REQUEST_CONNECTION: 2,
+  CRUD_CREATE: 5,
+  CRUD_READ: 7,
+  CRUD_UPDATE: 9,
+  CRUD_DELETE: 11,
+  START_SESSION: 13,
+  END_SESSION: 15,
+  ADMIN_AUTHORIZE: 17,
+  ADMIN_ACCESS_CONTROL: 19,
+  GENERIC_COMMAND: 21,
+} as const;
 
-export enum FundingStatus {
-  Pending = 0,
-  Approved = 1,
-  Rejected = 2,
-}
+export const FundingStatus = {
+  Pending: 0,
+  Approved: 1,
+  Rejected: 2,
+} as const;
+
+export type CommandModeType = typeof CommandMode[keyof typeof CommandMode];
+export type CommandIdType = typeof CommandId[keyof typeof CommandId];
+export type FundingStatusType = typeof FundingStatus[keyof typeof FundingStatus];
 
 export interface Destination {
   type: 'ipv4' | 'ipv6' | 'url';
@@ -51,7 +55,7 @@ export interface FundingRequest {
   id?: string;
   user_wallet: PublicKey | string;
   amount: number;
-  status: FundingStatus;
+  status: typeof FundingStatus[keyof typeof FundingStatus];
   target_admin: PublicKey | string;
   created_at: number;
   updated_at?: number;
