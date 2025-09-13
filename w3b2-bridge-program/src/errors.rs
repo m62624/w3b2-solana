@@ -14,4 +14,6 @@ pub enum BridgeError {
     InsufficientFundsForFunding,
     #[msg("Insufficient funds to create admin profile PDA")]
     InsufficientFundsForAdmin,
+    #[msg("Account is inactive")]
+    InactiveAccount,
 }

@@ -28,6 +28,21 @@ pub mod w3b2_bridge_program {
         instructions::register_admin(ctx, funding_amount)
     }
 
+    /// Registers a user account.
+    pub fn register_user(ctx: Context<RegisterUser>, initial_balance: u64) -> Result<()> {
+        instructions::register_user(ctx, initial_balance)
+    }
+
+    /// Deactivates an admin account.
+    pub fn deactivate_admin(ctx: Context<DeactivateAdmin>) -> Result<()> {
+        instructions::deactivate_admin(ctx)
+    }
+
+    /// Deactivates a user account.
+    pub fn deactivate_user(ctx: Context<DeactivateUser>) -> Result<()> {
+        instructions::deactivate_user(ctx)
+    }
+
     /// User requests funding.
     /// This instruction is called by the user's wallet.
     pub fn request_funding(
@@ -42,17 +57,5 @@ pub mod w3b2_bridge_program {
     /// This is called by the service's admin wallet.
     pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
         instructions::approve_funding(ctx)
-    }
-
-    /// Dispatch a command: validate signer is registered and emit event with payload.
-    /// - payload typically contains encrypted Borsh(CommandConfig) for the service.
-    pub fn dispatch_command(
-        ctx: Context<DispatchCommand>,
-        command_id: u64,
-        mode: CommandMode,
-        payload: Vec<u8>,
-        target_admin: Pubkey,
-    ) -> Result<()> {
-        instructions::dispatch_command(ctx, command_id, mode, payload, target_admin)
     }
 }
