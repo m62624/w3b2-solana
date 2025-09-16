@@ -1,0 +1,255 @@
+// File: proto/types.proto
+syntax = "proto3";
+
+// ===================================================================
+// == Package for Gateway-specific API messages
+// ===================================================================
+package w3b2.bridge.gateway;
+
+// Represents a single price entry, used in requests that update prices.
+message PriceEntry {
+  // The unique identifier for the command.
+  uint32 command_id = 1;
+  // The price in lamports for executing this command.
+  uint64 price = 2;
+}
+
+// --- Core RPC Message Types for Transactions ---
+
+message UnsignedTransactionResponse { bytes unsigned_tx = 1; }
+
+message SubmitTransactionRequest { bytes signed_tx = 1; }
+
+message TransactionResponse { string signature = 1; }
+
+// --- "Prepare" Transaction Request Messages ---
+
+message PrepareAdminRegisterProfileRequest {
+  string authority_pubkey = 1;
+  string communication_pubkey = 2;
+}
+message PrepareAdminUpdateCommKeyRequest {
+  string authority_pubkey = 1;
+  string new_key = 2;
+}
+message PrepareAdminUpdatePricesRequest {
+  string authority_pubkey = 1;
+  repeated PriceEntry new_prices = 2;
+}
+message PrepareAdminWithdrawRequest {
+  string authority_pubkey = 1;
+  uint64 amount = 2;
+  string destination = 3;
+}
+message PrepareAdminCloseProfileRequest { string authority_pubkey = 1; }
+message PrepareAdminDispatchCommandRequest {
+  string authority_pubkey = 1;
+  string target_user_profile_pda = 2;
+  uint64 command_id = 3;
+  bytes payload = 4;
+}
+message PrepareUserCreateProfileRequest {
+  string authority_pubkey = 1;
+  string target_admin_pda = 2;
+  string communication_pubkey = 3;
+}
+message PrepareUserUpdateCommKeyRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  string new_key = 3;
+}
+message PrepareUserDepositRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  uint64 amount = 3;
+}
+message PrepareUserWithdrawRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  uint64 amount = 3;
+  string destination = 4;
+}
+message PrepareUserCloseProfileRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+}
+message PrepareUserDispatchCommandRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  uint32 command_id = 3;
+  bytes payload = 4;
+}
+message PrepareLogActionRequest {
+  string authority_pubkey = 1;
+  uint64 session_id = 2;
+  uint32 action_code = 3;
+}
+
+// --- Messages for Event Streaming ---
+
+// --- Messages for the User Stream (ListenAsUser RPC) ---
+
+// The very first message a client MUST send on the ListenAsUser stream.
+message InitUserStream {
+  // The user's public key to monitor.
+  string user_pubkey = 1;
+  // Optional: A list of specific service admin PDAs to subscribe to
+  // immediately.
+  repeated string initial_services_to_follow = 2;
+}
+
+// A command to subscribe to events from a specific service.
+message SubscribeToService { string service_pda = 1; }
+
+// A command to unsubscribe from events from a specific service.
+message UnsubscribeFromService { string service_pda = 1; }
+
+// A wrapper for commands sent from the client to the server over the user
+// stream.
+message UserStreamCommand {
+  oneof command {
+    InitUserStream init = 1;
+    SubscribeToService subscribe = 2;
+    UnsubscribeFromService unsubscribe = 3;
+  }
+}
+
+// A wrapper for events streamed to a User (server -> client).
+message UserEventStream {
+  oneof event_category {
+    // An event related to the user's own profile and funds.
+    BridgeEvent personal_event = 1;
+    // An event representing an interaction with ANY service.
+    BridgeEvent service_interaction_event = 2;
+    // An event that came from a specific, filtered service stream.
+    BridgeEvent service_specific_event = 3;
+  }
+}
+
+// --- Messages for the Admin Stream (ListenAsAdmin RPC) ---
+
+// A request to start listening for admin events.
+message ListenAsAdminRequest {
+  // The admin's public key to monitor.
+  string admin_pubkey = 1;
+}
+
+// A wrapper for events streamed to an Admin (server -> client).
+message AdminEventStream {
+  oneof event_category {
+    // An event related to the admin's own profile.
+    BridgeEvent personal_event = 1;
+    // A new user has created a profile for this admin's service.
+    UserProfileCreated new_user_profile = 2;
+    // A command dispatched by a user to this admin.
+    UserCommandDispatched incoming_user_command = 3;
+  }
+}
+
+// --- Messages for General RPCs ---
+
+message StopListenerRequest {
+  // The public key of the listener to stop.
+  string pubkey_to_stop = 1;
+}
+
+message AdminProfileRegistered {
+  string authority = 1;
+  string communication_pubkey = 2;
+  int64 ts = 3;
+}
+message AdminCommKeyUpdated {
+  string authority = 1;
+  string new_comm_pubkey = 2;
+  int64 ts = 3;
+}
+message AdminPricesUpdated {
+  string authority = 1;
+  repeated w3b2.bridge.gateway.PriceEntry new_prices = 2;
+  int64 ts = 3;
+}
+message AdminFundsWithdrawn {
+  string authority = 1;
+  uint64 amount = 2;
+  string destination = 3;
+  int64 ts = 4;
+}
+message AdminProfileClosed {
+  string authority = 1;
+  int64 ts = 2;
+}
+message AdminCommandDispatched {
+  string sender = 1;
+  string target_user_authority = 2;
+  uint32 command_id = 3;
+  bytes payload = 4;
+  int64 ts = 5;
+}
+
+// --- User Events ---
+
+message UserProfileCreated {
+  string authority = 1;
+  string target_admin = 2;
+  string communication_pubkey = 3;
+  int64 ts = 4;
+}
+message UserCommKeyUpdated {
+  string authority = 1;
+  string new_comm_pubkey = 2;
+  int64 ts = 3;
+}
+message UserFundsDeposited {
+  string authority = 1;
+  uint64 amount = 2;
+  uint64 new_deposit_balance = 3;
+  int64 ts = 4;
+}
+message UserFundsWithdrawn {
+  string authority = 1;
+  uint64 amount = 2;
+  string destination = 3;
+  uint64 new_deposit_balance = 4;
+  int64 ts = 5;
+}
+message UserProfileClosed {
+  string authority = 1;
+  int64 ts = 2;
+}
+
+// --- Operational Events ---
+
+message UserCommandDispatched {
+  string sender = 1;
+  string target_admin_authority = 2;
+  uint32 command_id = 3;
+  uint64 price_paid = 4;
+  bytes payload = 5;
+  int64 ts = 6;
+}
+message OffChainActionLogged {
+  string actor = 1;
+  uint64 session_id = 2;
+  uint32 action_code = 3;
+  int64 ts = 4;
+}
+
+// --- Wrapper Event ---
+
+message BridgeEvent {
+  oneof event {
+    AdminProfileRegistered admin_profile_registered = 1;
+    AdminCommKeyUpdated admin_comm_key_updated = 2;
+    AdminPricesUpdated admin_prices_updated = 3;
+    AdminFundsWithdrawn admin_funds_withdrawn = 4;
+    AdminProfileClosed admin_profile_closed = 5;
+    AdminCommandDispatched admin_command_dispatched = 6;
+    UserProfileCreated user_profile_created = 7;
+    UserCommKeyUpdated user_comm_key_updated = 8;
+    UserFundsDeposited user_funds_deposited = 9;
+    UserFundsWithdrawn user_funds_withdrawn = 10;
+    UserProfileClosed user_profile_closed = 11;
+    UserCommandDispatched user_command_dispatched = 12;
+    OffChainActionLogged off_chain_action_logged = 13;
+  }
+}

@@ -1,10 +1,9 @@
-mod catchup;
-mod config;
+pub mod client;
+pub mod config;
+pub mod dispatcher;
 pub mod events;
-mod live;
-mod storage;
-mod synchronizer;
+pub mod listener;
+pub mod storage;
+pub mod workers;
 
-pub use config::SyncConfig;
-pub use storage::Storage;
-pub use synchronizer::Synchronizer;
+pub use w3b2_bridge_program::state as Accounts;

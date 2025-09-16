@@ -38,6 +38,7 @@ logs/
 # Test files
 test-ledger/
 w3b2_db/
+test_db_*
 
 # Build artifacts
 dist/

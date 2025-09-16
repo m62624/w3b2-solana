@@ -1,204 +1,317 @@
 use super::*;
-use solana_program::program::invoke;
-use solana_program::system_instruction;
+use crate::instructions::solana_program::program::invoke;
+use crate::instructions::solana_program::system_instruction;
+use anchor_lang::solana_program;
+// use solana_program::{program::invoke, system_instruction};
 
-fn register_pda<'info, T: AccountSerialize + AccountDeserialize + Clone>(
-    pda_account: &mut Account<'info, T>,
-    payer: &Signer<'info>,
-    system_program: &Program<'info, System>,
-    lamports: u64,
+/// The maximum size in bytes for the `payload` in dispatch instructions.
+pub const MAX_PAYLOAD_SIZE: usize = 1000;
+
+// --- Admin Instructions ---
+
+/// Initializes a new `AdminProfile` PDA for a service provider.
+/// This function sets the initial state of the admin's on-chain profile.
+pub fn admin_register_profile(
+    ctx: Context<AdminRegisterProfile>,
+    communication_pubkey: Pubkey,
 ) -> Result<()> {
-    let ix =
-        system_instruction::transfer(&payer.key(), &pda_account.to_account_info().key, lamports);
+    let admin_profile = &mut ctx.accounts.admin_profile;
+    admin_profile.authority = ctx.accounts.authority.key();
+    admin_profile.communication_pubkey = communication_pubkey;
+    admin_profile.prices = Vec::new();
+    admin_profile.balance = 0;
+
+    emit!(AdminProfileRegistered {
+        authority: admin_profile.authority,
+        communication_pubkey: admin_profile.communication_pubkey,
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Updates the off-chain communication public key for an `AdminProfile`.
+pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
+    ctx.accounts.admin_profile.communication_pubkey = new_key;
+    emit!(AdminCommKeyUpdated {
+        authority: ctx.accounts.authority.key(),
+        new_comm_pubkey: new_key,
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Closes an `AdminProfile` account.
+/// The `close` directive in the `AdminCloseProfile` struct ensures all lamports
+/// are safely returned to the admin's authority (`ChainCard`).
+pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
+    emit!(AdminProfileClosed {
+        authority: ctx.accounts.authority.key(),
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Updates the price list for an admin's services.
+/// The associated `AdminProfile` account is automatically resized by Anchor
+/// to accommodate the new list size.
+pub fn admin_update_prices(
+    ctx: Context<AdminUpdatePrices>,
+    mut new_prices: Vec<PriceEntry>,
+) -> Result<()> {
+    new_prices.sort_unstable_by_key(|k| k.command_id);
+    new_prices.dedup_by_key(|k| k.command_id);
+    ctx.accounts.admin_profile.prices = new_prices.clone();
+    emit!(AdminPricesUpdated {
+        authority: ctx.accounts.authority.key(),
+        new_prices,
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance.
+/// It performs checks to ensure the withdrawal does not violate the rent-exemption rule.
+pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
+    let admin_profile = &mut ctx.accounts.admin_profile;
+    let destination = &ctx.accounts.destination;
+
+    // Check if the internal balance is sufficient.
+    require!(
+        admin_profile.balance >= amount,
+        BridgeError::InsufficientAdminBalance
+    );
+
+    // Check if the on-chain lamport balance will remain above the rent-exempt minimum.
+    let rent = Rent::get()?;
+    let rent_exempt_minimum = rent.minimum_balance(admin_profile.to_account_info().data_len());
+    require!(
+        admin_profile.to_account_info().lamports() - amount >= rent_exempt_minimum,
+        BridgeError::RentExemptViolation
+    );
+
+    // Perform the lamport transfer by directly debiting and crediting the accounts.
+    **admin_profile.to_account_info().try_borrow_mut_lamports()? -= amount;
+    **destination.to_account_info().try_borrow_mut_lamports()? += amount;
+
+    // Update the internal balance state.
+    admin_profile.balance -= amount;
+
+    emit!(AdminFundsWithdrawn {
+        authority: admin_profile.authority,
+        amount,
+        destination: destination.key(),
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Allows an admin to send a command or notification to a user.
+/// This is a non-financial transaction; its primary purpose is to emit an event
+/// that an off-chain user `connector` can listen and react to.
+pub fn admin_dispatch_command(
+    ctx: Context<AdminDispatchCommand>,
+    command_id: u64,
+    payload: Vec<u8>,
+) -> Result<()> {
+    require!(
+        payload.len() <= MAX_PAYLOAD_SIZE,
+        BridgeError::PayloadTooLarge
+    );
+
+    emit!(AdminCommandDispatched {
+        sender: ctx.accounts.admin_authority.key(),
+        target_user_authority: ctx.accounts.user_profile.authority,
+        command_id,
+        payload,
+        ts: Clock::get()?.unix_timestamp,
+    });
+
+    Ok(())
+}
+
+// --- User Instructions ---
+
+/// Creates a `UserProfile` PDA, linking a user's `ChainCard` to a specific admin service.
+/// The `admin_authority_on_creation` field is set to the admin's PDA key to create a
+/// permanent, verifiable link.
+pub fn user_create_profile(
+    ctx: Context<UserCreateProfile>,
+    target_admin: Pubkey,
+    communication_pubkey: Pubkey,
+) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+    user_profile.authority = ctx.accounts.authority.key();
+    user_profile.deposit_balance = 0;
+    user_profile.communication_pubkey = communication_pubkey;
+    user_profile.admin_authority_on_creation = target_admin;
+
+    emit!(UserProfileCreated {
+        authority: user_profile.authority,
+        target_admin,
+        communication_pubkey,
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Updates the off-chain communication public key for a `UserProfile`.
+pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
+    ctx.accounts.user_profile.communication_pubkey = new_key;
+    emit!(UserCommKeyUpdated {
+        authority: ctx.accounts.authority.key(),
+        new_comm_pubkey: new_key,
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Closes a `UserProfile` account.
+/// All remaining lamports (both from the deposit balance and for rent) are
+/// automatically returned to the user's `authority` (`ChainCard`).
+pub fn user_close_profile(_ctx: Context<UserCloseProfile>) -> Result<()> {
+    emit!(UserProfileClosed {
+        authority: _ctx.accounts.authority.key(),
+        ts: Clock::get()?.unix_timestamp,
+    });
+    Ok(())
+}
+
+/// Allows a user to deposit lamports into their `UserProfile` PDA.
+/// This pre-funds their account to pay for future service calls.
+pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+
+    // Perform a Cross-Program Invocation (CPI) to the System Program to transfer lamports
+    // from the user's `authority` wallet to the `user_profile` PDA.
     invoke(
-        &ix,
+        &system_instruction::transfer(
+            &ctx.accounts.authority.key(),
+            &user_profile.to_account_info().key(),
+            amount,
+        ),
         &[
-            payer.to_account_info(),
-            pda_account.to_account_info(),
-            system_program.to_account_info(),
+            ctx.accounts.authority.to_account_info(),
+            user_profile.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
         ],
     )?;
-    Ok(())
-}
 
-pub fn register_admin(ctx: Context<RegisterAdmin>, initial_balance: u64) -> Result<()> {
-    let admin = &mut ctx.accounts.admin_account;
-    admin.meta.owner = ctx.accounts.authority.key();
-    admin.meta.co_signer = ctx.accounts.co_signer.key();
-    admin.meta.active = true;
+    // Update the internal deposit balance state.
+    user_profile.deposit_balance += amount;
 
-    require!(
-        ctx.accounts.payer.lamports() >= initial_balance,
-        BridgeError::InsufficientFundsForAdmin
-    );
-
-    register_pda(
-        admin,
-        &ctx.accounts.payer,
-        &ctx.accounts.system_program,
-        initial_balance,
-    )?;
-
-    emit!(AdminRegistered {
-        admin: ctx.accounts.authority.key(),
-        initial_funding: initial_balance,
-        ts: clock::Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
-}
-
-pub fn register_user(ctx: Context<RegisterUser>, initial_balance: u64) -> Result<()> {
-    let user = &mut ctx.accounts.user_account;
-    user.meta.owner = ctx.accounts.user_wallet.key();
-    user.meta.co_signer = ctx.accounts.co_signer.key();
-    user.meta.active = true;
-
-    register_pda(
-        user,
-        &ctx.accounts.payer,
-        &ctx.accounts.system_program,
-        initial_balance,
-    )?;
-
-    emit!(UserRegistered {
-        user: ctx.accounts.user_wallet.key(),
-        initial_balance,
-        ts: clock::Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
-}
-
-pub fn deactivate_admin(ctx: Context<DeactivateAdmin>) -> Result<()> {
-    let admin = &mut ctx.accounts.admin_account;
-    admin.meta.deactivate();
-
-    emit!(AdminDeactivated {
-        admin: admin.meta.owner,
-        ts: clock::Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
-}
-
-pub fn deactivate_user(ctx: Context<DeactivateUser>) -> Result<()> {
-    let user = &mut ctx.accounts.user_account;
-    user.meta.deactivate();
-
-    emit!(UserDeactivated {
-        user: user.meta.owner,
-        ts: clock::Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
-}
-
-pub fn request_funding(
-    ctx: Context<RequestFunding>,
-    amount: u64,
-    target_admin: Pubkey,
-) -> Result<()> {
-    let funding_request = &mut ctx.accounts.funding_request;
-    funding_request.user_wallet = ctx.accounts.user_account.meta.owner;
-    funding_request.amount = amount;
-    funding_request.status = FundingStatus::Pending as u8;
-    funding_request.target_admin = target_admin;
-
-    emit!(FundingRequested {
-        user_wallet: funding_request.user_wallet,
+    emit!(UserFundsDeposited {
+        authority: user_profile.authority,
         amount,
-        target_admin,
-        ts: clock::Clock::get()?.unix_timestamp,
+        new_deposit_balance: user_profile.deposit_balance,
+        ts: Clock::get()?.unix_timestamp,
     });
-
     Ok(())
 }
 
-pub fn approve_funding(ctx: Context<ApproveFunding>) -> Result<()> {
-    let funding_request = &mut ctx.accounts.funding_request;
+/// Allows a user to withdraw unspent funds from their `UserProfile` deposit balance.
+pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+    let destination = &ctx.accounts.destination;
 
-    let admin_account = &mut ctx.accounts.admin_account;
-
-    require!(admin_account.meta.active, BridgeError::InactiveAccount);
+    // Check if the internal deposit balance is sufficient.
     require!(
-        funding_request.target_admin == ctx.accounts.admin_authority.key(),
-        BridgeError::Unauthorized
-    );
-    require!(
-        funding_request.status == FundingStatus::Pending as u8,
-        BridgeError::RequestAlreadyProcessed
-    );
-    require!(
-        admin_account.to_account_info().lamports() >= funding_request.amount,
-        BridgeError::InsufficientFundsForFunding
+        user_profile.deposit_balance >= amount,
+        BridgeError::InsufficientDepositBalance
     );
 
-    **admin_account.to_account_info().try_borrow_mut_lamports()? -= funding_request.amount;
-    **ctx
-        .accounts
-        .user_wallet
-        .to_account_info()
-        .try_borrow_mut_lamports()? += funding_request.amount;
+    // Check if the on-chain lamport balance will remain above the rent-exempt minimum.
+    let rent = Rent::get()?;
+    let rent_exempt_minimum = rent.minimum_balance(user_profile.to_account_info().data_len());
+    require!(
+        user_profile.to_account_info().lamports() - amount >= rent_exempt_minimum,
+        BridgeError::RentExemptViolation
+    );
 
-    funding_request.status = FundingStatus::Approved as u8;
+    // Perform the lamport transfer.
+    **user_profile.to_account_info().try_borrow_mut_lamports()? -= amount;
+    **destination.to_account_info().try_borrow_mut_lamports()? += amount;
 
-    emit!(FundingApproved {
-        user_wallet: funding_request.user_wallet,
-        amount: funding_request.amount,
-        approved_by: funding_request.target_admin,
-        ts: clock::Clock::get()?.unix_timestamp,
+    // Update the internal deposit balance state.
+    user_profile.deposit_balance -= amount;
+
+    emit!(UserFundsWithdrawn {
+        authority: user_profile.authority,
+        amount,
+        destination: destination.key(),
+        new_deposit_balance: user_profile.deposit_balance,
+        ts: Clock::get()?.unix_timestamp,
     });
-
     Ok(())
 }
 
-pub fn dispatch_command_admin(
-    ctx: Context<DispatchCommandAdmin>,
-    command_id: u64,
-    mode: CommandMode,
+// --- Operational Instructions ---
+
+/// The primary instruction for a user to call a service's API.
+/// If the called command has a price, this instruction handles the payment by
+/// transferring lamports from the `UserProfile` PDA to the `AdminProfile` PDA.
+pub fn user_dispatch_command(
+    ctx: Context<UserDispatchCommand>,
+    command_id: u16,
     payload: Vec<u8>,
-    target_pubkey: Pubkey,
 ) -> Result<()> {
-    require!(payload.len() <= 1024, BridgeError::PayloadTooLarge);
+    require!(
+        payload.len() <= MAX_PAYLOAD_SIZE,
+        BridgeError::PayloadTooLarge
+    );
 
-    let admin = &ctx.accounts.admin_account;
-    require!(admin.meta.active, BridgeError::InactiveAccount);
-    require!(admin.meta.owner == target_pubkey, BridgeError::Unauthorized);
+    let user_profile = &mut ctx.accounts.user_profile;
+    let admin_profile = &mut ctx.accounts.admin_profile;
 
-    emit!(CommandEvent {
+    let command_price = match admin_profile
+        .prices
+        .binary_search_by_key(&command_id, |id| id.command_id)
+    {
+        Ok(index) => admin_profile.prices[index].price,
+        Err(_) => 0,
+    };
+
+    // If the command is not free, process the payment.
+    if command_price > 0 {
+        require!(
+            user_profile.deposit_balance >= command_price,
+            BridgeError::InsufficientDepositBalance
+        );
+
+        let rent = Rent::get()?;
+        let rent_exempt_minimum = rent.minimum_balance(user_profile.to_account_info().data_len());
+        require!(
+            user_profile.to_account_info().lamports() - command_price >= rent_exempt_minimum,
+            BridgeError::RentExemptViolation
+        );
+
+        // Transfer lamports from the user's PDA to the admin's PDA.
+        **user_profile.to_account_info().try_borrow_mut_lamports()? -= command_price;
+        **admin_profile.to_account_info().try_borrow_mut_lamports()? += command_price;
+
+        // Update the internal balances of both profiles.
+        user_profile.deposit_balance -= command_price;
+        admin_profile.balance += command_price;
+    }
+
+    emit!(UserCommandDispatched {
         sender: ctx.accounts.authority.key(),
-        target: target_pubkey,
+        target_admin_authority: admin_profile.authority,
         command_id,
-        mode,
+        price_paid: command_price,
         payload,
-        ts: clock::Clock::get()?.unix_timestamp,
+        ts: Clock::get()?.unix_timestamp,
     });
-
     Ok(())
 }
 
-pub fn dispatch_command_user(
-    ctx: Context<DispatchCommandUser>,
-    command_id: u64,
-    mode: CommandMode,
-    payload: Vec<u8>,
-    target_pubkey: Pubkey,
-) -> Result<()> {
-    require!(payload.len() <= 1024, BridgeError::PayloadTooLarge);
-
-    let user = &ctx.accounts.user_account;
-    require!(user.meta.active, BridgeError::InactiveAccount);
-    require!(user.meta.owner == target_pubkey, BridgeError::Unauthorized);
-
-    emit!(CommandEvent {
-        sender: ctx.accounts.authority.key(),
-        target: target_pubkey,
-        command_id,
-        mode,
-        payload,
-        ts: clock::Clock::get()?.unix_timestamp,
+/// A generic instruction to log a significant off-chain action to the blockchain.
+/// This creates an immutable, auditable record of events that happen outside the chain.
+pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {
+    emit!(OffChainActionLogged {
+        actor: ctx.accounts.authority.key(),
+        session_id,
+        action_code,
+        ts: Clock::get()?.unix_timestamp,
     });
-
     Ok(())
 }

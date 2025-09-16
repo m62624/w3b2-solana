@@ -1,43 +1,17 @@
 use anyhow::Result;
-use sled::Db;
+use async_trait::async_trait;
 
-#[derive(Clone)]
-pub struct Storage {
-    db: Db,
-}
+/// A trait defining the required functionality for a persistent storage backend.
+/// This allows for different database implementations.
+#[async_trait]
+pub trait Storage: Send + Sync {
+    /// Retrieves the last synchronized slot number from the storage.
+    async fn get_last_slot(&self) -> Result<u64>;
 
-impl Storage {
-    pub fn new(path: &str) -> Result<Self> {
-        Ok(Self {
-            db: sled::open(path)?,
-        })
-    }
+    /// Retrieves the last synchronized signature from the storage.
+    async fn get_last_sig(&self) -> Result<Option<String>>;
 
-    pub fn get_last_slot(&self) -> u64 {
-        self.db
-            .get("last_slot")
-            .ok()
-            .flatten()
-            .and_then(|v| String::from_utf8(v.to_vec()).ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0)
-    }
-
-    pub fn set_last_slot(&self, slot: u64) {
-        let _ = self.db.insert("last_slot", slot.to_string().as_bytes());
-        let _ = self.db.flush();
-    }
-
-    pub fn set_last_sig(&self, sig: &str) {
-        let _ = self.db.insert("last_sig", sig.as_bytes());
-        let _ = self.db.flush();
-    }
-
-    pub fn get_last_sig(&self) -> Option<String> {
-        self.db
-            .get("last_sig")
-            .ok()
-            .flatten()
-            .and_then(|v| String::from_utf8(v.to_vec()).ok())
-    }
+    /// Atomically sets the last synchronized slot and signature.
+    /// This should be a transactional operation to ensure data consistency.
+    async fn set_sync_state(&self, slot: u64, sig: &str) -> Result<()>;
 }

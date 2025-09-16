@@ -1,88 +1,90 @@
-use chrono::{DateTime, Utc};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
 use solana_sdk::commitment_config::CommitmentLevel;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncConfig {
-    /// RPC HTTP endpoint
+/// Represents the core configuration required by the w3b2-connector library.
+/// This struct should be created by the user of the library and passed to the EventManager.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub struct ConnectorConfig {
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub solana: Solana,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub synchronizer: Synchronizer,
+}
+
+/// Solana network connection settings.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub struct Solana {
     pub rpc_url: String,
-    /// RPC WS endpoint
     pub ws_url: String,
-    /// Max slots to go back during catch-up. `None` means unlimited.
+    #[cfg_attr(feature = "serde", serde(with = "serde_commitment"))]
+    pub commitment: CommitmentLevel,
+}
+
+/// Settings for the event synchronizer.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub struct Synchronizer {
     pub max_catchup_depth: Option<u64>,
-    /// Max age of a funding request in minutes to be processed
-    pub max_request_age_minutes: u64,
-    #[serde(default = "default_time_provider", with = "serde_rfc3339")]
-    pub time_provider: DateTime<Utc>,
-    /// Poll interval in seconds for catch-up worker
-    /// Default: 3 seconds
-    pub poll_interval_secs: Option<u64>,
-    /// Commitment level for RPC requests
-    /// Default: Confirmed
-    #[serde(with = "serde_commitment")]
-    pub commitment: Option<solana_sdk::commitment_config::CommitmentLevel>,
-    /// Max number of signatures to fetch in one RPC call
-    pub max_signature_fetch: Option<usize>,
-    pub data_dir: String,
-    pub log_dir: String,
-    /// gRPC server host
-    #[serde(default = "default_host")]
-    pub host: String,
-    /// gRPC server port
-    #[serde(default = "default_port")]
-    pub port: u16,
+    pub poll_interval_secs: u64,
+    pub max_signature_fetch: usize,
 }
 
-fn default_time_provider() -> DateTime<Utc> {
-    Utc::now()
-}
-
-fn default_host() -> String {
-    "[::1]".to_string()
-}
-
-fn default_port() -> u16 {
-    50051
-}
-
-impl Default for SyncConfig {
+impl Default for ConnectorConfig {
     fn default() -> Self {
         Self {
-            rpc_url: "http://127.0.0.1:8899".into(),
-            ws_url: "ws://127.0.0.1:8900".into(),
-            max_catchup_depth: None,
-            max_request_age_minutes: 60, // 1 час
-            time_provider: Utc::now(),
-            poll_interval_secs: Some(3),
-            commitment: Some(CommitmentLevel::Confirmed),
-            max_signature_fetch: None,
-            data_dir: "./w3b2_db".into(),
-            log_dir: "Logs".into(),
-            host: default_host(),
-            port: default_port(),
+            solana: Solana::default(),
+            synchronizer: Synchronizer::default(),
         }
     }
 }
 
+impl Default for Solana {
+    fn default() -> Self {
+        Self {
+            rpc_url: "http://127.0.0.1:8899".to_string(),
+            ws_url: "ws://127.0.0.1:8900".to_string(),
+            commitment: CommitmentLevel::Confirmed,
+        }
+    }
+}
+
+impl Default for Synchronizer {
+    fn default() -> Self {
+        Self {
+            max_catchup_depth: None,
+            poll_interval_secs: 3,
+            max_signature_fetch: 1000,
+        }
+    }
+}
+
+// Весь этот модуль нужен только для serde, поэтому оборачиваем его целиком
+#[cfg(feature = "serde")]
 mod serde_commitment {
+    use super::*;
+    // Этот use нужен внутри модуля, когда он активен
     use serde::{Deserializer, Serializer};
 
-    use super::*;
-
-    pub fn serialize<S>(c: &Option<CommitmentLevel>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(c: &CommitmentLevel, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let s = match c {
-            Some(CommitmentLevel::Processed) => "Processed",
-            Some(CommitmentLevel::Confirmed) => "Confirmed",
-            Some(CommitmentLevel::Finalized) => "Finalized",
-            None => "Confirmed",
+            CommitmentLevel::Processed => "Processed",
+            CommitmentLevel::Confirmed => "Confirmed",
+            CommitmentLevel::Finalized => "Finalized",
         };
         serializer.serialize_str(s)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<CommitmentLevel>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<CommitmentLevel, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -93,26 +95,6 @@ mod serde_commitment {
             "finalized" => CommitmentLevel::Finalized,
             _ => CommitmentLevel::Confirmed,
         };
-        Ok(Some(level))
-    }
-}
-
-mod serde_rfc3339 {
-    use chrono::{DateTime, Utc};
-    use serde::{self, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&date.to_rfc3339())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        s.parse::<DateTime<Utc>>().map_err(serde::de::Error::custom)
+        Ok(level)
     }
 }
