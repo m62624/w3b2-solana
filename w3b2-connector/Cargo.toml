@@ -4,29 +4,36 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# --- Internal Workspace Crates ---
+w3b2-program.workspace = true
+
+# --- Solana and Anchor ---
 anchor-lang.workspace = true
-anyhow.workspace = true
-bincode.workspace = true
-borsh.workspace = true
-serde = { workspace = true, optional = true }
-sled.workspace = true
 solana-client.workspace = true
-solana-rpc-client-api.workspace = true
 solana-sdk.workspace = true
 solana-transaction-status.workspace = true
+
+# --- Async and Concurrency ---
+async-trait = "0.1.89"
+dashmap = "6.1.0"
 tokio.workspace = true
 tokio-stream.workspace = true
-w3b2-bridge-program.workspace = true
 
+# --- Serialization and Data Handling ---
 base64 = "0.22.1"
+borsh.workspace = true
+serde = { workspace = true, optional = true }
+
+# --- Logging and Tracing ---
 tracing = "0.1.41"
-async-trait = "0.1.89"
-serde_json = "1.0.145"
-dashmap = "6.1.0"
-thiserror = "2.0.16"
+
+# --- Error Handling ---
+anyhow.workspace = true
 
 [dev-dependencies]
+# --- Utilities ---
 dirs = "6.0.0"
+sled = { workspace = true }
 
 [features]
 serde = ["dep:serde"]

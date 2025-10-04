@@ -4,29 +4,47 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bincode = { workspace = true, features = ["serde"] }
-anyhow.workspace = true
-async-trait = "0.1.89"
-clap = { version = "4.5.48", features = ["derive"] }
-config = { version = "0.15.18", features = ["toml"] }
-prost = "0.12"
-serde.workspace = true
-serde_json = "1.0.145"
-sled.workspace = true
+# --- Internal Workspace Crates ---
+w3b2-connector = { workspace = true, features = ["serde"] }
+w3b2-program.workspace = true
+
+# --- Solana and Anchor ---
 solana-client.workspace = true
 solana-sdk.workspace = true
+
+# --- Async and Concurrency ---
 tokio.workspace = true
 tokio-stream.workspace = true
+async-trait = "0.1.89"
+dashmap = "6.1.0"
+
+# --- Serialization and Data Handling ---
+bincode = { workspace = true, features = ["serde"] }
+serde.workspace = true
+sled.workspace = true
+
+# --- gRPC and Networking ---
+prost = "0.12"
 tonic = "0.11"
+
+# --- Logging and Tracing ---
 tracing = "0.1.41"
-w3b2-connector = { workspace = true, features = ["serde"] }
-thiserror = "2.0.17"
 tracing-subscriber = { version = "0.3.20", features = ["json"] }
+
+# --- Configuration ---
+config = { version = "0.15.18", features = ["toml"] }
+
+# --- Error Handling ---
+anyhow.workspace = true
+thiserror = "2.0.17"
+
+# --- CLI and Utilities ---
+clap = { version = "4.5.48", features = ["derive"] }
+
 [build-dependencies]
 tonic-build = "0.11"
 
 [dev-dependencies]
-w3b2-bridge-program = { path = "../w3b2-bridge-program" }
 portpicker = "0.1.1"
 tempfile = "3.10.1"
 solana-transaction-status.workspace = true

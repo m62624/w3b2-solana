@@ -12,24 +12,10 @@ use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
 use solana_sdk::signature::Signer;
-use w3b2_bridge_program::state::{AdminProfile, PriceEntry, UserProfile};
+use w3b2_program::state::{AdminProfile, PriceEntry, UserProfile};
 
 /// Tests the successful creation of an `AdminProfile` PDA.
-///
-/// ### Scenario
-/// A new service provider registers their profile on the protocol.
-///
-/// ### Arrange
-/// 1. A new `Keypair` is created and funded to act as the admin's `ChainCard` (`authority`).
-/// 2. A `Keypair` is created for the admin's off-chain communication key.
-///
-/// ### Act
-/// The `admin::create_profile` helper is called to initialize the on-chain `AdminProfile` PDA.
-///
-/// ### Assert
-/// 1. The `authority` and `communication_pubkey` fields in the new `AdminProfile` are set correctly.
-/// 2. The `prices` vector is empty and the `balance` is 0.
-/// 3. The account's lamport balance is exactly the rent-exempt minimum for its initial allocated size.
+/// Verifies that the profile is initialized with correct default values and rent-exempt lamports.
 #[test]
 fn test_admin_create_profile_success() {
     // === 1. Arrange (Setup) ===
@@ -73,20 +59,7 @@ fn test_admin_create_profile_success() {
 }
 
 /// Tests the successful update of an `AdminProfile`'s communication key.
-///
-/// ### Scenario
-/// An admin with an existing profile wants to change their key for off-chain communication.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created with an initial communication key.
-/// 2. A new `Keypair` is generated for the new communication key.
-///
-/// ### Act
-/// The `admin::update_comm_key` helper is called.
-///
-/// ### Assert
-/// 1. The `communication_pubkey` field in the `AdminProfile` is updated to the new key.
-/// 2. Other fields, like `authority`, remain unchanged.
+/// Verifies that the `communication_pubkey` field is updated while other fields remain unchanged.
 #[test]
 fn test_admin_update_comm_key_success() {
     // === 1. Arrange ===
@@ -120,21 +93,8 @@ fn test_admin_update_comm_key_success() {
 }
 
 /// Tests the successful closure of an `AdminProfile` account.
-///
-/// ### Scenario
-/// An admin unregisters their service and recovers the rent lamports held by the PDA.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created.
-/// 2. The lamport balances of the admin's `ChainCard` and the `AdminProfile` PDA are recorded.
-///
-/// ### Act
-/// The `admin::close_profile` helper is called.
-///
-/// ### Assert
-/// 1. The `AdminProfile` PDA account no longer exists.
-/// 2. The balance of the admin's `ChainCard` (`authority`) has increased by the lamport
-///    balance of the closed PDA, minus the transaction fee.
+/// Verifies that the PDA account is deleted and its rent lamports are refunded
+/// to the admin's wallet (`authority`).
 #[test]
 fn test_admin_close_profile_success() {
     // === 1. Arrange ===
@@ -168,20 +128,8 @@ fn test_admin_close_profile_success() {
 }
 
 /// Tests the successful update of an admin's price list and the `realloc` feature.
-///
-/// ### Scenario
-/// An admin sets or changes the prices for their services, which requires resizing the PDA.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created with an empty price list.
-/// 2. A new price list is defined.
-///
-/// ### Act
-/// The `admin::update_prices` helper is called.
-///
-/// ### Assert
-/// 1. The `prices` vector in the account data is updated correctly.
-/// 2. The on-chain account size (`data.len()`) has changed to accommodate the new vector size.
+/// Verifies that the `prices` vector in the account data is updated correctly and that
+/// the on-chain account size (`data.len()`) is resized to accommodate the new vector.
 #[test]
 fn test_admin_update_prices_success() {
     // === 1. Arrange ===
@@ -229,23 +177,8 @@ fn test_admin_update_prices_success() {
 }
 
 /// Tests the successful dispatch of a command *from* an admin *to* a user.
-///
-/// ### Scenario
-/// An admin sends a notification or command to a user associated with their service.
-/// This is a non-financial transaction.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created.
-/// 2. A `UserProfile` is created and linked to that admin.
-/// 3. The initial state of all accounts is recorded.
-///
-/// ### Act
-/// The `admin::dispatch_command` helper is called by the admin.
-///
-/// ### Assert
-/// 1. The internal balances (`balance`, `deposit_balance`) of both profiles are unchanged.
-/// 2. The on-chain lamport balances of both PDAs are also unchanged.
-/// 3. The admin's `authority` wallet balance decreases only by the transaction fee.
+/// Verifies that a non-financial command can be sent without altering any internal
+/// or on-chain lamport balances of the profiles.
 #[test]
 fn test_admin_dispatch_command_success() {
     // === 1. Arrange ===
@@ -269,6 +202,8 @@ fn test_admin_dispatch_command_success() {
     let user_account_before = svm.get_account(&user_pda).unwrap();
     let user_profile_before =
         UserProfile::try_deserialize(&mut user_account_before.data.as_slice()).unwrap();
+
+    assert_eq!(user_profile_before.admin_profile_on_creation, admin_pda);
 
     let admin_authority_lamports_before = svm.get_balance(&admin_authority.pubkey()).unwrap();
 
@@ -320,25 +255,9 @@ fn test_admin_dispatch_command_success() {
 }
 
 /// Tests the successful withdrawal of *earned* funds by an admin.
-///
-/// ### Scenario
-/// This is an integration test. A user pays an admin for a service via `user_dispatch_command`,
-/// and then the admin withdraws a portion of those earnings to an external wallet.
-///
-/// ### Arrange
-/// 1. An admin and a user are created.
-/// 2. The admin sets a price for a command.
-/// 3. The user deposits funds.
-/// 4. The user calls the paid command, transferring funds to the admin's balance.
-/// 5. The admin's state is recorded before the withdrawal.
-///
-/// ### Act
-/// The `admin::withdraw` helper is called.
-///
-/// ### Assert
-/// 1. The admin's internal `balance` decreases by the withdrawal amount.
-/// 2. The admin PDA's on-chain lamport balance also decreases by the same amount.
-/// 3. The destination wallet's balance increases by the withdrawal amount.
+/// This is an integration test: a user pays an admin, then the admin withdraws the earnings.
+/// Verifies that the admin's internal `balance` and the PDA's lamport balance decrease
+/// correctly, and the destination wallet's balance increases.
 #[test]
 fn test_admin_withdraw_success() {
     // === 1. Arrange ===

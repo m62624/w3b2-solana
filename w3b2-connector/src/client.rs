@@ -8,12 +8,12 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::Transaction;
 use std::sync::Arc;
-use w3b2_bridge_program::{
+use w3b2_program::{
     accounts, instruction,
     state::{PriceEntry, UpdatePricesArgs},
 };
 
-/// A client for preparing on-chain transactions for remote signing.
+/// A builder for preparing on-chain transactions for remote signing.
 ///
 /// This struct provides methods to construct unsigned transactions for every
 /// instruction in the W3B2 Bridge Program. It is designed for a non-custodial
@@ -28,7 +28,7 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    /// Creates a new TransactionBuilder.
+    /// Creates a new `TransactionBuilder`.
     ///
     /// # Arguments
     ///
@@ -40,7 +40,7 @@ impl TransactionBuilder {
     /// Submits a fully signed transaction to the Solana network.
     ///
     /// This is the final step in the remote signing flow. After a client signs
-    /// the transaction prepared by one of the `prepare_` methods, the signed
+    /// the transaction prepared by one of the `prepare_*` methods, the signed
     /// transaction is sent back to the server and submitted via this method.
     ///
     /// # Arguments
@@ -80,7 +80,7 @@ impl TransactionBuilder {
     ///
     /// # Arguments
     ///
-    /// * `authority` - The public key of the admin who will sign the transaction.
+    /// * `authority` - The public key of the admin's wallet that will sign the transaction.
     /// * `communication_pubkey` - The public key for secure off-chain communication.
     pub async fn prepare_admin_register_profile(
         &self,
@@ -88,10 +88,10 @@ impl TransactionBuilder {
         communication_pubkey: Pubkey,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminRegisterProfile {
                 authority,
                 admin_profile: admin_pda,
@@ -114,10 +114,10 @@ impl TransactionBuilder {
         new_key: Pubkey,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminUpdateCommKey {
                 authority,
                 admin_profile: admin_pda,
@@ -136,10 +136,10 @@ impl TransactionBuilder {
         new_prices: Vec<PriceEntry>,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminUpdatePrices {
                 authority,
                 admin_profile: admin_pda,
@@ -163,15 +163,14 @@ impl TransactionBuilder {
         destination: Pubkey,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminWithdraw {
                 authority,
                 admin_profile: admin_pda,
                 destination,
-                system_program: solana_sdk::system_program::id(),
             }
             .to_account_metas(None),
             data: instruction::AdminWithdraw { amount }.data(),
@@ -186,10 +185,10 @@ impl TransactionBuilder {
         authority: Pubkey,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminCloseProfile {
                 authority,
                 admin_profile: admin_pda,
@@ -210,10 +209,10 @@ impl TransactionBuilder {
         payload: Vec<u8>,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_bridge_program::ID);
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_program::ID);
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::AdminDispatchCommand {
                 admin_authority: authority,
                 admin_profile: admin_pda,
@@ -232,7 +231,12 @@ impl TransactionBuilder {
 
     // --- User Transaction Preparations ---
 
-    /// Prepares a `user_create_profile` transaction.
+    /// Prepares a `user_create_profile` transaction. The on-chain instruction
+    /// requires the `admin_profile` PDA to be passed in the accounts list for verification.
+    ///
+    /// * `authority` - The user's wallet `Pubkey` that will sign and own the profile.
+    /// * `target_admin_pda` - The `Pubkey` of the `AdminProfile` **PDA** to link to.
+    /// * `communication_pubkey` - The user's public key for off-chain communication.
     pub async fn prepare_user_create_profile(
         &self,
         authority: Pubkey,
@@ -241,19 +245,20 @@ impl TransactionBuilder {
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserCreateProfile {
                 authority,
+                admin_profile: target_admin_pda,
                 user_profile: user_pda,
                 system_program: solana_sdk::system_program::id(),
             }
             .to_account_metas(None),
             data: instruction::UserCreateProfile {
-                target_admin: target_admin_pda,
+                target_admin_pda,
                 communication_pubkey,
             }
             .data(),
@@ -263,6 +268,10 @@ impl TransactionBuilder {
     }
 
     /// Prepares a `user_update_comm_key` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `new_key` - The new communication key to set.
     pub async fn prepare_user_update_comm_key(
         &self,
         authority: Pubkey,
@@ -271,11 +280,11 @@ impl TransactionBuilder {
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserUpdateCommKey {
                 authority,
                 user_profile: user_pda,
@@ -289,6 +298,10 @@ impl TransactionBuilder {
     }
 
     /// Prepares a `user_deposit` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `amount` - The amount of lamports to deposit.
     pub async fn prepare_user_deposit(
         &self,
         authority: Pubkey,
@@ -297,11 +310,11 @@ impl TransactionBuilder {
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserDeposit {
                 authority,
                 user_profile: user_pda,
@@ -316,6 +329,11 @@ impl TransactionBuilder {
     }
 
     /// Prepares a `user_withdraw` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `amount` - The amount of lamports to withdraw.
+    /// * `destination` - The `Pubkey` of the wallet to receive the funds.
     pub async fn prepare_user_withdraw(
         &self,
         authority: Pubkey,
@@ -325,17 +343,16 @@ impl TransactionBuilder {
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserWithdraw {
                 authority,
                 user_profile: user_pda,
                 admin_profile: admin_profile_pda,
                 destination,
-                system_program: solana_sdk::system_program::id(),
             }
             .to_account_metas(None),
             data: instruction::UserWithdraw { amount }.data(),
@@ -345,6 +362,9 @@ impl TransactionBuilder {
     }
 
     /// Prepares a `user_close_profile` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
     pub async fn prepare_user_close_profile(
         &self,
         authority: Pubkey,
@@ -352,11 +372,11 @@ impl TransactionBuilder {
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserCloseProfile {
                 authority,
                 user_profile: user_pda,
@@ -372,25 +392,29 @@ impl TransactionBuilder {
     // --- Operational Transaction Preparations ---
 
     /// Prepares a `user_dispatch_command` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` **PDA**.
+    /// * `command_id` - The `u16` identifier for the command.
+    /// * `payload` - An opaque byte array for application-specific data.
     pub async fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
-        admin_profile_pda: Pubkey,
+        target_admin_pda: Pubkey,
         command_id: u16,
         payload: Vec<u8>,
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
-            &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
-            &w3b2_bridge_program::ID,
+            &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
+            &w3b2_program::ID,
         );
 
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
+            program_id: w3b2_program::ID,
             accounts: accounts::UserDispatchCommand {
                 authority,
                 user_profile: user_pda,
-                admin_profile: admin_profile_pda,
-                system_program: solana_sdk::system_program::id(),
+                admin_profile: target_admin_pda,
             }
             .to_account_metas(None),
             data: instruction::UserDispatchCommand {
@@ -403,16 +427,31 @@ impl TransactionBuilder {
         self.create_transaction(&authority, ix).await
     }
 
-    /// Prepares a `log_action` transaction.
+    /// Prepares a `log_action` transaction. This instruction requires both the
+    /// `UserProfile` and `AdminProfile` PDAs to be passed in the accounts list
+    /// to ensure the action is logged within a valid, existing relationship.
+    ///
+    /// * `authority` - The `Pubkey` of the signer (can be user or admin wallet).
+    /// * `user_profile_pda` - The `Pubkey` of the `UserProfile` **PDA**.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA**.
+    /// * `session_id` - A `u64` identifier to correlate actions.
+    /// * `action_code` - A `u16` code for the specific action.
     pub async fn prepare_log_action(
         &self,
         authority: Pubkey,
+        user_profile_pda: Pubkey,
+        admin_profile_pda: Pubkey,
         session_id: u64,
         action_code: u16,
     ) -> Result<Transaction, ClientError> {
         let ix = Instruction {
-            program_id: w3b2_bridge_program::ID,
-            accounts: accounts::LogAction { authority }.to_account_metas(None),
+            program_id: w3b2_program::ID,
+            accounts: accounts::LogAction {
+                authority,
+                user_profile: user_profile_pda,
+                admin_profile: admin_profile_pda,
+            }
+            .to_account_metas(None),
             data: instruction::LogAction {
                 session_id,
                 action_code,

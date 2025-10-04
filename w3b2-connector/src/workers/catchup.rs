@@ -1,6 +1,6 @@
 use crate::{
-    events::{try_parse_log, BridgeEvent},
-    workers::WorkerContext,
+    events::{try_parse_log, EventSource},
+    workers::synchronizer::WorkerContext,
 };
 use anyhow::Result;
 use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
@@ -11,19 +11,29 @@ use solana_sdk::{commitment_config::CommitmentConfig, signature::Signature};
 use solana_transaction_status::UiTransactionEncoding;
 use tokio::time::{sleep, Duration};
 
+/// A background worker responsible for scanning historical transactions.
+///
+/// The `CatchupWorker` ensures that no events are missed if the service was
+/// down or if the `LiveWorker`'s WebSocket connection was interrupted. It
+/// periodically polls for transaction signatures for the program address,
+/// stopping when it finds the last signature it successfully processed.
 pub struct CatchupWorker {
     ctx: WorkerContext,
     program_id: solana_sdk::pubkey::Pubkey,
 }
 
 impl CatchupWorker {
+    /// Creates a new `CatchupWorker`.
     pub fn new(ctx: WorkerContext) -> Self {
-        let program_id = w3b2_bridge_program::ID;
+        let program_id = w3b2_program::ID;
         Self { ctx, program_id }
     }
 
-    /// Runs the main catch-up loop.
-    /// In each iteration, it fetches new signatures and processes them.
+    /// Runs the main catch-up loop for the worker.
+    ///
+    /// In each iteration, it fetches new signatures since the last known one
+    /// and processes them. The loop is controlled by a `tokio::select!` that
+    /// respects both the polling interval and a shutdown signal.
     pub async fn run(self) -> Result<()> {
         loop {
             let poll_interval = self.ctx.config.synchronizer.poll_interval_secs;
@@ -36,16 +46,17 @@ impl CatchupWorker {
                         self.process_signatures(signatures).await?;
                     }
                 }
-                // If the broadcast channel is closed, it means we are shutting down.
-                _ = self.ctx.event_sender.closed() => {
-                    tracing::info!("CatchupWorker: event channel closed, shutting down.");
-                    return Ok(());
-                }
+                // Shutdown is handled by the main EventManager task.
+                // If the synchronizer is dropped, this worker will be dropped too.
             }
         }
     }
 
-    /// Fetches signatures in pages until it finds the last one we processed.
+    /// Fetches new transaction signatures for the program address.
+    ///
+    /// This function fetches signatures in pages (up to `max_signature_fetch`
+    /// at a time) until it either finds the last signature stored in the
+    /// persistent storage or fetches all available recent signatures.
     async fn fetch_new_signatures(
         &self,
     ) -> Result<Vec<RpcConfirmedTransactionStatusWithSignature>> {
@@ -93,7 +104,11 @@ impl CatchupWorker {
         Ok(signatures_to_process)
     }
 
-    /// Iterates through a batch of signatures and processes each one individually.
+    /// Iterates through a batch of signatures and processes each one.
+    ///
+    /// It respects the `max_catchup_depth` configuration to avoid processing
+    /// transactions that are too old, which could happen on the first run
+    /// of a new deployment.
     async fn process_signatures(
         &self,
         signatures: Vec<RpcConfirmedTransactionStatusWithSignature>,
@@ -117,7 +132,12 @@ impl CatchupWorker {
         Ok(())
     }
 
-    /// Fetches a single transaction, parses its logs for events, and sends them.
+    /// Fetches a single transaction by its signature, parses its logs for
+    /// W3B2 Bridge events, and sends any found events to the main broadcast channel.
+    ///
+    /// After processing, it updates the persistent storage with the slot and
+    /// signature of the processed transaction to ensure it's not processed again
+    /// in the future.
     async fn process_one_transaction(
         &self,
         sig_info: &RpcConfirmedTransactionStatusWithSignature,
@@ -144,14 +164,9 @@ impl CatchupWorker {
                     ) = meta.log_messages
                     {
                         for log in logs {
-                            if let Ok(event) = try_parse_log(&log) {
-                                if !matches!(event, BridgeEvent::Unknown) {
-                                    if self.ctx.event_sender.send(event).is_err() {
-                                        tracing::warn!(
-                                            "No active receivers for broadcast channel."
-                                        );
-                                    }
-                                }
+                            if let Ok(mut event) = try_parse_log(&log) {
+                                event.source = EventSource::Catchup;
+                                self.ctx.dispatcher.dispatch(event).await;
                             }
                         }
                     }

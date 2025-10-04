@@ -34,7 +34,7 @@ pub mod w3b2_bridge_program {
     /// and initial configuration.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for registering an admin.
+    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
     /// * `communication_pubkey` - The public key the admin will use for off-chain communication.
     pub fn admin_register_profile(
         ctx: Context<AdminRegisterProfile>,
@@ -47,7 +47,7 @@ pub mod w3b2_bridge_program {
     /// This allows a service provider to rotate their off-chain encryption keys.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for updating the key.
+    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
     /// * `new_key` - The new `Pubkey` to set as the communication key.
     pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
         instructions::admin_update_comm_key(ctx, new_key)
@@ -57,7 +57,7 @@ pub mod w3b2_bridge_program {
     /// This effectively unregisters a service from the protocol.
     ///
     /// # Arguments
-    /// * `ctx` - The context containing the `authority` and the `admin_profile` to be closed.
+    /// * `ctx` - The context, containing the admin's wallet (`authority`) and the `admin_profile` to be closed.
     pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
         instructions::admin_close_profile(ctx)
     }
@@ -66,8 +66,8 @@ pub mod w3b2_bridge_program {
     /// account is automatically resized to fit the new list.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for updating the price list.
-    /// * `args` - A struct containing `new_prices`, a `Vec<(u64, u64)>` of (command_id, price).
+    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
+    /// * `args` - A struct containing `new_prices`, a `Vec<PriceEntry>`.
     pub fn admin_update_prices(
         ctx: Context<AdminUpdatePrices>,
         args: UpdatePricesArgs,
@@ -79,7 +79,7 @@ pub mod w3b2_bridge_program {
     /// to a specified destination wallet.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for the withdrawal.
+    /// * `ctx` - The context, containing the admin's wallet as a `Signer` and the destination account.
     /// * `amount` - The number of lamports to withdraw.
     pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
         instructions::admin_withdraw(ctx, amount)
@@ -90,7 +90,7 @@ pub mod w3b2_bridge_program {
     /// an off-chain user `connector` can listen and react to.
     ///
     /// # Arguments
-    /// * `ctx` - The context, including the admin's `authority`, their `admin_profile`, and the target `user_profile`.
+    /// * `ctx` - The context, including the admin's wallet (`admin_authority`), their `admin_profile`, and the target `user_profile`.
     /// * `command_id` - The `u64` identifier of the admin's command.
     /// * `payload` - An opaque `Vec<u8>` for application-specific data.
     pub fn admin_dispatch_command(
@@ -103,24 +103,24 @@ pub mod w3b2_bridge_program {
 
     // --- User Instructions ---
 
-    /// Creates a `UserProfile` PDA, linking a user's `ChainCard` to a specific admin service.
+    /// Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for creating a user profile.
-    /// * `target_admin` - The `Pubkey` of the `AdminProfile` PDA this user is registering with.
+    /// * `ctx` - The context, containing the user's wallet as a `Signer` and the target `admin_profile`.
+    /// * `target_admin_pda` - The public key of the `AdminProfile` **PDA** this user is registering with.
     /// * `communication_pubkey` - The user's public key for off-chain communication.
     pub fn user_create_profile(
         ctx: Context<UserCreateProfile>,
-        target_admin: Pubkey,
+        target_admin_pda: Pubkey,
         communication_pubkey: Pubkey,
     ) -> Result<()> {
-        instructions::user_create_profile(ctx, target_admin, communication_pubkey)
+        instructions::user_create_profile(ctx, target_admin_pda, communication_pubkey)
     }
 
     /// Updates the `communication_pubkey` for an existing `UserProfile`.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for updating the key.
+    /// * `ctx` - The context, containing the user's wallet as a `Signer`.
     /// * `new_key` - The new `Pubkey` to set as the communication key.
     pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
         instructions::user_update_comm_key(ctx, new_key)
@@ -130,7 +130,7 @@ pub mod w3b2_bridge_program {
     /// balance and for rent) are automatically returned to the user's `authority`.
     ///
     /// # Arguments
-    /// * `ctx` - The context containing the user's `authority` and the `user_profile` to be closed.
+    /// * `ctx` - The context, containing the user's wallet (`authority`) and the `user_profile` to be closed.
     pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
         instructions::user_close_profile(ctx)
     }
@@ -139,7 +139,7 @@ pub mod w3b2_bridge_program {
     /// future payments for a service.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for the deposit.
+    /// * `ctx` - The context, containing the user's wallet as a `Signer`.
     /// * `amount` - The number of lamports to deposit.
     pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
         instructions::user_deposit(ctx, amount)
@@ -148,7 +148,7 @@ pub mod w3b2_bridge_program {
     /// Allows a user to withdraw unspent funds from their `UserProfile`'s deposit balance.
     ///
     /// # Arguments
-    /// * `ctx` - The context of accounts for the withdrawal.
+    /// * `ctx` - The context, containing the user's wallet as a `Signer` and the destination account.
     /// * `amount` - The number of lamports to withdraw.
     pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
         instructions::user_withdraw(ctx, amount)
@@ -160,8 +160,8 @@ pub mod w3b2_bridge_program {
     /// it handles payment by debiting the user's deposit and crediting the admin's balance.
     ///
     /// # Arguments
-    /// * `ctx` - The context, including the user's `authority`, their `user_profile`, and the target `admin_profile`.
-    /// * `command_id` - The `u64` identifier of the service's command to be executed.
+    /// * `ctx` - The context, including the user's wallet (`authority`), their `user_profile`, and the target `admin_profile`.
+    /// * `command_id` - The `u16` identifier of the service's command to be executed.
     /// * `payload` - An opaque `Vec<u8>` containing serialized, application-specific data for the off-chain service.
     pub fn user_dispatch_command(
         ctx: Context<UserDispatchCommand>,
@@ -175,7 +175,7 @@ pub mod w3b2_bridge_program {
     /// creating an immutable, auditable record.
     ///
     /// # Arguments
-    /// * `ctx` - The context, containing the `Signer` who is the actor.
+    /// * `ctx` - The context, containing the `Signer` (user or admin wallet) and the associated profiles.
     /// * `session_id` - A `u64` identifier to correlate this action with a session.
     /// * `action_code` - A `u16` code representing the specific off-chain action.
     pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {

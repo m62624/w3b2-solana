@@ -9,8 +9,8 @@ use crate::state::PriceEntry;
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminProfileRegistered {
-    /// The public key of the admin's `ChainCard`, which serves as the unique owner
-    /// and signer for the `AdminProfile`.
+    /// The public key of the admin's wallet (`authority`), which serves as the unique owner
+    /// and signer for the `AdminProfile` PDA.
     pub authority: Pubkey,
     /// The public key provided by the admin for secure off-chain communication,
     /// typically used for hybrid encryption.
@@ -23,7 +23,7 @@ pub struct AdminProfileRegistered {
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminCommKeyUpdated {
-    /// The public key of the admin's `ChainCard` that authorized this update.
+    /// The public key of the admin's wallet (`authority`) that authorized this update.
     pub authority: Pubkey,
     /// The new communication public key that has been set for the `AdminProfile`.
     pub new_comm_pubkey: Pubkey,
@@ -35,9 +35,9 @@ pub struct AdminCommKeyUpdated {
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminPricesUpdated {
-    /// The public key of the `AdminProfile`'s owner (`ChainCard`).
+    /// The public key of the `AdminProfile`'s owner (the admin's `authority` wallet).
     pub authority: Pubkey,
-    /// A vector of tuples `(command_id, price)` representing the new price list for the service.
+    /// The new price list for the service, as a vector of `PriceEntry` structs.
     pub new_prices: Vec<PriceEntry>,
     /// The Unix timestamp of the price update.
     pub ts: i64,
@@ -47,7 +47,7 @@ pub struct AdminPricesUpdated {
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminFundsWithdrawn {
-    /// The `ChainCard` public key of the admin who initiated the withdrawal.
+    /// The public key of the admin's wallet (`authority`) who initiated the withdrawal.
     pub authority: Pubkey,
     /// The amount of lamports withdrawn from the `AdminProfile`'s internal balance.
     pub amount: u64,
@@ -61,8 +61,10 @@ pub struct AdminFundsWithdrawn {
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminProfileClosed {
-    /// The `ChainCard` public key of the admin whose profile was closed.
+    /// The public key of the admin's wallet (`authority`) whose profile was closed.
     pub authority: Pubkey,
+    /// The public key of the `AdminProfile` **PDA** that was closed.
+    pub admin_pda: Pubkey,
     /// The Unix timestamp of the account closure.
     pub ts: i64,
 }
@@ -71,10 +73,10 @@ pub struct AdminProfileClosed {
 #[event]
 #[derive(Debug, Clone)]
 pub struct AdminCommandDispatched {
-    /// The public key of the admin's `ChainCard`, who is the initiator of this command.
+    /// The public key of the admin's wallet (`authority`), who is the initiator of this command.
     pub sender: Pubkey,
-    /// The public key of the target user's `ChainCard`.
-    pub target_user_authority: Pubkey,
+    /// The public key of the target `UserProfile` **PDA**.
+    pub target_user_pda: Pubkey,
     /// A `u64` identifier for the specific command or notification being sent.
     pub command_id: u64,
     /// An opaque byte array containing application-specific data for the command.
@@ -89,10 +91,10 @@ pub struct AdminCommandDispatched {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserProfileCreated {
-    /// The public key of the user's `ChainCard`, which is the sole owner of this `UserProfile`.
+    /// The public key of the user's wallet (`authority`), which is the sole owner of this `UserProfile` PDA.
     pub authority: Pubkey,
-    /// The public key of the `AdminProfile` PDA that this `UserProfile` is associated with.
-    pub target_admin: Pubkey,
+    /// The public key of the `AdminProfile` **PDA** that this `UserProfile` is associated with.
+    pub target_admin_pda: Pubkey,
     /// The public key provided by the user for secure off-chain communication.
     pub communication_pubkey: Pubkey,
     /// The Unix timestamp of the profile creation.
@@ -103,8 +105,10 @@ pub struct UserProfileCreated {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserCommKeyUpdated {
-    /// The `ChainCard` public key of the user who authorized this update.
+    /// The public key of the user's wallet (`authority`) who authorized this update.
     pub authority: Pubkey,
+    /// The PDA of the user profile that was updated.
+    pub user_profile_pda: Pubkey,
     /// The new communication public key for the `UserProfile`.
     pub new_comm_pubkey: Pubkey,
     /// The Unix timestamp of the update.
@@ -115,10 +119,12 @@ pub struct UserCommKeyUpdated {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserFundsDeposited {
-    /// The public key of the user (`ChainCard`) who made the deposit.
+    /// The public key of the user's wallet (`authority`) who made the deposit.
     pub authority: Pubkey,
+    /// The PDA of the user profile that received the deposit.
+    pub user_profile_pda: Pubkey,
     /// The amount of lamports deposited into the `UserProfile`.
-    pub amount: u64,
+    pub amount: u64, // This is correct, it's the amount for this specific deposit.
     /// The user's new total `deposit_balance` after this transaction.
     pub new_deposit_balance: u64,
     /// The Unix timestamp of the deposit.
@@ -129,8 +135,10 @@ pub struct UserFundsDeposited {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserFundsWithdrawn {
-    /// The public key of the user (`ChainCard`) who made the withdrawal.
+    /// The public key of the user's wallet (`authority`) who made the withdrawal.
     pub authority: Pubkey,
+    /// The PDA of the user profile from which funds were withdrawn.
+    pub user_profile_pda: Pubkey,
     /// The amount of lamports withdrawn from the `UserProfile`.
     pub amount: u64,
     /// The public key of the wallet that received the funds.
@@ -145,8 +153,10 @@ pub struct UserFundsWithdrawn {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserProfileClosed {
-    /// The `ChainCard` public key of the user whose profile was closed.
+    /// The public key of the user's wallet (`authority`) whose profile was closed.
     pub authority: Pubkey,
+    /// The public key of the `AdminProfile` **PDA** this profile was linked to.
+    pub admin_pda: Pubkey,
     /// The Unix timestamp of the account closure.
     pub ts: i64,
 }
@@ -157,11 +167,11 @@ pub struct UserProfileClosed {
 #[event]
 #[derive(Debug, Clone)]
 pub struct UserCommandDispatched {
-    /// The public key of the user's `ChainCard`, who is the initiator of the command.
+    /// The public key of the user's wallet (`authority`), who is the initiator of the command.
     pub sender: Pubkey,
-    /// The public key of the admin's `ChainCard` that owns the target service.
-    pub target_admin_authority: Pubkey,
-    /// A `u64` identifier for the specific command being executed.
+    /// The public key of the target `AdminProfile` **PDA**.
+    pub target_admin_pda: Pubkey,
+    /// A `u16` identifier for the specific command being executed.
     pub command_id: u16,
     /// The amount in lamports deducted from the user's deposit balance for this command (0 if free).
     pub price_paid: u64,
@@ -175,8 +185,10 @@ pub struct UserCommandDispatched {
 #[event]
 #[derive(Debug, Clone)]
 pub struct OffChainActionLogged {
-    /// The public key of the `ChainCard` (either User or Admin) that performed the off-chain action.
+    /// The public key of the wallet (`authority` of either a user or admin) that performed the off-chain action.
     pub actor: Pubkey,
+    /// The public key of the entity this action is targeted at.
+    pub target: Pubkey,
     /// A `u64` identifier used to correlate multiple off-chain actions to a single on-chain session.
     pub session_id: u64,
     /// A `u16` code representing the specific type of off-chain action taken (e.g., 200 for HTTP OK).

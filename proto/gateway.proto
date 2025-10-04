@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package w3b2.protocol.gateway;
+import "types.proto";
+
+import "google/protobuf/empty.proto";
+
+// ===================================================================
+// == Service Definition: BridgeGatewayService (Non-Custodial)
+// ===================================================================
+/// The primary gRPC service for interacting with the W3B2 Bridge protocol.
+///
+/// This service follows a non-custodial, two-step "prepare-then-submit" flow
+/// for all on-chain operations:
+/// 1. The client calls a specific "Prepare" method (e.g., `PrepareUserDeposit`)
+///    to request an unsigned transaction from the gateway.
+/// 2. The client signs this transaction locally on their device, ensuring their
+///    private key is never exposed.
+/// 3. The client sends the signed transaction back using the generic
+/// `SubmitTransaction` method.
+service BridgeGatewayService {
+
+  // ===================================================================
+  // == Event Streaming RPCs
+  // ===================================================================
+
+  /// Subscribes to and streams all events for a specific UserProfile PDA.
+  /// This is a server-streaming RPC. The client makes a single request with the
+  /// PDA, and the server streams back all relevant historical (catch-up) and
+  /// real-time (live) events. The stream is closed when the client disconnects.
+  rpc ListenAsUser(ListenRequest) returns (stream EventStreamItem);
+
+  /// Subscribes to and streams all categorized events for a specific Admin.
+  /// This is a server-streaming RPC. The client makes a single request with the
+  /// AdminProfile PDA, and the server streams back all relevant historical and
+  /// real-time events.
+  rpc ListenAsAdmin(ListenRequest) returns (stream EventStreamItem);
+
+  /// Manually unsubscribes a client from an active event stream using its
+  /// unique subscription ID.
+  rpc Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty);
+
+  // ===================================================================
+  // == Step 1: Prepare Transaction RPCs
+  // ===================================================================
+
+  // Admin Methods
+  /// Prepares a transaction to register a new service provider (Admin).
+  rpc PrepareAdminRegisterProfile(PrepareAdminRegisterProfileRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to update their off-chain
+  /// communication key.
+  rpc PrepareAdminUpdateCommKey(PrepareAdminUpdateCommKeyRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to set or update their service price
+  /// list.
+  rpc PrepareAdminUpdatePrices(PrepareAdminUpdatePricesRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to withdraw earned funds from their
+  /// profile's internal balance.
+  rpc PrepareAdminWithdraw(PrepareAdminWithdrawRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to close their profile and reclaim
+  /// rent lamports.
+  rpc PrepareAdminCloseProfile(PrepareAdminCloseProfileRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to send a non-financial command or
+  /// notification to a user.
+  rpc PrepareAdminDispatchCommand(PrepareAdminDispatchCommandRequest)
+      returns (UnsignedTransactionResponse);
+
+  // User Methods
+  /// Prepares a transaction for a user to create a profile linked to a specific
+  /// admin service.
+  rpc PrepareUserCreateProfile(PrepareUserCreateProfileRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to update their off-chain communication
+  /// key for a specific service profile.
+  rpc PrepareUserUpdateCommKey(PrepareUserUpdateCommKeyRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to deposit funds into their
+  /// service-specific profile.
+  rpc PrepareUserDeposit(PrepareUserDepositRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to withdraw unspent funds from their
+  /// service-specific profile.
+  rpc PrepareUserWithdraw(PrepareUserWithdrawRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to close their profile for a service,
+  /// refunding all lamports.
+  rpc PrepareUserCloseProfile(PrepareUserCloseProfileRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to call a service's command. If the
+  /// command is priced, this transaction will include the payment transfer.
+  rpc PrepareUserDispatchCommand(PrepareUserDispatchCommandRequest)
+      returns (UnsignedTransactionResponse);
+
+  // Operational Methods
+  /// Prepares a transaction to log a significant off-chain action to the
+  /// blockchain for auditing.
+  rpc PrepareLogAction(PrepareLogActionRequest)
+      returns (UnsignedTransactionResponse);
+
+  // ===================================================================
+  // == Step 2: Submit Transaction RPC
+  // ===================================================================
+
+  /// Submits a previously prepared and signed transaction to the Solana
+  /// network. This is the universal second step for all on-chain operations.
+  rpc SubmitTransaction(SubmitTransactionRequest) returns (TransactionResponse);
+}

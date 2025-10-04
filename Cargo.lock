@@ -9264,21 +9264,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
-name = "w3b2-bridge-program"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anyhow",
- "borsh 0.10.4",
- "lazy_static",
- "litesvm",
- "sha2 0.10.9",
- "solana-message",
- "solana-program",
- "solana-sdk",
-]
-
-[[package]]
 name = "w3b2-connector"
 version = "0.1.0"
 dependencies = [
@@ -9286,22 +9271,18 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
- "bincode 2.0.1",
  "borsh 0.10.4",
  "dashmap 6.1.0",
  "dirs",
  "serde",
- "serde_json",
  "sled",
  "solana-client",
- "solana-rpc-client-api",
  "solana-sdk",
  "solana-transaction-status",
- "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tracing",
- "w3b2-bridge-program",
+ "w3b2-program",
 ]
 
 [[package]]
@@ -9314,10 +9295,10 @@ dependencies = [
  "bincode 2.0.1",
  "clap",
  "config",
+ "dashmap 6.1.0",
  "portpicker",
  "prost",
  "serde",
- "serde_json",
  "sled",
  "solana-client",
  "solana-program-test",
@@ -9331,8 +9312,24 @@ dependencies = [
  "tonic-build",
  "tracing",
  "tracing-subscriber",
- "w3b2-bridge-program",
  "w3b2-connector",
+ "w3b2-program",
+]
+
+[[package]]
+name = "w3b2-program"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anyhow",
+ "base64 0.22.1",
+ "borsh 0.10.4",
+ "lazy_static",
+ "litesvm",
+ "sha2 0.10.9",
+ "solana-message",
+ "solana-program",
+ "solana-sdk",
 ]
 
 [[package]]

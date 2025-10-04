@@ -12,26 +12,11 @@ use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
 use solana_sdk::signature::Signer;
-use w3b2_bridge_program::state::{AdminProfile, PriceEntry, UserProfile};
+use w3b2_program::state::{AdminProfile, PriceEntry, UserProfile};
 
 /// Tests the successful creation of a `UserProfile` PDA.
-///
-/// ### Scenario
-/// A new user wants to register with a service (Admin) that already exists on the protocol.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created.
-/// 2. A new `Keypair` is created and funded to act as the user's `ChainCard` (`user_authority`).
-/// 3. A `Keypair` is created for the user's off-chain communication key.
-///
-/// ### Act
-/// The `user::create_profile` helper is called, creating the on-chain `UserProfile` PDA.
-///
-/// ### Assert
-/// 1. The `authority` field in the new `UserProfile` matches the user's `ChainCard` public key.
-/// 2. The `communication_pubkey` field is set correctly.
-/// 3. The initial `deposit_balance` is 0.
-/// 4. The account's lamport balance is exactly the rent-exempt minimum for its size.
+/// Verifies that a user can create a profile linked to a specific admin.
+/// Checks that the profile is initialized with correct default values and rent-exempt lamports.
 #[test]
 fn test_user_create_profile_success() {
     // === 1. Arrange ===
@@ -84,20 +69,8 @@ fn test_user_create_profile_success() {
 }
 
 /// Tests the successful update of a `UserProfile`'s communication key.
-///
-/// ### Scenario
-/// A user with an existing profile wants to change their key for off-chain communication.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` and a `UserProfile` are created with an initial communication key.
-/// 2. A new `Keypair` is generated for the new communication key.
-///
-/// ### Act
-/// The `user::update_comm_key` helper is called.
-///
-/// ### Assert
-/// 1. The `communication_pubkey` field in the `UserProfile` is updated to the new key.
-/// 2. The other fields (`authority`, `deposit_balance`) remain unchanged.
+/// Verifies that the `communication_pubkey` field is updated correctly while other
+/// fields in the `UserProfile` remain unchanged.
 #[test]
 fn test_user_update_comm_key_success() {
     // === 1. Arrange ===
@@ -137,21 +110,8 @@ fn test_user_update_comm_key_success() {
 }
 
 /// Tests the successful closure of a `UserProfile` account.
-///
-/// ### Scenario
-/// A user decides to stop using a service and closes their profile to recover the rent lamports.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` and `UserProfile` are created.
-/// 2. The lamport balances of the user's `ChainCard` and the `UserProfile` PDA are recorded.
-///
-/// ### Act
-/// The `user::close_profile` helper is called.
-///
-/// ### Assert
-/// 1. The `UserProfile` PDA account no longer exists.
-/// 2. The balance of the user's `ChainCard` (`authority`) has increased by the lamport
-///    balance of the closed PDA, minus the transaction fee.
+/// Verifies that the PDA account is deleted and its rent lamports are refunded
+/// to the user's wallet (`authority`).
 #[test]
 fn test_user_close_profile_success() {
     // === 1. Arrange ===
@@ -192,21 +152,9 @@ fn test_user_close_profile_success() {
 }
 
 /// Tests the successful deposit of funds into a `UserProfile`.
-///
-/// ### Scenario
-/// A user pre-funds their profile to pay for future services from an admin.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` and `UserProfile` are created.
-/// 2. The balances of the user's `ChainCard` and the `UserProfile` PDA are recorded.
-///
-/// ### Act
-/// The `user::deposit` helper is called to transfer lamports.
-///
-/// ### Assert
-/// 1. The `deposit_balance` field inside the `UserProfile` is correctly incremented.
-/// 2. The on-chain lamport balance of the `UserProfile` PDA increases by the deposit amount.
-/// 3. The balance of the user's `ChainCard` (`authority`) decreases by the deposit amount, plus the transaction fee.
+/// Verifies that the internal `deposit_balance` is correctly incremented and that
+/// the on-chain lamport balance of both the user's wallet and the PDA are updated
+/// correctly after the transfer.
 #[test]
 fn test_user_deposit_success() {
     // === 1. Arrange ===
@@ -261,22 +209,9 @@ fn test_user_deposit_success() {
 }
 
 /// Tests the successful withdrawal of funds from a `UserProfile`.
-///
-/// ### Scenario
-/// A user withdraws their unspent deposit from a service profile to a different wallet.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` and `UserProfile` are created.
-/// 2. The user deposits funds into their profile.
-/// 3. A new `destination_wallet` is created.
-///
-/// ### Act
-/// The `user::withdraw` helper is called.
-///
-/// ### Assert
-/// 1. The `deposit_balance` field in the `UserProfile` is correctly decremented.
-/// 2. The on-chain lamport balance of the `UserProfile` PDA decreases by the withdrawal amount.
-/// 3. The lamport balance of the `destination_wallet` increases by the withdrawal amount.
+/// Verifies that the internal `deposit_balance` is correctly decremented, the PDA's
+/// lamport balance decreases, and the destination wallet's balance increases by the
+/// withdrawn amount.
 #[test]
 fn test_user_withdraw_success() {
     // === 1. Arrange ===
@@ -344,24 +279,10 @@ fn test_user_withdraw_success() {
 }
 
 /// Tests the successful execution of a paid command from a user to an admin.
-///
-/// ### Scenario
-/// This is the primary use case of the protocol. A user pays a service (Admin) for an
-/// off-chain action by calling the `user_dispatch_command` instruction.
-///
-/// ### Arrange
-/// 1. An `AdminProfile` is created.
-/// 2. The Admin sets a price for a specific `command_id`.
-/// 3. A `UserProfile` is created and linked to the admin.
-/// 4. The user deposits enough funds to cover the command price.
-/// 5. The initial state of both the user and admin profiles are recorded.
-///
-/// ### Act
-/// The `user::dispatch_command` helper is called.
-///
-/// ### Assert
-/// 1. The user's `deposit_balance` and on-chain lamports decrease by the command price.
-/// 2. The admin's `balance` and on-chain lamports increase by the command price.
+/// This is the primary integration test for the payment flow.
+/// Verifies that when a user calls a priced command, their `deposit_balance` decreases
+/// and the admin's internal `balance` increases by the command's price. Also checks
+/// that the on-chain lamport balances of both PDAs are updated accordingly.
 #[test]
 fn test_user_dispatch_command_success() {
     // === 1. Arrange ===

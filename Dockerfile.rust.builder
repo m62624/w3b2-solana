@@ -25,10 +25,10 @@ WORKDIR /project
 
 # Подготовка Cargo deps
 COPY Cargo.toml ./
-COPY ./w3b2-bridge-program/Cargo.toml ./w3b2-bridge-program/
+COPY ./w3b2-program/Cargo.toml ./w3b2-program/
 COPY ./w3b2-connector/Cargo.toml ./w3b2-connector/
-RUN mkdir -p w3b2-bridge-program/src w3b2-connector/src && \
-    touch w3b2-bridge-program/src/lib.rs && \
+RUN mkdir -p w3b2-program/src w3b2-connector/src && \
+    touch w3b2-program/src/lib.rs && \
     touch w3b2-connector/src/main.rs && \
     cargo fetch
 

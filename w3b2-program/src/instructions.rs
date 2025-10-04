@@ -2,15 +2,16 @@ use super::*;
 use crate::instructions::solana_program::program::invoke;
 use crate::instructions::solana_program::system_instruction;
 use anchor_lang::solana_program;
-// use solana_program::{program::invoke, system_instruction};
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
 pub const MAX_PAYLOAD_SIZE: usize = 1000;
 
 // --- Admin Instructions ---
 
-/// Initializes a new `AdminProfile` PDA for a service provider.
-/// This function sets the initial state of the admin's on-chain profile.
+/// Initializes a new `AdminProfile` PDA for a service provider (an "Admin").
+/// This instruction creates the on-chain representation of a service, setting its
+/// owner (`authority`), its off-chain communication key, and initializing its
+/// internal balance and price list.
 pub fn admin_register_profile(
     ctx: Context<AdminRegisterProfile>,
     communication_pubkey: Pubkey,
@@ -29,7 +30,8 @@ pub fn admin_register_profile(
     Ok(())
 }
 
-/// Updates the off-chain communication public key for an `AdminProfile`.
+/// Updates the `communication_pubkey` for an existing `AdminProfile`.
+/// This allows a service provider to rotate their off-chain encryption keys.
 pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
     ctx.accounts.admin_profile.communication_pubkey = new_key;
     emit!(AdminCommKeyUpdated {
@@ -40,20 +42,24 @@ pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) 
     Ok(())
 }
 
-/// Closes an `AdminProfile` account.
-/// The `close` directive in the `AdminCloseProfile` struct ensures all lamports
-/// are safely returned to the admin's authority (`ChainCard`).
+/// Closes an `AdminProfile` account and refunds its rent lamports to the owner.
+/// This effectively unregisters a service from the protocol.
+///
+/// **Note:** This instruction only returns the lamports required for rent. Any funds
+/// in the internal `balance` must be withdrawn via `admin_withdraw` *before* closing.
 pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
     emit!(AdminProfileClosed {
         authority: ctx.accounts.authority.key(),
+        admin_pda: ctx.accounts.admin_profile.key(),
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
 
 /// Updates the price list for an admin's services.
-/// The associated `AdminProfile` account is automatically resized by Anchor
-/// to accommodate the new list size.
+/// The instruction sorts and de-duplicates the provided list by `command_id` to ensure
+/// a canonical representation. The associated `AdminProfile` account is automatically
+/// resized (`realloc`) by Anchor to accommodate the new list size.
 pub fn admin_update_prices(
     ctx: Context<AdminUpdatePrices>,
     mut new_prices: Vec<PriceEntry>,
@@ -70,7 +76,10 @@ pub fn admin_update_prices(
 }
 
 /// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance.
-/// It performs checks to ensure the withdrawal does not violate the rent-exemption rule.
+///
+/// This instruction performs a direct lamport transfer from the `AdminProfile` PDA to a
+/// specified `destination` account. It performs critical safety checks to ensure the
+/// withdrawal is authorized, the internal balance is sufficient, and the PDA remains rent-exempt.
 pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
     let admin_profile = &mut ctx.accounts.admin_profile;
     let destination = &ctx.accounts.destination;
@@ -106,8 +115,9 @@ pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
 }
 
 /// Allows an admin to send a command or notification to a user.
-/// This is a non-financial transaction; its primary purpose is to emit an event
-/// that an off-chain user `connector` can listen and react to.
+///
+/// This is a non-financial transaction. Its primary purpose is to emit an
+/// `AdminCommandDispatched` event that an off-chain user `connector` can listen and react to.
 pub fn admin_dispatch_command(
     ctx: Context<AdminDispatchCommand>,
     command_id: u64,
@@ -120,7 +130,7 @@ pub fn admin_dispatch_command(
 
     emit!(AdminCommandDispatched {
         sender: ctx.accounts.admin_authority.key(),
-        target_user_authority: ctx.accounts.user_profile.authority,
+        target_user_pda: ctx.accounts.user_profile.key(),
         command_id,
         payload,
         ts: Clock::get()?.unix_timestamp,
@@ -131,53 +141,58 @@ pub fn admin_dispatch_command(
 
 // --- User Instructions ---
 
-/// Creates a `UserProfile` PDA, linking a user's `ChainCard` to a specific admin service.
-/// The `admin_authority_on_creation` field is set to the admin's PDA key to create a
-/// permanent, verifiable link.
+/// Creates a `UserProfile` PDA, linking a user's wallet (`authority`) to a specific admin service.
+///
+/// The `admin_profile_on_creation` field is set to the `AdminProfile` PDA's key, creating
+/// a permanent, verifiable link between the user and the service.
 pub fn user_create_profile(
     ctx: Context<UserCreateProfile>,
-    target_admin: Pubkey,
+    target_admin_pda: Pubkey,
     communication_pubkey: Pubkey,
 ) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     user_profile.authority = ctx.accounts.authority.key();
     user_profile.deposit_balance = 0;
     user_profile.communication_pubkey = communication_pubkey;
-    user_profile.admin_authority_on_creation = target_admin;
+    user_profile.admin_profile_on_creation = target_admin_pda;
 
     emit!(UserProfileCreated {
         authority: user_profile.authority,
-        target_admin,
+        target_admin_pda,
         communication_pubkey,
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
 
-/// Updates the off-chain communication public key for a `UserProfile`.
+/// Updates the `communication_pubkey` for an existing `UserProfile`.
 pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
     ctx.accounts.user_profile.communication_pubkey = new_key;
     emit!(UserCommKeyUpdated {
         authority: ctx.accounts.authority.key(),
+        user_profile_pda: ctx.accounts.user_profile.key(),
         new_comm_pubkey: new_key,
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
 
-/// Closes a `UserProfile` account.
-/// All remaining lamports (both from the deposit balance and for rent) are
-/// automatically returned to the user's `authority` (`ChainCard`).
-pub fn user_close_profile(_ctx: Context<UserCloseProfile>) -> Result<()> {
+/// Closes a `UserProfile` account and refunds its lamports to the owner.
+///
+/// The `close` directive in the `UserCloseProfile` account context ensures all lamports
+/// held by the `user_profile` PDA (both for rent and from any remaining `deposit_balance`)
+/// are safely returned to the user's `authority` wallet.
+pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
     emit!(UserProfileClosed {
-        authority: _ctx.accounts.authority.key(),
+        authority: ctx.accounts.authority.key(),
+        admin_pda: ctx.accounts.admin_profile.key(),
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
 
 /// Allows a user to deposit lamports into their `UserProfile` PDA.
-/// This pre-funds their account to pay for future service calls.
+/// This pre-funds their account to pay for future service calls to the linked admin.
 pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
 
@@ -201,6 +216,7 @@ pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
 
     emit!(UserFundsDeposited {
         authority: user_profile.authority,
+        user_profile_pda: user_profile.key(),
         amount,
         new_deposit_balance: user_profile.deposit_balance,
         ts: Clock::get()?.unix_timestamp,
@@ -209,6 +225,11 @@ pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
 }
 
 /// Allows a user to withdraw unspent funds from their `UserProfile` deposit balance.
+///
+/// This instruction performs a direct lamport transfer from the `UserProfile` PDA to a
+/// specified `destination` account. It performs critical safety checks to ensure the
+/// withdrawal is authorized, the internal `deposit_balance` is sufficient, and the PDA
+/// remains rent-exempt.
 pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     let destination = &ctx.accounts.destination;
@@ -236,6 +257,7 @@ pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
 
     emit!(UserFundsWithdrawn {
         authority: user_profile.authority,
+        user_profile_pda: user_profile.key(),
         amount,
         destination: destination.key(),
         new_deposit_balance: user_profile.deposit_balance,
@@ -247,8 +269,9 @@ pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
 // --- Operational Instructions ---
 
 /// The primary instruction for a user to call a service's API.
-/// If the called command has a price, this instruction handles the payment by
-/// transferring lamports from the `UserProfile` PDA to the `AdminProfile` PDA.
+///
+/// If the `command_id` is found in the admin's price list, this instruction handles
+/// the payment by transferring lamports from the `UserProfile` PDA to the `AdminProfile` PDA.
 pub fn user_dispatch_command(
     ctx: Context<UserDispatchCommand>,
     command_id: u16,
@@ -295,7 +318,7 @@ pub fn user_dispatch_command(
 
     emit!(UserCommandDispatched {
         sender: ctx.accounts.authority.key(),
-        target_admin_authority: admin_profile.authority,
+        target_admin_pda: admin_profile.key(),
         command_id,
         price_paid: command_price,
         payload,
@@ -305,10 +328,21 @@ pub fn user_dispatch_command(
 }
 
 /// A generic instruction to log a significant off-chain action to the blockchain.
-/// This creates an immutable, auditable record of events that happen outside the chain.
+/// This creates an immutable, auditable record of events that happen outside the
+/// on-chain protocol, such as a successful HTTP request in a Web2 service.
 pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {
+    let actor = ctx.accounts.authority.key();
+    let target = if actor == ctx.accounts.user_profile.authority {
+        // If the user is the signer, the target is the admin.
+        ctx.accounts.admin_profile.key()
+    } else {
+        // If the admin is the signer, the target is the user.
+        ctx.accounts.user_profile.key()
+    };
+
     emit!(OffChainActionLogged {
-        actor: ctx.accounts.authority.key(),
+        actor,
+        target,
         session_id,
         action_code,
         ts: Clock::get()?.unix_timestamp,

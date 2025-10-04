@@ -4,8 +4,7 @@ mod synchronizer;
 
 use crate::{
     config::ConnectorConfig,
-    dispatcher::{Dispatcher, DispatcherCommand},
-    events::BridgeEvent,
+    dispatcher::{Dispatcher, DispatcherHandle},
     listener::{AdminListener, UserListener},
     storage::Storage,
     workers::synchronizer::Synchronizer,
@@ -13,121 +12,52 @@ use crate::{
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
-
-/// A shared context containing all dependencies required by the workers.
-#[derive(Clone)]
-struct WorkerContext {
-    pub config: Arc<ConnectorConfig>,
-    pub storage: Arc<dyn Storage>,
-    pub rpc_client: Arc<RpcClient>,
-    pub event_sender: broadcast::Sender<BridgeEvent>,
-}
-
-impl WorkerContext {
-    fn new(
-        config: Arc<ConnectorConfig>,
-        rpc_client: Arc<RpcClient>,
-        storage: Arc<dyn Storage>,
-        event_sender: broadcast::Sender<BridgeEvent>,
-    ) -> Self {
-        Self {
-            config,
-            storage,
-            rpc_client,
-            event_sender,
-        }
-    }
-}
+use tokio::sync::mpsc;
 
 /// A clonable, thread-safe handle for interacting with the EventManager's background services.
-/// This is the primary entry point for users of the library.
-#[derive(Clone)]
+/// This is the primary public entry point for applications using this connector.
+#[derive(Debug, Clone)]
 pub struct EventManagerHandle {
-    command_tx: mpsc::Sender<DispatcherCommand>,
+    dispatcher: DispatcherHandle,
+    config: Arc<ConnectorConfig>,
 }
 
 impl EventManagerHandle {
-    /// (Internal) Creates a raw, un-filtered subscription for a pubkey.
-    /// This is the low-level building block for the high-level listeners.
-    async fn subscribe_raw(
-        &self,
-        pubkey: Pubkey,
-        channel_capacity: usize,
-    ) -> mpsc::Receiver<BridgeEvent> {
-        let (tx, rx) = mpsc::channel(channel_capacity);
-        self.command_tx
-            .send(DispatcherCommand::Register(pubkey, tx))
-            .await
-            .expect("Dispatcher should always be running");
-        rx
-    }
-
-    /// Unregisters a listener for a specific pubkey from the dispatcher.
-    ///
-    /// This should be called when a listener is no longer needed to prevent resource leaks.
-    pub async fn unsubscribe(&self, pubkey: Pubkey) {
-        if self
-            .command_tx
-            .send(DispatcherCommand::Unregister(pubkey))
-            .await
-            .is_err()
-        {
-            tracing::warn!(
-                "Failed to send unsubscribe command for {}. Dispatcher may be down.",
-                pubkey
-            );
-        }
-    }
-
     /// Sends a shutdown signal to the `EventManager`'s background services.
     ///
     /// This will cause the `Dispatcher` and `Synchronizer` to gracefully terminate.
     pub async fn stop(&self) {
-        if self
-            .command_tx
-            .send(DispatcherCommand::Shutdown)
-            .await
-            .is_err()
-        {
-            tracing::warn!("Failed to send shutdown command. EventManager may already be down.");
-        }
+        self.dispatcher.stop().await;
     }
 
-    /// Creates and returns a contextual listener for a User `ChainCard`.
-    /// This is the primary method for users of the library to listen to their events.
+    /// Creates and returns a contextual listener for a user's profile PDA.
+    /// This is the primary method for applications to listen to user-specific events.
     ///
-    /// * `user_pubkey` - The public key of the user's `ChainCard` to monitor.
-    /// * `channel_capacity` - The buffer capacity for the internal event channels.
-    pub async fn listen_as_user(
-        &self,
-        user_pubkey: Pubkey,
-        channel_capacity: usize,
-    ) -> UserListener {
-        // 1. Get the raw event stream for the user's pubkey.
-        let raw_rx = self.subscribe_raw(user_pubkey, channel_capacity).await;
-        // 2. Construct the high-level listener that will consume and categorize the raw stream.
-        UserListener::new(user_pubkey, raw_rx, channel_capacity)
+    /// * `user_profile_pda` - The public key of the user's profile PDA to monitor.
+    pub fn listen_as_user(&self, user_profile_pda: Pubkey) -> UserListener {
+        UserListener::new(
+            user_profile_pda,
+            self.dispatcher.clone(),
+            self.config.channels.listener_event_buffer,
+        )
     }
 
-    /// Creates and returns a contextual listener for an Admin `ChainCard`.
+    /// Creates and returns a contextual listener for an admin's profile PDA.
     ///
-    /// * `admin_pubkey` - The public key of the admin's `ChainCard` to monitor.
-    /// * `channel_capacity` - The buffer capacity for the internal event channels.
-    pub async fn listen_as_admin(
-        &self,
-        admin_pubkey: Pubkey,
-        channel_capacity: usize,
-    ) -> AdminListener {
-        // 1. Get the raw event stream for the admin's pubkey.
-        let raw_rx = self.subscribe_raw(admin_pubkey, channel_capacity).await;
-        // 2. Construct the high-level listener.
-        AdminListener::new(admin_pubkey, raw_rx, channel_capacity)
+    /// * `admin_profile_pda` - The public key of the admin's profile PDA to monitor.
+    pub fn listen_as_admin(&self, admin_profile_pda: Pubkey) -> AdminListener {
+        AdminListener::new(
+            admin_profile_pda,
+            self.dispatcher.clone(),
+            self.config.channels.listener_event_buffer,
+        )
     }
 }
 
-// The main background service runner.
-/// This struct is created once, its `run` method is spawned, and then it's consumed.
+/// The main background service manager for the connector.
+///
+/// This struct orchestrates the `Synchronizer` and `Dispatcher` workers. It is created once,
+/// its `run` method is spawned as a background task, and it is then consumed.
 pub struct EventManager {
     synchronizer: Synchronizer,
     dispatcher: Dispatcher,
@@ -138,43 +68,47 @@ impl EventManager {
         config: Arc<ConnectorConfig>,
         rpc_client: Arc<RpcClient>,
         storage: Arc<dyn Storage>,
-        broadcast_capacity: usize,
-        command_capacity: usize,
     ) -> (Self, EventManagerHandle) {
-        let (event_tx, event_rx) = broadcast::channel(broadcast_capacity);
-        let (cmd_tx, cmd_rx) = mpsc::channel(command_capacity);
+        let (dispatcher_cmd_tx, dispatcher_cmd_rx) =
+            mpsc::channel(config.channels.dispatcher_command_buffer);
+
+        let (dispatcher, dispatcher_handle) =
+            Dispatcher::new(config.clone(), dispatcher_cmd_tx, dispatcher_cmd_rx);
 
         let synchronizer = Synchronizer::new(
             config.clone(),
-            rpc_client.clone(),
-            storage.clone(),
-            event_tx,
+            rpc_client,
+            storage,
+            dispatcher_handle.clone(),
         );
-
-        let dispatcher = Dispatcher::new(event_rx, cmd_rx);
 
         let runner = Self {
             synchronizer,
             dispatcher,
         };
 
-        let handle = EventManagerHandle { command_tx: cmd_tx };
+        let handle = EventManagerHandle {
+            dispatcher: dispatcher_handle,
+            config: config,
+        };
 
         (runner, handle)
     }
 
     /// Runs all background services of the connector.
-    /// This method should be spawned as a background task by the application.
-    pub async fn run(mut self) {
+    ///
+    /// This method should be spawned as a single, long-running background task by the application.
+    /// It will run until a shutdown is initiated or a critical error occurs in one of the workers.
+    pub async fn run(self) {
         tracing::info!("Connector is running all background services.");
-        // Run both workers concurrently. The select loop will exit when either
-        // of the workers finishes, which is the desired behavior for graceful shutdown.
+
         tokio::select! {
             res = self.synchronizer.run() => {
                 if let Err(e) = res { tracing::error!("Synchronizer exited with an error: {}", e); }
                 else { tracing::info!("Synchronizer has shut down."); }
             },
-            _ = self.dispatcher.run() => {
+            res = self.dispatcher.run() => {
+                if let Err(e) = res { tracing::error!("Dispatcher exited with an error: {}", e); }
                 tracing::info!("Dispatcher has shut down.");
             }
         }

@@ -1,19 +1,17 @@
-// w3b2-bridge-program/src/protocol.rs
-
 use anchor_lang::prelude::*;
 
 use crate::instructions::MAX_PAYLOAD_SIZE;
 
 /*
-    This file defines serializable data structures intended for off-chain communication.
-    The on-chain program does not interpret the content of the `payload` in the `dispatch`
-    instructions. It treats it as an opaque byte array (`Vec<u8>`).
+    This file defines serializable data structures intended for off-chain communication protocols.
+    The on-chain program itself does not interpret the content of the `payload` in the `dispatch`
+    instructions; it treats it as an opaque byte array (`Vec<u8>`).
 
-    This design pattern turns the Solana blockchain into a secure, decentralized, and
-    auditable message broker. Off-chain components (like the `w3b2-connector`) are
-    responsible for serializing these structs into the `payload` and deserializing them
-    from the corresponding on-chain events. This keeps the on-chain logic minimal and
-    gas-efficient while allowing for arbitrarily complex off-chain protocols.
+    This design pattern effectively turns the Solana blockchain into a secure, decentralized, and
+    auditable message bus. Off-chain components (like the `w3b2-connector`) are responsible
+    for serializing these structs into the `payload` and deserializing them from the corresponding
+    on-chain events. This keeps the on-chain logic minimal and gas-efficient while enabling
+    arbitrarily complex off-chain protocols.
 */
 
 /// Defines the expected communication flow for an off-chain service after
