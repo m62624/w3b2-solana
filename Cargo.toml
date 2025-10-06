@@ -1,12 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["w3b2-program", "w3b2-connector", "w3b2-gateway"]
+members = [
+    "w3b2-solana-program",
+    "w3b2-solana-connector",
+    "w3b2-solana-gateway",
+]
 
 [workspace.dependencies]
 # internal
-w3b2-program = { path = "w3b2-program" }
-w3b2-connector = { path = "w3b2-connector" }
-w3b2-gateway = { path = "w3b2-gateway" }
+w3b2-solana-program = { path = "w3b2-solana-program" }
+w3b2-solana-connector = { path = "w3b2-solana-connector" }
+w3b2-solana-gateway = { path = "w3b2-solana-gateway" }
 
 # external
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
@@ -15,19 +19,28 @@ borsh = "0.10.4"
 solana-sdk = { version = "2.3.1", features = ["full"] }
 solana-message = "2.4.0"
 solana-program = "2.3.0"
-solana-client = "2.3.9"
-solana-rpc-client-api = "2.3.9"
-solana-transaction-status = "2.3.9"
-litesvm = "0.7.0"
+solana-client = "2.3.12"
+solana-rpc-client-api = "2.3.12"
+solana-transaction-status = { version = "2.3.12" }
+solana-program-test = "2.3.12"
+litesvm = "0.7.1"
 
-serde = "1.0.219"
+serde = "1.0.228"
 bincode = "2.0.1"
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 sha2 = "0.10.9"
+base64 = "0.22.1"
 lazy_static = "1.5.0"
 tokio = "1.47.1"
 tokio-stream = "0.1.17"
 sled = "0.34.7"
+async-trait = "0.1.89"
+dashmap = "6.1.0"
+tracing = "0.1.41"
+thiserror = "2.0.17"
+prost = "0.12"
+tonic = "0.11"
+config = { version = "0.15.18", features = ["toml"] }
 
 
 [profile.release]

@@ -197,39 +197,47 @@ enum EventSource {
 message AdminProfileRegistered {
   /// The public key of the admin's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `AdminProfile` PDA that was registered.
+  string admin_pda = 2;
   /// The public key for off-chain communication.
-  string communication_pubkey = 2;
+  string communication_pubkey = 3;
   /// The Unix timestamp of the registration.
-  int64 ts = 3;
+  int64 ts = 4;
 }
 /// Emitted when an admin updates their communication key.
 message AdminCommKeyUpdated {
   /// The public key of the admin's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `AdminProfile` PDA that was updated.
+  string admin_pda = 2;
   /// The new communication public key.
-  string new_comm_pubkey = 2;
+  string new_comm_pubkey = 3;
   /// The Unix timestamp of the update.
-  int64 ts = 3;
+  int64 ts = 4;
 }
 /// Emitted when an admin updates their service prices.
 message AdminPricesUpdated {
   /// The public key of the admin's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `AdminProfile` PDA that was updated.
+  string admin_pda = 2;
   /// The new price list.
-  repeated PriceEntry new_prices = 2;
+  repeated PriceEntry new_prices = 3;
   /// The Unix timestamp of the update.
-  int64 ts = 3;
+  int64 ts = 4;
 }
 /// Emitted when an admin withdraws earned funds.
 message AdminFundsWithdrawn {
   /// The public key of the admin's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `AdminProfile` PDA from which funds were withdrawn.
+  string admin_pda = 2;
   /// The amount of lamports withdrawn.
-  uint64 amount = 2;
+  uint64 amount = 3;
   /// The public key of the wallet that received the funds.
-  string destination = 3;
+  string destination = 4;
   /// The Unix timestamp of the withdrawal.
-  int64 ts = 4;
+  int64 ts = 5;
 }
 /// Emitted when an `AdminProfile` PDA is closed.
 message AdminProfileClosed {
@@ -244,14 +252,16 @@ message AdminProfileClosed {
 message AdminCommandDispatched {
   /// The public key of the sender admin's wallet (`authority`).
   string sender = 1;
+  /// The public key of the sender's `AdminProfile` PDA.
+  string sender_admin_pda = 2;
   /// The public key of the target `UserProfile` **PDA**.
-  string target_user_pda = 2;
+  string target_user_pda = 3;
   /// The `u64` identifier for the command.
-  uint32 command_id = 3;
+  uint32 command_id = 4;
   /// An opaque byte array for application-specific data.
-  bytes payload = 4;
+  bytes payload = 5;
   /// The Unix timestamp of the dispatch.
-  int64 ts = 5;
+  int64 ts = 6;
 }
 
 // --- User Events ---
@@ -260,12 +270,14 @@ message AdminCommandDispatched {
 message UserProfileCreated {
   /// The public key of the user's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `UserProfile` PDA that was created.
+  string user_pda = 2;
   /// The public key of the `AdminProfile` **PDA** this profile is linked to.
-  string target_admin_pda = 2;
+  string target_admin_pda = 3;
   /// The public key for off-chain communication.
-  string communication_pubkey = 3;
+  string communication_pubkey = 4;
   /// The Unix timestamp of the creation.
-  int64 ts = 4;
+  int64 ts = 5;
 }
 /// Emitted when a user updates their communication key.
 message UserCommKeyUpdated {
@@ -307,15 +319,21 @@ message UserFundsWithdrawn {
   /// The Unix timestamp of the withdrawal.
   int64 ts = 6;
 }
+
 /// Emitted when a `UserProfile` PDA is closed.
 message UserProfileClosed {
   /// The public key of the user's wallet (`authority`).
   string authority = 1;
+  /// The public key of the `UserProfile` PDA that was closed.
+  string user_pda = 2;
   /// The public key of the `AdminProfile` **PDA** this profile was linked to.
-  string admin_pda = 2; // This field is crucial for the admin to get notified.
+  /// // This field is crucial for the admin to get notified.
+  string admin_pda = 3;
   /// The Unix timestamp of the closure.
-  int64 ts = 3;
+  int64 ts = 4;
 }
+
+// --- Operational Events ---
 
 // --- Operational Events ---
 
@@ -323,30 +341,34 @@ message UserProfileClosed {
 message UserCommandDispatched {
   /// The public key of the sender user's wallet (`authority`).
   string sender = 1;
+  /// The public key of the sender's `UserProfile` PDA.
+  string sender_user_pda = 2;
   /// The public key of the target `AdminProfile` **PDA**.
-  string target_admin_pda = 2;
+  string target_admin_pda = 3;
   /// The `u16` identifier for the command being executed.
-  uint32 command_id = 3;
+  uint32 command_id = 4;
   /// The amount in lamports paid for this command (0 if free).
-  uint64 price_paid = 4;
+  uint64 price_paid = 5;
   /// An opaque byte array for application-specific data.
-  bytes payload = 5;
+  bytes payload = 6;
   /// The Unix timestamp of the dispatch.
-  int64 ts = 6;
+  int64 ts = 7;
 }
 /// A generic event for logging significant off-chain actions.
 message OffChainActionLogged {
   /// The public key of the actor's wallet (user or admin).
   string actor = 1;
-  /// The public key of the entity this action is targeted at.
-  string target = 2;
+  /// The public key of the `UserProfile` PDA involved in this action.
+  string user_profile_pda = 2;
+  /// The public key of the `AdminProfile` PDA involved in this action.
+  string admin_profile_pda = 3;
   /// A `u64` identifier to correlate actions to a session.
-  uint64 session_id = 3;
+  uint64 session_id = 4;
   /// A `u16` code representing the specific off-chain action (e.g., HTTP status
   /// code).
-  uint32 action_code = 4;
+  uint32 action_code = 5;
   /// The Unix timestamp of the logged action.
-  int64 ts = 5;
+  int64 ts = 6;
 }
 
 // --- Wrapper Event ---

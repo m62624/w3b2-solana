@@ -25,11 +25,11 @@ WORKDIR /project
 
 # Подготовка Cargo deps
 COPY Cargo.toml ./
-COPY ./w3b2-program/Cargo.toml ./w3b2-program/
-COPY ./w3b2-connector/Cargo.toml ./w3b2-connector/
-RUN mkdir -p w3b2-program/src w3b2-connector/src && \
-    touch w3b2-program/src/lib.rs && \
-    touch w3b2-connector/src/main.rs && \
+COPY ./w3b2-solana-program/Cargo.toml ./w3b2-solana-program/
+COPY ./w3b2-solana-connector/Cargo.toml ./w3b2-solana-connector/
+RUN mkdir -p w3b2-solana-program/src w3b2-solana-connector/src && \
+    touch w3b2-solana-program/src/lib.rs && \
+    touch w3b2-solana-connector/src/main.rs && \
     cargo fetch
 
 # Копируем код

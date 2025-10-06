@@ -1,0 +1,39 @@
+[package]
+name = "w3b2-solana-connector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# --- Internal Workspace Crates ---
+w3b2-solana-program.workspace = true
+
+# --- Solana and Anchor ---
+anchor-lang.workspace = true
+solana-client.workspace = true
+solana-sdk = { workspace = true }
+solana-transaction-status = { workspace = true }
+
+# --- Async and Concurrency ---
+async-trait = { workspace = true }
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# --- Serialization and Data Handling ---
+base64 = { workspace = true }
+serde = { workspace = true, optional = true }
+
+# --- Logging and Tracing ---
+tracing = { workspace = true }
+
+# --- Error Handling ---
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# --- Utilities ---
+dirs = "6.0.0"
+solana-program-test = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+sled = { workspace = true }
+
+[features]
+serde = ["dep:serde"]

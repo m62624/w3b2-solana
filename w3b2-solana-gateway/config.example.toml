@@ -1,0 +1,67 @@
+# Settings for the core `w3b2-solana-connector` library, which handles
+# the direct communication with the Solana blockchain.
+[connector]
+
+# --- Solana Network Configuration ---
+[connector.solana]
+# The HTTP RPC endpoint of the Solana node.
+rpc-url = "http://127.0.0.1:8899"
+# The WebSocket endpoint of the Solana node for live event streaming.
+ws-url = "ws://127.0.0.1:8900"
+# The commitment level to use for fetching data.
+# Possible values: "Processed", "Confirmed", "Finalized"
+commitment = "Confirmed"
+
+# --- Event Synchronizer Configuration ---
+[connector.synchronizer]
+# (Optional) A safety limit on how far back the synchronizer can go, in slots.
+# The synchronizer always starts from the last known transaction in its database.
+# This setting is a safety net, mainly for the first run on an empty DB, to prevent
+# syncing the entire blockchain. It will not process transactions older than
+# `current_slot - max-catchup-depth`.
+# - Set to `0` or comment out for no limit.
+max-catchup-depth = 1
+# The interval in seconds at which the catch-up worker polls for historical transactions.
+poll-interval-secs = 3
+# The maximum number of transaction signatures to fetch in a single RPC call.
+max-signature-fetch = 1000
+
+# --- Channel Capacities ---
+# Defines buffer sizes for internal message-passing channels.
+[connector.channels]
+# Buffer for the dispatcher's internal event queue.
+dispatcher-event-buffer = 256
+# Buffer for commands sent to the dispatcher (e.g., register/unregister).
+dispatcher-command-buffer = 128
+# Buffer for each individual listener's event stream (both live and catchup).
+listener-event-buffer = 128
+
+# ===================================================================
+# == Gateway Application Settings
+# ===================================================================
+# Settings specific to the Gateway application binary.
+[gateway]
+# Path to the Sled database file for storing synchronization state.
+db-path = "./w3b2_gateway.db"
+
+# --- gRPC Server Configuration ---
+[gateway.grpc]
+host = "127.0.0.1"
+port = 50051
+
+# --- Logging Configuration ---
+[gateway.log]
+# The minimum level of logs to record.
+# Possible values: "trace", "debug", "info", "warn", "error"
+level = "info"
+
+# The format for log output.
+# Possible values: "plain" (human-readable text), "json" (structured for machines)
+format = "plain"
+
+# The destination for log output.
+# Possible values: "stdout" (console), "file"
+output = "stdout"
+
+# The path to the log file. This is required if `output` is set to "file".
+# file-path = "/var/log/w3b2-solana-gateway.log"
