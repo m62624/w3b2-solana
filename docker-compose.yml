@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   builder:
     build:
@@ -60,7 +58,7 @@ services:
       - PORT=50051
       - RPC_URL=http://solana-validator:8899
       - WS_URL=ws://solana-validator:8900
-      - PROGRAM_ID=${PROGRAM_ID}
+      - PROGRAM_ID=${PROGRAM_ID:-}
     command: >
       bash -c "
         if [ -z \"$$PROGRAM_ID\" ]; then

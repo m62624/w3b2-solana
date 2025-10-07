@@ -50,20 +50,22 @@ echo "🔄 Patching source files with Program ID..."
 # Patch lib.rs
 echo "  - Updating declare_id! in $LIB_RS_PATH"
 python3 -c "
-import re, sys
+import re, sys, os
 path = '$LIB_RS_PATH'
 content = open(path).read()
-new_content = re.sub(r'declare_id!\(\".*?\"\)', f'declare_id!(\"{PROGRAM_ID}\")', content)
+program_id = os.environ['PROGRAM_ID']
+new_content = re.sub(r'declare_id!\(\".*?\"\)', f'declare_id!(\"{program_id}\")', content)
 open(path, 'w').write(new_content)
 "
 
 # Patch Anchor.toml
 echo "  - Updating [programs.localnet] in $ANCHOR_TOML_PATH"
 python3 -c "
-import toml, sys
+import toml, sys, os
 path = '$ANCHOR_TOML_PATH'
 data = toml.load(path)
-data.setdefault('programs', {}).setdefault('localnet', {})['w3b2_solana_program'] = '$PROGRAM_ID'
+program_id = os.environ['PROGRAM_ID']
+data.setdefault('programs', {}).setdefault('localnet', {})['w3b2_solana_program'] = program_id
 toml.dump(data, open(path, 'w'))
 "
 echo "✅ Source files patched."
@@ -74,6 +76,10 @@ echo "🚀 Building Anchor program..."
 anchor build
 echo "✅ Anchor build successful."
 cd ..
+
+echo "🚀 Building workspace binaries..."
+cargo build --release --workspace
+echo "✅ Workspace build successful."
 
 # 6. Update IDL with the correct address
 echo "🔄 Updating IDL metadata..."
