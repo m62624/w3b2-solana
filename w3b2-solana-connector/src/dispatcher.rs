@@ -162,8 +162,7 @@ fn extract_pdas_from_event(event_data: &crate::events::BridgeEventData) -> Vec<P
     match event_data {
         // Admin-only events
         crate::events::BridgeEventData::AdminProfileRegistered(e) => vec![e.admin_pda],
-        crate::events::BridgeEventData::AdminCommKeyUpdated(e) => vec![e.admin_pda],
-        crate::events::BridgeEventData::AdminPricesUpdated(e) => vec![e.admin_pda],
+        crate::events::BridgeEventData::AdminConfigUpdated(e) => vec![e.admin_pda],
         crate::events::BridgeEventData::AdminFundsWithdrawn(e) => vec![e.admin_pda],
         crate::events::BridgeEventData::AdminProfileClosed(e) => vec![e.admin_pda],
 

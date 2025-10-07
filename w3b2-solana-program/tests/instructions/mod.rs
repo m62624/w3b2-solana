@@ -8,6 +8,7 @@ use anchor_lang::{system_program, InstructionData, ToAccountMetas};
 use base64::{engine::general_purpose, Engine as _};
 use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use litesvm::LiteSVM;
+use solana_program::clock::Clock;
 
 use solana_program::{instruction::Instruction, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
 use solana_sdk::{
@@ -30,6 +31,8 @@ pub fn setup_svm() -> LiteSVM {
     let mut svm = LiteSVM::new();
     svm.add_program_from_file(w3b2_solana_program::ID, PATH_SBF)
         .unwrap();
+    // Initialize the Clock sysvar, as the program depends on it for timestamps.
+    svm.set_sysvar(&Clock::default());
     svm
 }
 
@@ -84,6 +87,11 @@ pub fn build_and_send_tx(
     let mut tx = Transaction::new_with_payer(&all_instructions, Some(&payer_and_signer.pubkey()));
 
     tx.sign(&signers, svm.latest_blockhash());
+
+    // Advance the clock to simulate time passing between transactions.
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.slot += 1;
+    svm.set_sysvar(&clock);
 
     let result = svm.send_transaction(tx).expect("Transaction failed");
 

@@ -5,14 +5,6 @@ syntax = "proto3";
 // ===================================================================
 package w3b2.protocol.gateway;
 
-/// Represents a single entry in an admin's price list.
-message PriceEntry {
-  /// The unique identifier for the command (maps to an off-chain action).
-  uint32 command_id = 1;
-  /// The price in lamports for executing the command.
-  uint64 price = 2;
-}
-
 // --- Core RPC Message Types for Transactions ---
 
 /// A generic response containing a base64-encoded, unsigned Solana transaction.
@@ -44,19 +36,17 @@ message PrepareAdminRegisterProfileRequest {
   /// The public key for secure off-chain communication.
   string communication_pubkey = 2;
 }
-/// Prepares a transaction to update an AdminProfile's communication key.
-message PrepareAdminUpdateCommKeyRequest {
+/// Prepares a transaction to configure an AdminProfile.
+/// Fields are optional; only provided values will be updated.
+message PrepareAdminSetConfigRequest {
   /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The new communication public key to set.
-  string new_key = 2;
-}
-/// Prepares a transaction to update an AdminProfile's price list.
-message PrepareAdminUpdatePricesRequest {
-  /// The public key of the admin's wallet (`authority`).
-  string authority_pubkey = 1;
-  /// The new list of prices. This will replace the existing list.
-  repeated PriceEntry new_prices = 2;
+  /// The new public key of the oracle.
+  optional string new_oracle_authority = 2;
+  /// The new validity period for oracle signatures in seconds.
+  optional int64 new_timestamp_validity = 3;
+  /// The new public key for off-chain communication.
+  optional string new_communication_pubkey = 4;
 }
 /// Prepares a transaction for an admin to withdraw earned funds.
 message PrepareAdminWithdrawRequest {
@@ -158,8 +148,16 @@ message PrepareUserDispatchCommandRequest {
   string target_admin_pda = 2;
   /// The `u16` identifier for the command to execute.
   uint32 command_id = 3;
+  /// The price in lamports for the command, as signed by the oracle.
+  uint64 price = 4;
+  /// The Unix timestamp from the oracle's signature.
+  int64 timestamp = 5;
   /// An opaque byte array for application-specific data.
-  bytes payload = 4;
+  bytes payload = 6;
+  /// The public key of the oracle that signed the price data.
+  string oracle_pubkey = 7;
+  /// The 64-byte Ed25519 signature from the oracle, as raw bytes.
+  bytes oracle_signature = 8;
 }
 
 // --- Messages for Event Streaming ---
@@ -202,28 +200,6 @@ message AdminProfileRegistered {
   /// The public key for off-chain communication.
   string communication_pubkey = 3;
   /// The Unix timestamp of the registration.
-  int64 ts = 4;
-}
-/// Emitted when an admin updates their communication key.
-message AdminCommKeyUpdated {
-  /// The public key of the admin's wallet (`authority`).
-  string authority = 1;
-  /// The public key of the `AdminProfile` PDA that was updated.
-  string admin_pda = 2;
-  /// The new communication public key.
-  string new_comm_pubkey = 3;
-  /// The Unix timestamp of the update.
-  int64 ts = 4;
-}
-/// Emitted when an admin updates their service prices.
-message AdminPricesUpdated {
-  /// The public key of the admin's wallet (`authority`).
-  string authority = 1;
-  /// The public key of the `AdminProfile` PDA that was updated.
-  string admin_pda = 2;
-  /// The new price list.
-  repeated PriceEntry new_prices = 3;
-  /// The Unix timestamp of the update.
   int64 ts = 4;
 }
 /// Emitted when an admin withdraws earned funds.
@@ -335,8 +311,6 @@ message UserProfileClosed {
 
 // --- Operational Events ---
 
-// --- Operational Events ---
-
 /// Emitted when a user calls a service's command.
 message UserCommandDispatched {
   /// The public key of the sender user's wallet (`authority`).
@@ -378,8 +352,7 @@ message OffChainActionLogged {
 message BridgeEvent {
   oneof event {
     AdminProfileRegistered admin_profile_registered = 1;
-    AdminCommKeyUpdated admin_comm_key_updated = 2;
-    AdminPricesUpdated admin_prices_updated = 3;
+    AdminConfigUpdated admin_config_updated = 3;
     AdminFundsWithdrawn admin_funds_withdrawn = 4;
     AdminProfileClosed admin_profile_closed = 5;
     AdminCommandDispatched admin_command_dispatched = 6;
@@ -391,4 +364,14 @@ message BridgeEvent {
     UserCommandDispatched user_command_dispatched = 12;
     OffChainActionLogged off_chain_action_logged = 13;
   }
+}
+
+/// Emitted when an admin updates their profile configuration.
+message AdminConfigUpdated {
+  string authority = 1;
+  string admin_pda = 2;
+  string new_oracle_authority = 3;
+  int64 new_timestamp_validity = 4;
+  string new_communication_pubkey = 5;
+  int64 ts = 6;
 }

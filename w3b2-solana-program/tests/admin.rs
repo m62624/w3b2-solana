@@ -7,12 +7,13 @@
 
 mod instructions;
 
+use anchor_lang::prelude::Clock;
 use anchor_lang::AccountDeserialize;
 use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
-use solana_sdk::signature::Signer;
-use w3b2_solana_program::state::{AdminProfile, PriceEntry, UserProfile};
+use solana_sdk::signature::{Keypair, Signer};
+use w3b2_solana_program::state::{AdminProfile, UserProfile};
 
 /// Tests the successful creation of an `AdminProfile` PDA.
 /// Verifies that the profile is initialized with correct default values and rent-exempt lamports.
@@ -36,17 +37,13 @@ fn test_admin_create_profile_success() {
 
     assert_eq!(admin_profile.authority, authority.pubkey());
     assert_eq!(admin_profile.communication_pubkey, comm_key.pubkey());
-    assert!(
-        admin_profile.prices.is_empty(),
-        "Prices vector should be empty on initialization"
-    );
     assert_eq!(
         admin_profile.balance, 0,
         "Balance should be 0 on initialization"
     );
 
     let rent = Rent::default();
-    let space = 8 + std::mem::size_of::<AdminProfile>() + (10 * std::mem::size_of::<(u64, u64)>());
+    let space = 8 + std::mem::size_of::<AdminProfile>();
     let rent_exempt_minimum = rent.minimum_balance(space);
     assert_eq!(admin_account_data.lamports, rent_exempt_minimum);
 
@@ -56,40 +53,6 @@ fn test_admin_create_profile_success() {
         "   -> PDA Lamports: {} (matches rent-exempt minimum)",
         admin_account_data.lamports
     );
-}
-
-/// Tests the successful update of an `AdminProfile`'s communication key.
-/// Verifies that the `communication_pubkey` field is updated while other fields remain unchanged.
-#[test]
-fn test_admin_update_comm_key_success() {
-    // === 1. Arrange ===
-    let mut svm = setup_svm();
-    let authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
-
-    let initial_comm_key = create_keypair();
-    let admin_pda = admin::create_profile(&mut svm, &authority, initial_comm_key.pubkey());
-
-    let new_comm_key = create_keypair();
-
-    // === 2. Act ===
-    println!("Updating communication key...");
-    admin::update_comm_key(&mut svm, &authority, new_comm_key.pubkey());
-
-    // === 3. Assert ===
-    let admin_account_data = svm.get_account(&admin_pda).unwrap();
-    let admin_profile =
-        AdminProfile::try_deserialize(&mut admin_account_data.data.as_slice()).unwrap();
-
-    assert_eq!(admin_profile.communication_pubkey, new_comm_key.pubkey());
-    assert_ne!(
-        admin_profile.communication_pubkey,
-        initial_comm_key.pubkey()
-    );
-    assert_eq!(admin_profile.authority, authority.pubkey());
-
-    println!("✅ Update Comm Key Test Passed!");
-    println!("   -> Old Key: {}", initial_comm_key.pubkey());
-    println!("   -> New Key: {}", admin_profile.communication_pubkey);
 }
 
 /// Tests the successful closure of an `AdminProfile` account.
@@ -127,52 +90,96 @@ fn test_admin_close_profile_success() {
     );
 }
 
-/// Tests the successful update of an admin's price list and the `realloc` feature.
-/// Verifies that the `prices` vector in the account data is updated correctly and that
-/// the on-chain account size (`data.len()`) is resized to accommodate the new vector.
+/// Tests the successful update of an `AdminProfile`'s configuration.
 #[test]
-fn test_admin_update_prices_success() {
+fn test_admin_set_config_success() {
     // === 1. Arrange ===
     let mut svm = setup_svm();
     let authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let comm_key = create_keypair();
 
     let admin_pda = admin::create_profile(&mut svm, &authority, comm_key.pubkey());
+    let admin_profile_before = {
+        let account_data = svm.get_account(&admin_pda).unwrap();
+        AdminProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
 
-    let new_prices = vec![
-        PriceEntry::new(1, 1000),
-        PriceEntry::new(2, 2500),
-        PriceEntry::new(5, 10000),
-    ];
-
-    let account_before = svm.get_account(&admin_pda).unwrap();
-    let size_before = account_before.data.len();
-
-    // === 2. Act ===
-    println!("Updating prices for admin profile...");
-    admin::update_prices(&mut svm, &authority, new_prices.clone());
-    println!("Prices updated.");
-
-    // === 3. Assert ===
-    let account_after = svm.get_account(&admin_pda).unwrap();
-    let size_after = account_after.data.len();
-    let admin_profile = AdminProfile::try_deserialize(&mut account_after.data.as_slice()).unwrap();
-
-    assert_eq!(admin_profile.prices, new_prices);
-
-    let base_size = 8 + std::mem::size_of::<AdminProfile>();
-    let expected_size_after = base_size + (new_prices.len() * std::mem::size_of::<(u64, u64)>());
-    assert_ne!(size_before, size_after, "Account size should have changed");
-    assert_eq!(
-        size_after, expected_size_after,
-        "Account size is not what was expected after realloc"
+    // --- Act & Assert: Part 1 (Update only Oracle) ---
+    println!("Updating only the oracle authority...");
+    let new_oracle = Keypair::new();
+    admin::set_config(
+        &mut svm,
+        &authority,
+        Some(new_oracle.pubkey()),
+        None, // Do not change validity
+        None, // Do not change comm key
     );
 
-    println!("✅ Update Prices Test Passed!");
-    println!("   -> Prices updated to: {:?}", admin_profile.prices);
+    let admin_profile_mid = {
+        let account_data = svm.get_account(&admin_pda).unwrap();
+        AdminProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+
+    // Assert that only the oracle authority changed
+    assert_eq!(admin_profile_mid.oracle_authority, new_oracle.pubkey());
+    assert_ne!(
+        admin_profile_mid.oracle_authority,
+        admin_profile_before.oracle_authority
+    );
+    // Assert that other config fields did NOT change
+    assert_eq!(
+        admin_profile_mid.timestamp_validity_seconds,
+        admin_profile_before.timestamp_validity_seconds
+    );
+    assert_eq!(
+        admin_profile_mid.communication_pubkey,
+        admin_profile_before.communication_pubkey
+    );
+    println!("✅ Oracle authority updated successfully.");
+
+    // --- Act & Assert: Part 2 (Update other fields) ---
+    println!("Updating validity period and communication key...");
+    let new_validity = 120i64;
+    let new_comm_key = Keypair::new();
+    admin::set_config(
+        &mut svm,
+        &authority,
+        None, // Do not change oracle this time
+        Some(new_validity),
+        Some(new_comm_key.pubkey()),
+    );
+
+    let admin_account_data = svm.get_account(&admin_pda).unwrap();
+    let admin_profile_after =
+        AdminProfile::try_deserialize(&mut admin_account_data.data.as_slice()).unwrap();
+
+    // Assert that the new fields were updated
+    assert_eq!(admin_profile_after.timestamp_validity_seconds, new_validity);
+    assert_eq!(
+        admin_profile_after.communication_pubkey,
+        new_comm_key.pubkey()
+    );
+    // Assert that the oracle from Part 1 is still set
+    assert_eq!(admin_profile_after.oracle_authority, new_oracle.pubkey());
+    // Assert that non-config fields remain unchanged throughout
+    assert_eq!(
+        admin_profile_after.authority,
+        admin_profile_before.authority
+    );
+    assert_eq!(admin_profile_after.balance, admin_profile_before.balance);
+
+    println!("✅ Set Config Test Passed!");
     println!(
-        "   -> Account size changed: {} -> {}",
-        size_before, size_after
+        "   -> Final Oracle: {}",
+        admin_profile_after.oracle_authority
+    );
+    println!(
+        "   -> Final Validity (s): {}",
+        admin_profile_after.timestamp_validity_seconds
+    );
+    println!(
+        "   -> Final Comm Key: {}",
+        admin_profile_after.communication_pubkey
     );
 }
 
@@ -263,15 +270,9 @@ fn test_admin_withdraw_success() {
     // === 1. Arrange ===
     let mut svm = setup_svm();
 
-    // Create Admin and set a price for a service
+    // Create Admin. By default, the admin is their own oracle.
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
-    let command_price = LAMPORTS_PER_SOL;
-    admin::update_prices(
-        &mut svm,
-        &admin_authority,
-        vec![PriceEntry::new(1, command_price)],
-    );
 
     // Create a User who will pay the Admin
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
@@ -287,8 +288,20 @@ fn test_admin_withdraw_success() {
     user::deposit(&mut svm, &user_authority, admin_pda, deposit_amount);
 
     // User "buys" the service, transferring funds to the Admin
+    let command_price = LAMPORTS_PER_SOL;
+    // Get the clock from SVM, don't use Clock::get() in tests
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
     println!("User pays admin {} lamports...", command_price);
-    user::dispatch_command(&mut svm, &user_authority, admin_pda, 1, vec![1, 2, 3]);
+    user::dispatch_command(
+        &mut svm,
+        &user_authority,
+        admin_pda,
+        &admin_authority, // Oracle signer is the admin
+        1,                // command_id
+        command_price,
+        timestamp,
+        vec![1, 2, 3], // payload
+    );
 
     // Prepare for the withdrawal
     let destination_wallet = create_keypair();

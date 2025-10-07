@@ -45,11 +45,13 @@ clap = { version = "4.5.48", features = ["derive"] }
 tonic-build = "0.11"
 
 [dev-dependencies]
+chrono = { workspace = true }
 portpicker = "0.1.1"
 tempfile = "3.23.0"
 solana-transaction-status = { workspace = true }
 anchor-lang.workspace = true
 solana-program-test = { workspace = true }
+solana-ed25519-program = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["prost"]

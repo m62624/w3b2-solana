@@ -23,8 +23,7 @@ pub struct BridgeEvent {
 #[derive(Debug, Clone)]
 pub enum BridgeEventData {
     AdminProfileRegistered(OnChainEvent::AdminProfileRegistered),
-    AdminCommKeyUpdated(OnChainEvent::AdminCommKeyUpdated),
-    AdminPricesUpdated(OnChainEvent::AdminPricesUpdated),
+    AdminConfigUpdated(OnChainEvent::AdminConfigUpdated),
     AdminFundsWithdrawn(OnChainEvent::AdminFundsWithdrawn),
     AdminProfileClosed(OnChainEvent::AdminProfileClosed),
     AdminCommandDispatched(OnChainEvent::AdminCommandDispatched),
@@ -62,15 +61,9 @@ pub fn try_parse_log(log: &str) -> Result<BridgeEvent> {
                 BridgeEventData::AdminProfileRegistered,
             )
             .or_else(|| {
-                try_match::<OnChainEvent::AdminCommKeyUpdated, _>(
+                try_match::<OnChainEvent::AdminConfigUpdated, _>(
                     data,
-                    BridgeEventData::AdminCommKeyUpdated,
-                )
-            })
-            .or_else(|| {
-                try_match::<OnChainEvent::AdminPricesUpdated, _>(
-                    data,
-                    BridgeEventData::AdminPricesUpdated,
+                    BridgeEventData::AdminConfigUpdated,
                 )
             })
             .or_else(|| {

@@ -169,40 +169,6 @@ async fn test_admin_profile_creation() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "Requires a compiled BPF program"]
-async fn test_admin_update_comm_key() -> anyhow::Result<()> {
-    let mut context = setup_test_environment().await;
-    let (transaction_builder, admin_authority, admin_pda) =
-        setup_admin_profile(&mut context).await?;
-
-    let new_comm_key = Keypair::new();
-
-    let mut update_tx = transaction_builder
-        .prepare_admin_update_comm_key(admin_authority.pubkey(), new_comm_key.pubkey())
-        .await?;
-    update_tx.message.recent_blockhash = context.last_blockhash;
-    update_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&update_tx).await?;
-
-    let account = context
-        .banks_client
-        .get_account(admin_pda)
-        .await?
-        .expect("Admin PDA account not found");
-    let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
-
-    assert_eq!(admin_profile.communication_pubkey, new_comm_key.pubkey());
-
-    println!(
-        "✅ Test passed: Admin {} updated communication key. Signature: {}",
-        admin_authority.pubkey(),
-        signature
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "Requires a compiled BPF program"]
 async fn test_admin_close_profile() -> anyhow::Result<()> {
     let mut context = setup_test_environment().await;
     let (transaction_builder, admin_authority, admin_pda) =
@@ -242,6 +208,47 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "Requires a compiled BPF program"]
+async fn test_admin_set_config() -> anyhow::Result<()> {
+    let mut context = setup_test_environment().await;
+    let (transaction_builder, admin_authority, admin_pda) =
+        setup_admin_profile(&mut context).await?;
+
+    let new_oracle = Keypair::new();
+    let new_validity = 120i64;
+    let new_comm_key = Keypair::new();
+
+    let mut set_config_tx = transaction_builder
+        .prepare_admin_set_config(
+            admin_authority.pubkey(),
+            Some(new_oracle.pubkey()),
+            Some(new_validity),
+            Some(new_comm_key.pubkey()),
+        )
+        .await?;
+    set_config_tx.message.recent_blockhash = context.last_blockhash;
+    set_config_tx.sign(&[&admin_authority], context.last_blockhash);
+    let signature = transaction_builder.submit_transaction(&set_config_tx).await?;
+
+    let account = context.banks_client.get_account(admin_pda).await?.unwrap();
+    let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
+
+    assert_eq!(admin_profile.oracle_authority, new_oracle.pubkey());
+    assert_eq!(admin_profile.timestamp_validity_seconds, new_validity);
+    assert_eq!(
+        admin_profile.communication_pubkey,
+        new_comm_key.pubkey()
+    );
+
+    println!(
+        "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
+        admin_authority.pubkey(),
+        signature
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "Requires a compiled BPF program"]
 async fn test_admin_dispatch_command() -> anyhow::Result<()> {
     let mut context = setup_test_environment().await;
     let (transaction_builder, (admin_authority, _admin_pda), (_user_authority, user_pda)) =
@@ -276,76 +283,15 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "Requires a compiled BPF program"]
-async fn test_admin_update_prices() -> anyhow::Result<()> {
-    let mut context = setup_test_environment().await;
-    let (transaction_builder, admin_authority, admin_pda) =
-        setup_admin_profile(&mut context).await?;
-
-    // --- Define the new prices ---
-    use w3b2_solana_program::state::PriceEntry;
-    let new_prices = vec![
-        PriceEntry {
-            command_id: 101,
-            price: 5000,
-        },
-        PriceEntry {
-            command_id: 202,
-            price: 15000,
-        },
-    ];
-
-    let mut update_tx = transaction_builder
-        .prepare_admin_update_prices(admin_authority.pubkey(), new_prices.clone())
-        .await?;
-    update_tx.message.recent_blockhash = context.last_blockhash;
-    update_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&update_tx).await?;
-
-    let account = context
-        .banks_client
-        .get_account(admin_pda)
-        .await?
-        .expect("Admin PDA account not found");
-    let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
-
-    assert_eq!(admin_profile.prices, new_prices);
-
-    println!(
-        "✅ Test passed: Admin prices for {} updated and verified on-chain. Signature: {}",
-        admin_authority.pubkey(),
-        signature
-    );
-
-    Ok(())
-}
+use std::convert::TryInto;
 
 #[tokio::test]
 #[ignore = "Requires a compiled BPF program"]
 async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
-    // === 1. Arrange: Create Admin and User, Admin sets price ===
+    // === 1. Arrange: Create Admin and User ===
     let mut context = setup_test_environment().await;
     let (transaction_builder, (admin_authority, admin_pda), (user_authority, user_pda)) =
         setup_user_profile(&mut context).await?;
-
-    let command_id = 42;
-    let command_price = 100_000;
-
-    // Admin sets a price for a command
-    let prices = vec![w3b2_solana_program::state::PriceEntry {
-        command_id,
-        price: command_price,
-    }];
-    let mut update_prices_tx = transaction_builder
-        .prepare_admin_update_prices(admin_authority.pubkey(), prices)
-        .await?;
-    update_prices_tx.message.recent_blockhash = context.last_blockhash;
-    update_prices_tx.sign(&[&admin_authority], context.last_blockhash);
-    transaction_builder
-        .submit_transaction(&update_prices_tx)
-        .await?;
-    context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // === 2. Arrange: User deposits funds ===
     let deposit_amount = 200_000; // More than command price
@@ -357,13 +303,30 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     transaction_builder.submit_transaction(&deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
-    // === 3. Act: User dispatches the paid command ===
+    // === 3. Act: User dispatches the paid command with an oracle signature ===
+    let command_id = 42u16;
+    let command_price = 100_000u64;
+    let timestamp = chrono::Utc::now().timestamp();
+
+    // The oracle (the admin in this case) signs the price data
+    let message = [
+        command_id.to_le_bytes().as_ref(),
+        command_price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+    let signature = admin_authority.sign_message(&message);
+
     let mut dispatch_tx = transaction_builder
         .prepare_user_dispatch_command(
             user_authority.pubkey(),
             admin_pda,
-            command_id as u16,
+            command_id,
+            command_price,
+            timestamp,
             vec![1, 2, 3], // Dummy payload
+            admin_authority.pubkey(),
+            signature.as_ref().try_into().unwrap(),
         )
         .await?;
     dispatch_tx.message.recent_blockhash = context.last_blockhash;

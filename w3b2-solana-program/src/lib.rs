@@ -43,16 +43,6 @@ pub mod w3b2_solana_program {
         instructions::admin_register_profile(ctx, communication_pubkey)
     }
 
-    /// Updates the `communication_pubkey` for an existing `AdminProfile`.
-    /// This allows a service provider to rotate their off-chain encryption keys.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `new_key` - The new `Pubkey` to set as the communication key.
-    pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
-        instructions::admin_update_comm_key(ctx, new_key)
-    }
-
     /// Closes an `AdminProfile` account and refunds its rent lamports to the owner.
     /// This effectively unregisters a service from the protocol.
     ///
@@ -62,17 +52,27 @@ pub mod w3b2_solana_program {
         instructions::admin_close_profile(ctx)
     }
 
-    /// Updates the price list for an admin's services. The associated `AdminProfile`
-    /// account is automatically resized to fit the new list.
+    /// Sets or updates the configuration for an existing `AdminProfile`.
+    /// This allows changing the `oracle_authority`, `timestamp_validity_seconds`,
+    /// and `communication_pubkey`. Any field passed as `None` will be ignored.
     ///
     /// # Arguments
     /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `args` - A struct containing `new_prices`, a `Vec<PriceEntry>`.
-    pub fn admin_update_prices(
-        ctx: Context<AdminUpdatePrices>,
-        args: UpdatePricesArgs,
+    /// * `new_oracle_authority` - An optional new `Pubkey` for the oracle.
+    /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
+    /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
+    pub fn admin_set_config(
+        ctx: Context<AdminSetConfig>,
+        new_oracle_authority: Option<Pubkey>,
+        new_timestamp_validity: Option<i64>,
+        new_communication_pubkey: Option<Pubkey>,
     ) -> Result<()> {
-        instructions::admin_update_prices(ctx, args.new_prices)
+        instructions::admin_set_config(
+            ctx,
+            new_oracle_authority,
+            new_timestamp_validity,
+            new_communication_pubkey,
+        )
     }
 
     /// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance
@@ -156,19 +156,23 @@ pub mod w3b2_solana_program {
 
     // --- Operational Instructions ---
 
-    /// The primary instruction for a user to call a service's API. If the command is priced,
-    /// it handles payment by debiting the user's deposit and crediting the admin's balance.
+    /// The primary instruction for a user to call a service's API. It verifies a price
+    /// signature from the admin's oracle and, if valid, transfers payment.
     ///
     /// # Arguments
-    /// * `ctx` - The context, including the user's wallet (`authority`), their `user_profile`, and the target `admin_profile`.
-    /// * `command_id` - The `u16` identifier of the service's command to be executed.
-    /// * `payload` - An opaque `Vec<u8>` containing serialized, application-specific data for the off-chain service.
+    /// * `ctx` - The context, including the user's wallet, their profile, and the target admin profile.
+    /// * `command_id` - The `u16` identifier of the service's command.
+    /// * `price` - The price in lamports, as signed by the oracle.
+    /// * `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.
+    /// * `payload` - An opaque `Vec<u8>` for application-specific data.
     pub fn user_dispatch_command(
         ctx: Context<UserDispatchCommand>,
         command_id: u16,
+        price: u64,
+        timestamp: i64,
         payload: Vec<u8>,
     ) -> Result<()> {
-        instructions::user_dispatch_command(ctx, command_id, payload)
+        instructions::user_dispatch_command(ctx, command_id, price, timestamp, payload)
     }
 
     /// A generic instruction to log a significant off-chain action to the blockchain,

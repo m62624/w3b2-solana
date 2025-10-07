@@ -1,16 +1,14 @@
-
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
+use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
 use std::sync::Arc;
-use w3b2_solana_program::{
-    accounts, instruction,
-    state::{PriceEntry, UpdatePricesArgs},
-};
+use w3b2_solana_program::{accounts, instruction};
 
 /// A trait abstracting over the asynchronous RPC client functionality needed by `TransactionBuilder`.
 /// This allows for mocking and using different clients like `RpcClient` and `BanksClient`.
@@ -85,19 +83,29 @@ where
             .await
     }
 
-    /// A private helper function to create a transaction from a single instruction.
+    /// A private helper function to create a transaction from a vector of instructions.
     ///
     /// This function encapsulates the boilerplate of fetching the latest blockhash
     /// and creating a new transaction with a payer.
+    async fn create_transaction_with_instructions(
+        &self,
+        payer: &Pubkey,
+        instructions: Vec<Instruction>,
+    ) -> Result<Transaction, ClientError> {
+        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
+        let mut tx = Transaction::new_with_payer(&instructions, Some(payer));
+        tx.message.recent_blockhash = latest_blockhash;
+        Ok(tx)
+    }
+
+    /// A private helper function to create a transaction from a single instruction.
     async fn create_transaction(
         &self,
         payer: &Pubkey,
         instruction: Instruction,
     ) -> Result<Transaction, ClientError> {
-        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
-        let mut tx = Transaction::new_with_payer(&[instruction], Some(payer));
-        tx.message.recent_blockhash = latest_blockhash;
-        Ok(tx)
+        self.create_transaction_with_instructions(payer, vec![instruction])
+            .await
     }
 
     // --- Admin Transaction Preparations ---
@@ -133,47 +141,28 @@ where
         self.create_transaction(&authority, ix).await
     }
 
-    /// Prepares an `admin_update_comm_key` transaction.
-    pub async fn prepare_admin_update_comm_key(
+    /// Prepares an `admin_set_config` transaction.
+    pub async fn prepare_admin_set_config(
         &self,
         authority: Pubkey,
-        new_key: Pubkey,
+        new_oracle_authority: Option<Pubkey>,
+        new_timestamp_validity: Option<i64>,
+        new_communication_pubkey: Option<Pubkey>,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
-            accounts: accounts::AdminUpdateCommKey {
+            accounts: accounts::AdminSetConfig {
                 authority,
                 admin_profile: admin_pda,
             }
             .to_account_metas(None),
-            data: instruction::AdminUpdateCommKey { new_key }.data(),
-        };
-
-        self.create_transaction(&authority, ix).await
-    }
-
-    /// Prepares an `admin_update_prices` transaction.
-    pub async fn prepare_admin_update_prices(
-        &self,
-        authority: Pubkey,
-        new_prices: Vec<PriceEntry>,
-    ) -> Result<Transaction, ClientError> {
-        let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
-
-        let ix = Instruction {
-            program_id: w3b2_solana_program::ID,
-            accounts: accounts::AdminUpdatePrices {
-                authority,
-                admin_profile: admin_pda,
-                system_program: solana_sdk::system_program::id(),
-            }
-            .to_account_metas(None),
-            data: instruction::AdminUpdatePrices {
-                args: UpdatePricesArgs { new_prices },
+            data: instruction::AdminSetConfig {
+                new_oracle_authority,
+                new_timestamp_validity,
+                new_communication_pubkey,
             }
             .data(),
         };
@@ -417,40 +406,72 @@ where
 
     // --- Operational Transaction Preparations ---
 
-    /// Prepares a `user_dispatch_command` transaction.
+    /// Prepares a `user_dispatch_command` transaction. This method now requires
+    /// a pre-signed message from the oracle. The final transaction will contain
+    /// two instructions: the `Ed25519` signature verification, followed by the
+    /// actual `user_dispatch_command`.
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` **PDA**.
     /// * `command_id` - The `u16` identifier for the command.
+    /// * `price` - The price of the command, as signed by the oracle.
+    /// * `timestamp` - The timestamp from the oracle's signature.
     /// * `payload` - An opaque byte array for application-specific data.
+    /// * `oracle_pubkey` - The public key of the oracle that signed the message.
+    /// * `oracle_signature` - The 64-byte Ed25519 signature from the oracle.
     pub async fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         command_id: u16,
+        price: u64,
+        timestamp: i64,
         payload: Vec<u8>,
+        oracle_pubkey: Pubkey,
+        oracle_signature: [u8; 64],
     ) -> Result<Transaction, ClientError> {
+        // 1. Reconstruct the message that the oracle signed.
+        let message = [
+            command_id.to_le_bytes().as_ref(),
+            price.to_le_bytes().as_ref(),
+            timestamp.to_le_bytes().as_ref(),
+        ]
+        .concat();
+
+        // 2. Create the Ed25519 signature verification instruction.
+        let ed25519_ix = new_ed25519_instruction_with_signature(
+            &message,
+            &oracle_signature,
+            &oracle_pubkey.to_bytes(),
+        );
+
+        // 3. Create the main `user_dispatch_command` instruction.
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
             &w3b2_solana_program::ID,
         );
 
-        let ix = Instruction {
+        let dispatch_ix = Instruction {
             program_id: w3b2_solana_program::ID,
             accounts: accounts::UserDispatchCommand {
                 authority,
                 user_profile: user_pda,
                 admin_profile: target_admin_pda,
+                instructions: sysvar::instructions::id(),
             }
             .to_account_metas(None),
             data: instruction::UserDispatchCommand {
                 command_id,
+                price,
+                timestamp,
                 payload,
             }
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        // 4. Create a transaction containing both instructions in the correct order.
+        self.create_transaction_with_instructions(&authority, vec![ed25519_ix, dispatch_ix])
+            .await
     }
 
     /// Prepares a `log_action` transaction. This instruction requires both the

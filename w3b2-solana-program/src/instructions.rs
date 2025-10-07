@@ -2,16 +2,21 @@ use super::*;
 use crate::instructions::solana_program::program::invoke;
 use crate::instructions::solana_program::system_instruction;
 use anchor_lang::solana_program;
+use solana_program::sysvar::instructions::{
+    load_current_index_checked, load_instruction_at_checked,
+};
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
 pub const MAX_PAYLOAD_SIZE: usize = 1000;
+/// The maximum age of a signed timestamp in seconds before it is considered expired.
+pub const MAX_TIMESTAMP_AGE_SECONDS: i64 = 60;
 
 // --- Admin Instructions ---
 
 /// Initializes a new `AdminProfile` PDA for a service provider (an "Admin").
 /// This instruction creates the on-chain representation of a service, setting its
 /// owner (`authority`), its off-chain communication key, and initializing its
-/// internal balance and price list.
+/// internal balance. The oracle authority is set to the admin's own key by default.
 pub fn admin_register_profile(
     ctx: Context<AdminRegisterProfile>,
     communication_pubkey: Pubkey,
@@ -19,7 +24,9 @@ pub fn admin_register_profile(
     let admin_profile = &mut ctx.accounts.admin_profile;
     admin_profile.authority = ctx.accounts.authority.key();
     admin_profile.communication_pubkey = communication_pubkey;
-    admin_profile.prices = Vec::new();
+    // By default, the admin is their own oracle. They can delegate this later.
+    admin_profile.oracle_authority = ctx.accounts.authority.key();
+    admin_profile.timestamp_validity_seconds = MAX_TIMESTAMP_AGE_SECONDS; // Set default value
     admin_profile.balance = 0;
 
     emit!(AdminProfileRegistered {
@@ -31,14 +38,31 @@ pub fn admin_register_profile(
     Ok(())
 }
 
-/// Updates the `communication_pubkey` for an existing `AdminProfile`.
-/// This allows a service provider to rotate their off-chain encryption keys.
-pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
-    ctx.accounts.admin_profile.communication_pubkey = new_key;
-    emit!(AdminCommKeyUpdated {
-        authority: ctx.accounts.authority.key(),
-        admin_pda: ctx.accounts.admin_profile.key(),
-        new_comm_pubkey: new_key,
+/// Sets the configuration for an `AdminProfile`, including the oracle authority and timestamp validity.
+pub fn admin_set_config(
+    ctx: Context<AdminSetConfig>,
+    new_oracle_authority: Option<Pubkey>,
+    new_timestamp_validity: Option<i64>,
+    new_communication_pubkey: Option<Pubkey>,
+) -> Result<()> {
+    let admin_profile = &mut ctx.accounts.admin_profile;
+
+    if let Some(new_oracle) = new_oracle_authority {
+        admin_profile.oracle_authority = new_oracle;
+    }
+    if let Some(new_validity) = new_timestamp_validity {
+        admin_profile.timestamp_validity_seconds = new_validity;
+    }
+    if let Some(new_comm_key) = new_communication_pubkey {
+        admin_profile.communication_pubkey = new_comm_key;
+    }
+
+    emit!(AdminConfigUpdated {
+        authority: admin_profile.authority,
+        admin_pda: admin_profile.key(),
+        new_oracle_authority: admin_profile.oracle_authority,
+        new_timestamp_validity: admin_profile.timestamp_validity_seconds,
+        new_communication_pubkey: admin_profile.communication_pubkey,
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
@@ -53,26 +77,6 @@ pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
     emit!(AdminProfileClosed {
         authority: ctx.accounts.authority.key(),
         admin_pda: ctx.accounts.admin_profile.key(),
-        ts: Clock::get()?.unix_timestamp,
-    });
-    Ok(())
-}
-
-/// Updates the price list for an admin's services.
-/// The instruction sorts and de-duplicates the provided list by `command_id` to ensure
-/// a canonical representation. The associated `AdminProfile` account is automatically
-/// resized (`realloc`) by Anchor to accommodate the new list size.
-pub fn admin_update_prices(
-    ctx: Context<AdminUpdatePrices>,
-    mut new_prices: Vec<PriceEntry>,
-) -> Result<()> {
-    new_prices.sort_unstable_by_key(|k| k.command_id);
-    new_prices.dedup_by_key(|k| k.command_id);
-    ctx.accounts.admin_profile.prices = new_prices.clone();
-    emit!(AdminPricesUpdated {
-        authority: ctx.accounts.authority.key(),
-        admin_pda: ctx.accounts.admin_profile.key(),
-        new_prices,
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
@@ -275,13 +279,13 @@ pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
 
 // --- Operational Instructions ---
 
-/// The primary instruction for a user to call a service's API.
-///
-/// If the `command_id` is found in the admin's price list, this instruction handles
-/// the payment by transferring lamports from the `UserProfile` PDA to the `AdminProfile` PDA.
+/// The primary instruction for a user to call a service's API. It verifies a price
+/// signature from the admin's oracle and, if valid, transfers payment.
 pub fn user_dispatch_command(
     ctx: Context<UserDispatchCommand>,
     command_id: u16,
+    price: u64,
+    timestamp: i64,
     payload: Vec<u8>,
 ) -> Result<()> {
     require!(
@@ -291,36 +295,93 @@ pub fn user_dispatch_command(
 
     let user_profile = &mut ctx.accounts.user_profile;
     let admin_profile = &mut ctx.accounts.admin_profile;
+    let ixs = &ctx.accounts.instructions;
 
-    let command_price = match admin_profile
-        .prices
-        .binary_search_by_key(&command_id, |id| id.command_id)
-    {
-        Ok(index) => admin_profile.prices[index].price,
-        Err(_) => 0,
-    };
+    // --- Oracle Signature Verification ---
+
+    // The transaction must include an ed25519 signature verification instruction
+    // immediately before this one. We will inspect it to authenticate the price.
+    let current_ix_index = load_current_index_checked(&ixs.to_account_info())?;
+
+    // The verification instruction must be the one immediately preceding this one.
+    require_gt!(current_ix_index, 0, BridgeError::InstructionMismatch);
+    let verify_ix_index = (current_ix_index - 1) as usize;
+    let verify_ix = load_instruction_at_checked(verify_ix_index, &ixs.to_account_info())?;
+
+    // Check that it's an ed25519 program instruction.
+    require_keys_eq!(
+        verify_ix.program_id,
+        solana_program::ed25519_program::ID,
+        BridgeError::InstructionMismatch
+    );
+
+    // The signature is considered valid if the instruction did not fail.
+    // We now need to check *what* was signed.
+    let ix_data = &verify_ix.data;
+
+    // Extract pubkey, signature, and message from the instruction data.
+    // See https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
+    // let signer_pubkey_bytes = &ix_data[16..48];
+    // let message_data = &ix_data[48..];
+    let signer_pubkey_bytes = &ix_data[16..48];
+    let message_data = &ix_data[112..];
+
+    // Verify the signer is the admin's designated oracle.
+    let signer_pubkey = Pubkey::new_from_array(
+        signer_pubkey_bytes
+            .try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+    require_keys_eq!(
+        signer_pubkey,
+        admin_profile.oracle_authority,
+        BridgeError::InvalidOracleSigner
+    );
+
+    // Verify the timestamp isn't too old to prevent replay attacks.
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        now.saturating_sub(timestamp) <= admin_profile.timestamp_validity_seconds,
+        BridgeError::TimestampTooOld
+    );
+
+    // Reconstruct the signed message and verify it matches.
+    // The message format is: command_id (2 bytes) | price (8 bytes) | timestamp (8 bytes)
+    let expected_message = [
+        command_id.to_le_bytes().as_ref(),
+        price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    require!(
+        message_data == expected_message,
+        BridgeError::SignatureVerificationFailed
+    );
+
+    // --- Payment Processing ---
 
     // If the command is not free, process the payment.
-    if command_price > 0 {
+    if price > 0 {
         require!(
-            user_profile.deposit_balance >= command_price,
+            user_profile.deposit_balance >= price,
             BridgeError::InsufficientDepositBalance
         );
 
         let rent = Rent::get()?;
         let rent_exempt_minimum = rent.minimum_balance(user_profile.to_account_info().data_len());
         require!(
-            user_profile.to_account_info().lamports() - command_price >= rent_exempt_minimum,
+            user_profile.to_account_info().lamports() - price >= rent_exempt_minimum,
             BridgeError::RentExemptViolation
         );
 
         // Transfer lamports from the user's PDA to the admin's PDA.
-        **user_profile.to_account_info().try_borrow_mut_lamports()? -= command_price;
-        **admin_profile.to_account_info().try_borrow_mut_lamports()? += command_price;
+        **user_profile.to_account_info().try_borrow_mut_lamports()? -= price;
+        **admin_profile.to_account_info().try_borrow_mut_lamports()? += price;
 
         // Update the internal balances of both profiles.
-        user_profile.deposit_balance -= command_price;
-        admin_profile.balance += command_price;
+        user_profile.deposit_balance -= price;
+        admin_profile.balance += price;
     }
 
     emit!(UserCommandDispatched {
@@ -328,7 +389,7 @@ pub fn user_dispatch_command(
         sender_user_pda: user_profile.key(),
         target_admin_pda: admin_profile.key(),
         command_id,
-        price_paid: command_price,
+        price_paid: price,
         payload,
         ts: Clock::get()?.unix_timestamp,
     });
