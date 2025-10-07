@@ -9,10 +9,9 @@ ENV PATH="/root/.cargo/bin:/usr/local/bin:${PATH}"
 
 # deps (минимальный набор для anchor + solana)
 RUN apt-get update && apt-get install -y \
-    build-essential pkg-config libssl-dev git python3 python3-pip \
+    build-essential pkg-config libssl-dev git python3 python3-toml \
     libudev-dev ca-certificates wget gnupg bzip2 xz-utils \
     protobuf-compiler libprotobuf-dev curl jq && \
-    pip3 install toml && \
     update-ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Solana CLI (через Anza installer)
