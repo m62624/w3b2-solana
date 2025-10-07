@@ -1,5 +1,9 @@
 services:
   builder:
+    # This service is a one-off builder.
+    # It starts, builds all artifacts, and then exits.
+    # Other services depend on it and start afterward.
+    # To re-run the build, use `docker compose up --build --force-recreate builder`
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
@@ -35,17 +39,26 @@ services:
         USER_ID: ${UID:-1000}
         GROUP_ID: ${GID:-1000}
     profiles: ["deploy", "full"]
-    depends_on:
-      - solana-validator
+    depends_on: # Depends on the validator AND a successful build
+      solana-validator:
+        condition: service_started
+      builder:
+        condition: service_completed_successfully
     volumes:
       - ./artifacts:/project/artifacts
-      - ./target:/project/target
       - ./keys:/keys
     environment:
       - PROGRAM_KEYPAIR_PATH=/keys/my_program-keypair.json
       - SOLANA_RPC_URL=http://solana-validator:8899
     working_dir: /project
-    command: /usr/local/bin/build_and_deploy.sh --deploy
+    # The command now just deploys the finished .so file without running a new build.
+    command: >
+      bash -c "
+        echo '--- [BRIDGE-PROGRAM] Waiting for validator...';
+        while ! solana --url http://solana-validator:8899 ping --no-address-labels > /dev/null 2>&1; do sleep 1; done;
+        echo 'Validator ready. Deploying program...';
+        solana program deploy /project/artifacts/w3b2_solana_program.so --program-id /keys/my_program-keypair.json --url http://solana-validator:8899;
+      "
 
   gateway:
     build:
@@ -55,9 +68,11 @@ services:
         USER_ID: ${UID:-1000}
         GROUP_ID: ${GID:-1000}
     profiles: ["gateway", "full"]
-    depends_on:
-      - solana-validator
-      - bridge-program
+    depends_on: # Depends on the deployed program AND a successful build
+      bridge-program:
+        condition: service_completed_successfully
+      builder:
+        condition: service_completed_successfully
     ports:
       - "50051:50051"
     volumes:
@@ -72,13 +87,11 @@ services:
       - WS_URL=ws://solana-validator:8900
       - PROGRAM_ID=${PROGRAM_ID:-}
     command: >
+      # Now we can be sure the binary exists because we depend on the builder.
       bash -c "
         GATEWAY_BINARY=/project/target/release/w3b2-solana-gateway
-        echo 'Waiting for gateway binary to be built at $$GATEWAY_BINARY...';
-        while [ ! -f \"$$GATEWAY_BINARY\" ]; do sleep 1; done;
-        echo 'Gateway binary found.';
         if [ -z \"$$PROGRAM_ID\" ]; then
-          export PROGRAM_ID=$$(solana-keygen pubkey /keys/my_program-keypair.json);
+          export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         fi;
         echo 'Starting gateway with PROGRAM_ID='$$PROGRAM_ID;
         $$GATEWAY_BINARY --config /project/config.toml
@@ -97,6 +110,3 @@ services:
 
 volumes:
   solana-ledger:
-  keys:
-  target:
-  connector-data:
