@@ -1,16 +1,13 @@
-
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
 use std::sync::Arc;
-use w3b2_solana_program::{
-    accounts, instruction,
-    state::{PriceEntry, UpdatePricesArgs},
-};
+use w3b2_solana_program::{accounts, instruction};
 
 /// A trait abstracting over the asynchronous RPC client functionality needed by `TransactionBuilder`.
 /// This allows for mocking and using different clients like `RpcClient` and `BanksClient`.
@@ -155,25 +152,24 @@ where
         self.create_transaction(&authority, ix).await
     }
 
-    /// Prepares an `admin_update_prices` transaction.
-    pub async fn prepare_admin_update_prices(
+    /// Prepares an `admin_set_oracle` transaction.
+    pub async fn prepare_admin_set_oracle(
         &self,
         authority: Pubkey,
-        new_prices: Vec<PriceEntry>,
+        new_oracle_authority: Pubkey,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
-            accounts: accounts::AdminUpdatePrices {
+            accounts: accounts::AdminSetOracle {
                 authority,
                 admin_profile: admin_pda,
-                system_program: solana_sdk::system_program::id(),
             }
             .to_account_metas(None),
-            data: instruction::AdminUpdatePrices {
-                args: UpdatePricesArgs { new_prices },
+            data: instruction::AdminSetOracle {
+                new_oracle_authority,
             }
             .data(),
         };
@@ -422,12 +418,16 @@ where
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` **PDA**.
     /// * `command_id` - The `u16` identifier for the command.
+    /// * `price` - The price of the command, as signed by the oracle.
+    /// * `timestamp` - The timestamp from the oracle's signature.
     /// * `payload` - An opaque byte array for application-specific data.
     pub async fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         command_id: u16,
+        price: u64,
+        timestamp: i64,
         payload: Vec<u8>,
     ) -> Result<Transaction, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
@@ -441,10 +441,13 @@ where
                 authority,
                 user_profile: user_pda,
                 admin_profile: target_admin_pda,
+                instructions: sysvar::instructions::id(),
             }
             .to_account_metas(None),
             data: instruction::UserDispatchCommand {
                 command_id,
+                price,
+                timestamp,
                 payload,
             }
             .data(),

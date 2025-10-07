@@ -24,11 +24,23 @@ pub enum BridgeError {
     #[msg("Rent-Exempt Violation: This transaction would leave the PDA with a balance below the rent-exempt minimum.")]
     RentExemptViolation,
 
-    /// Used when a `command_id` is not found in the admin's price list.
-    #[msg("Command Not Found: The requested command_id does not exist in the admin's price list.")]
-    CommandNotFound,
-
     /// Used when the `payload` in a dispatch command exceeds the maximum allowed size.
     #[msg("Payload Too Large: The provided payload exceeds the maximum allowed size.")]
     PayloadTooLarge,
+
+    /// Used when the preceding instruction is not the expected Ed25519 signature verification.
+    #[msg("Instruction Mismatch: Expected an Ed25519 signature verification instruction.")]
+    InstructionMismatch,
+
+    /// Used when the signature in the Ed25519 instruction is invalid.
+    #[msg("Signature Verification Failed: The oracle signature could not be verified.")]
+    SignatureVerificationFailed,
+
+    /// Used when the signer public key in the Ed25519 instruction does not match the admin's oracle authority.
+    #[msg("Invalid Oracle Signer: The signer does not match the registered oracle authority.")]
+    InvalidOracleSigner,
+
+    /// Used when the timestamp in the signed message is too far in the past.
+    #[msg("Timestamp Too Old: The provided timestamp is outside the acceptable time window.")]
+    TimestampTooOld,
 }

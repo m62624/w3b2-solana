@@ -52,9 +52,8 @@ service BridgeGatewayService {
   /// communication key.
   rpc PrepareAdminUpdateCommKey(PrepareAdminUpdateCommKeyRequest)
       returns (UnsignedTransactionResponse);
-  /// Prepares a transaction for an admin to set or update their service price
-  /// list.
-  rpc PrepareAdminUpdatePrices(PrepareAdminUpdatePricesRequest)
+  /// Prepares a transaction for an admin to set their oracle authority key.
+  rpc PrepareAdminSetOracle(PrepareAdminSetOracleRequest)
       returns (UnsignedTransactionResponse);
   /// Prepares a transaction for an admin to withdraw earned funds from their
   /// profile's internal balance.

@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 
-use crate::state::PriceEntry;
-
 // --- Admin Events ---
 
 /// Emitted when a new AdminProfile PDA is created.
@@ -35,17 +33,17 @@ pub struct AdminCommKeyUpdated {
     pub ts: i64,
 }
 
-/// Emitted when an admin updates their service prices.
+/// Emitted when an admin sets or updates their oracle authority key.
 #[event]
 #[derive(Debug, Clone)]
-pub struct AdminPricesUpdated {
-    /// The public key of the `AdminProfile`'s owner (the admin's `authority` wallet).
+pub struct AdminOracleUpdated {
+    /// The public key of the admin's wallet (`authority`) that authorized this update.
     pub authority: Pubkey,
     /// The public key of the `AdminProfile` PDA that was updated.
     pub admin_pda: Pubkey,
-    /// The new price list for the service, as a vector of `PriceEntry` structs.
-    pub new_prices: Vec<PriceEntry>,
-    /// The Unix timestamp of the price update.
+    /// The new public key of the oracle that has been set for the `AdminProfile`.
+    pub new_oracle_authority: Pubkey,
+    /// The Unix timestamp of the update.
     pub ts: i64,
 }
 

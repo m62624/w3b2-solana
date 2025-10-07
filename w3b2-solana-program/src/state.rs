@@ -1,26 +1,24 @@
 use crate::errors::BridgeError;
 use anchor_lang::prelude::*;
-
-/// The default number of price entries to allocate space for when creating an AdminProfile.
-const DEFAULT_API_SIZE: usize = 10;
+use anchor_lang::solana_program;
 
 // --- Account Data Structs ---
 
 /// Represents the on-chain profile for a Service Provider (an "Admin").
-/// This PDA holds the service's configuration, such as its price list, and serves
-/// as a treasury for collected fees. Its address is derived from the admin's wallet key.
+/// This PDA holds the service's configuration, and serves as a treasury for
+/// collected fees. Its address is derived from the admin's wallet key.
 #[account]
 #[derive(Debug)]
 pub struct AdminProfile {
     /// The public key of the admin's wallet, which is the sole `authority`
-    /// allowed to manage this profile (e.g., update prices, withdraw funds).
+    /// allowed to manage this profile (e.g., withdraw funds).
     pub authority: Pubkey,
     /// A public key provided by the admin for secure off-chain key exchange,
     /// typically used for hybrid encryption with users.
     pub communication_pubkey: Pubkey,
-    /// A dynamic list of `PriceEntry` structs that defines the cost
-    /// in lamports for various off-chain services offered by the admin.
-    pub prices: Vec<PriceEntry>,
+    /// The public key of the off-chain oracle responsible for signing price data.
+    /// The program will only accept price information signed by this authority.
+    pub oracle_authority: Pubkey,
     /// The internal balance in lamports where fees from paid user commands are collected.
     /// This balance can be withdrawn by the admin via the `admin_withdraw` instruction.
     pub balance: u64,
@@ -60,59 +58,13 @@ pub struct AdminRegisterProfile<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + std::mem::size_of::<AdminProfile>() + (DEFAULT_API_SIZE * std::mem::size_of::<PriceEntry>()),
+        space = 8 + std::mem::size_of::<AdminProfile>(),
         seeds = [b"admin", authority.key().as_ref()],
         bump
     )]
     pub admin_profile: Account<'info, AdminProfile>,
     /// The Solana System Program, required by Anchor for account creation (`init`).
     pub system_program: Program<'info, System>,
-}
-
-/// Defines the accounts for the `admin_update_prices` instruction.
-#[derive(Accounts)]
-#[instruction(args: UpdatePricesArgs)]
-pub struct AdminUpdatePrices<'info> {
-    /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    /// The `AdminProfile` account to be updated. Constraints verify the `authority`
-    /// and the account's PDA seeds. The account will be resized (`realloc`) to
-    /// fit the new price list.
-    #[account(
-        mut,
-        seeds = [b"admin", authority.key().as_ref()],
-        bump,
-        realloc = 8 + std::mem::size_of::<AdminProfile>() + (args.new_prices.len() * std::mem::size_of::<(u64, u64)>()),
-        realloc::payer = authority,
-        realloc::zero = false,
-        constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
-    )]
-    pub admin_profile: Account<'info, AdminProfile>,
-    /// The System Program, required by Anchor for `realloc`.
-    pub system_program: Program<'info, System>,
-}
-
-/// Represents a single entry in an admin's price list.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Debug)]
-pub struct PriceEntry {
-    /// Identifier of the command (stable u16).
-    pub command_id: u16,
-    /// Price in lamports.
-    pub price: u64,
-}
-
-impl PriceEntry {
-    pub fn new(command_id: u16, price: u64) -> Self {
-        Self { command_id, price }
-    }
-}
-
-/// A container struct for instruction arguments that involve a `Vec`.
-#[derive(AnchorSerialize, AnchorDeserialize)]
-pub struct UpdatePricesArgs {
-    /// The new price list to set for the admin's services.
-    pub new_prices: Vec<PriceEntry>,
 }
 
 /// Defines the accounts for the `admin_withdraw` instruction.
@@ -136,6 +88,23 @@ pub struct AdminWithdraw<'info> {
     /// from a program-controlled PDA, and does not require data deserialization.
     #[account(mut)]
     pub destination: AccountInfo<'info>,
+}
+
+/// Defines the accounts for the `admin_set_oracle` instruction.
+#[derive(Accounts)]
+pub struct AdminSetOracle<'info> {
+    /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// The `AdminProfile` account to be updated. Constraints verify the `authority`
+    /// and the account's PDA seeds.
+    #[account(
+        mut,
+        seeds = [b"admin", authority.key().as_ref()],
+        bump,
+        constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
+    )]
+    pub admin_profile: Account<'info, AdminProfile>,
 }
 
 /// Defines the accounts for the `admin_update_comm_key` instruction.
@@ -335,6 +304,10 @@ pub struct UserDispatchCommand<'info> {
         bump
     )]
     pub admin_profile: Account<'info, AdminProfile>,
+    /// The Instructions sysvar, used to verify the preceding instruction.
+    /// CHECK: This is safe because we are only reading from it.
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: UncheckedAccount<'info>,
 }
 
 /// Defines the accounts for the `log_action` instruction.

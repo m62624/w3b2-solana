@@ -34,18 +34,11 @@ impl From<ConnectorEvents::BridgeEvent> for gateway::EventStreamItem {
                     ts: e.ts,
                 }),
             ),
-            ConnectorEvents::BridgeEventData::AdminPricesUpdated(e) => Some(
-                gateway::bridge_event::Event::AdminPricesUpdated(gateway::AdminPricesUpdated {
+            ConnectorEvents::BridgeEventData::AdminOracleUpdated(e) => Some(
+                gateway::bridge_event::Event::AdminOracleUpdated(gateway::AdminOracleUpdated {
                     authority: e.authority.to_string(),
                     admin_pda: e.admin_pda.to_string(),
-                    new_prices: e
-                        .new_prices
-                        .into_iter()
-                        .map(|p| gateway::PriceEntry {
-                            command_id: p.command_id as u32,
-                            price: p.price,
-                        })
-                        .collect(),
+                    new_oracle_authority: e.new_oracle_authority.to_string(),
                     ts: e.ts,
                 }),
             ),

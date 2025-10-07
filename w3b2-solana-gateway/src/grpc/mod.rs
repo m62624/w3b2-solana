@@ -13,7 +13,6 @@ use w3b2_solana_connector::{
     client::TransactionBuilder,
     workers::{EventManager, EventManagerHandle},
 };
-use w3b2_solana_program::state::PriceEntry;
 
 use crate::grpc::proto::w3b2::protocol::gateway::bridge_gateway_service_server::{
     BridgeGatewayService, BridgeGatewayServiceServer,
@@ -24,7 +23,7 @@ use crate::{
     grpc::proto::w3b2::protocol::gateway::{
         self, EventStreamItem, ListenRequest, PrepareAdminCloseProfileRequest,
         PrepareAdminDispatchCommandRequest, PrepareAdminRegisterProfileRequest,
-        PrepareAdminUpdateCommKeyRequest, PrepareAdminUpdatePricesRequest,
+        PrepareAdminSetOracleRequest, PrepareAdminUpdateCommKeyRequest,
         PrepareAdminWithdrawRequest, PrepareLogActionRequest, PrepareUserCloseProfileRequest,
         PrepareUserCreateProfileRequest, PrepareUserDepositRequest,
         PrepareUserDispatchCommandRequest, PrepareUserUpdateCommKeyRequest,
@@ -371,31 +370,23 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
-    async fn prepare_admin_update_prices(
+    async fn prepare_admin_set_oracle(
         &self,
-        request: Request<PrepareAdminUpdatePricesRequest>,
+        request: Request<PrepareAdminSetOracleRequest>,
     ) -> Result<Response<UnsignedTransactionResponse>, Status> {
         let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
             tracing::info!(
-                "Received PrepareAdminUpdatePrices request: {:?}",
+                "Received PrepareAdminSetOracle request: {:?}",
                 request.get_ref()
             );
 
             let req = request.into_inner();
             let authority = parse_pubkey(&req.authority_pubkey)?;
-
-            let new_prices = req
-                .new_prices
-                .into_iter()
-                .map(|p| PriceEntry {
-                    command_id: p.command_id as u16,
-                    price: p.price,
-                })
-                .collect::<Vec<PriceEntry>>();
+            let new_oracle_authority = parse_pubkey(&req.new_oracle_authority)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
             let transaction = builder
-                .prepare_admin_update_prices(authority, new_prices)
+                .prepare_admin_set_oracle(authority, new_oracle_authority)
                 .await
                 .map_err(GatewayError::Connector)?;
 
@@ -403,7 +394,7 @@ impl BridgeGatewayService for GatewayServer {
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
                     .map_err(GatewayError::from)?;
             tracing::debug!(
-                "Prepared admin_update_prices tx for authority {}",
+                "Prepared admin_set_oracle tx for authority {}",
                 authority
             );
 
@@ -703,6 +694,8 @@ impl BridgeGatewayService for GatewayServer {
                     authority,
                     target_admin_pda,
                     req.command_id as u16,
+                    req.price,
+                    req.timestamp,
                     req.payload,
                 )
                 .await

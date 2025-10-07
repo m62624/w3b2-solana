@@ -62,17 +62,17 @@ pub mod w3b2_solana_program {
         instructions::admin_close_profile(ctx)
     }
 
-    /// Updates the price list for an admin's services. The associated `AdminProfile`
-    /// account is automatically resized to fit the new list.
+    /// Sets or updates the `oracle_authority` for an existing `AdminProfile`.
+    /// This key is authorized to sign off-chain price data for paid commands.
     ///
     /// # Arguments
     /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `args` - A struct containing `new_prices`, a `Vec<PriceEntry>`.
-    pub fn admin_update_prices(
-        ctx: Context<AdminUpdatePrices>,
-        args: UpdatePricesArgs,
+    /// * `new_oracle_authority` - The `Pubkey` of the new oracle.
+    pub fn admin_set_oracle(
+        ctx: Context<AdminSetOracle>,
+        new_oracle_authority: Pubkey,
     ) -> Result<()> {
-        instructions::admin_update_prices(ctx, args.new_prices)
+        instructions::admin_set_oracle(ctx, new_oracle_authority)
     }
 
     /// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance
@@ -156,19 +156,23 @@ pub mod w3b2_solana_program {
 
     // --- Operational Instructions ---
 
-    /// The primary instruction for a user to call a service's API. If the command is priced,
-    /// it handles payment by debiting the user's deposit and crediting the admin's balance.
+    /// The primary instruction for a user to call a service's API. It verifies a price
+    /// signature from the admin's oracle and, if valid, transfers payment.
     ///
     /// # Arguments
-    /// * `ctx` - The context, including the user's wallet (`authority`), their `user_profile`, and the target `admin_profile`.
-    /// * `command_id` - The `u16` identifier of the service's command to be executed.
-    /// * `payload` - An opaque `Vec<u8>` containing serialized, application-specific data for the off-chain service.
+    /// * `ctx` - The context, including the user's wallet, their profile, and the target admin profile.
+    /// * `command_id` - The `u16` identifier of the service's command.
+    /// * `price` - The price in lamports, as signed by the oracle.
+    /// * `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.
+    /// * `payload` - An opaque `Vec<u8>` for application-specific data.
     pub fn user_dispatch_command(
         ctx: Context<UserDispatchCommand>,
         command_id: u16,
+        price: u64,
+        timestamp: i64,
         payload: Vec<u8>,
     ) -> Result<()> {
-        instructions::user_dispatch_command(ctx, command_id, payload)
+        instructions::user_dispatch_command(ctx, command_id, price, timestamp, payload)
     }
 
     /// A generic instruction to log a significant off-chain action to the blockchain,
