@@ -1,0 +1,18 @@
+# --- Docs ---
+FROM python:3.9-slim
+
+WORKDIR /project
+
+# Копируем requirements и устанавливаем зависимости
+COPY ./docs/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем содержимое docs
+COPY ./docs ./docs
+
+# Копируем mkdocs.yml
+COPY mkdocs.yml .
+
+EXPOSE 8000
+
+CMD ["mkdocs", "serve", "-a", "0.0.0.0:8000"]
