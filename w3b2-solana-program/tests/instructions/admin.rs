@@ -18,6 +18,11 @@ pub fn close_profile(svm: &mut LiteSVM, authority: &Keypair) {
     build_and_send_tx(svm, vec![close_ix], authority, vec![]);
 }
 
+pub fn set_oracle(svm: &mut LiteSVM, authority: &Keypair, new_oracle: Pubkey) {
+    let set_oracle_ix = ix_set_oracle(authority, new_oracle);
+    build_and_send_tx(svm, vec![set_oracle_ix], authority, vec![]);
+}
+
 pub fn withdraw(svm: &mut LiteSVM, authority: &Keypair, destination: Pubkey, amount: u64) {
     let withdraw_ix = ix_withdraw(authority, destination, amount);
     build_and_send_tx(svm, vec![withdraw_ix], authority, vec![]);
@@ -59,6 +64,30 @@ fn ix_create_profile(authority: &Keypair, communication_pubkey: Pubkey) -> (Inst
     };
 
     (ix, admin_pda)
+}
+
+pub fn ix_set_oracle(authority: &Keypair, new_oracle_authority: Pubkey) -> Instruction {
+    let (admin_pda, _) = Pubkey::find_program_address(
+        &[b"admin", authority.pubkey().as_ref()],
+        &w3b2_solana_program::ID,
+    );
+
+    let data = w3b2_instruction::AdminSetOracle {
+        new_oracle_authority,
+    }
+    .data();
+
+    let accounts = w3b2_accounts::AdminSetOracle {
+        authority: authority.pubkey(),
+        admin_profile: admin_pda,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: w3b2_solana_program::ID,
+        accounts,
+        data,
+    }
 }
 
 pub fn ix_update_comm_key(authority: &Keypair, new_key: Pubkey) -> Instruction {

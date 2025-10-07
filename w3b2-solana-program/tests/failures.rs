@@ -269,3 +269,198 @@ fn test_fail_insufficient_deposit_balance() {
         error_code
     );
 }
+
+/// Tests that `user_dispatch_command` fails with `InvalidOracleSigner` if the
+/// signature is from an oracle not authorized by the `AdminProfile`.
+#[test]
+fn test_fail_invalid_oracle_signer() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+
+    // Create an admin and set a *legitimate* oracle.
+    let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
+    let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
+    let legitimate_oracle = create_keypair();
+    admin::set_oracle(&mut svm, &admin_authority, legitimate_oracle.pubkey());
+
+    // Create a user.
+    let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
+    let _ = user::create_profile(
+        &mut svm,
+        &user_authority,
+        create_keypair().pubkey(),
+        admin_pda,
+    );
+
+    // A malicious oracle tries to sign the message.
+    let rogue_oracle = create_keypair();
+
+    let command_id = 1u16;
+    let price = 1000u64;
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+
+    let message = [
+        command_id.to_le_bytes().as_ref(),
+        price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    // The signature is created by the ROGUE oracle.
+    let signature = rogue_oracle.sign_message(&message);
+
+    // The Ed25519 instruction correctly identifies the signer as the rogue oracle.
+    let pubkey_bytes = rogue_oracle.pubkey().to_bytes();
+    let signature_bytes: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature(
+        &message,
+        &signature_bytes,
+        &pubkey_bytes,
+    );
+
+    let dispatch_ix = user::ix_dispatch_command(
+        &user_authority,
+        admin_pda,
+        command_id,
+        price,
+        timestamp,
+        vec![],
+    );
+
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[ed25519_ix, dispatch_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+
+    // === 2. Act ===
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(error_code, to_error_code(BridgeError::InvalidOracleSigner));
+
+    println!("✅ Invalid Oracle Signer Test Passed!");
+}
+
+/// Tests that `user_dispatch_command` fails with `TimestampTooOld` if the
+/// oracle's signature has expired.
+#[test]
+fn test_fail_timestamp_too_old() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, _) = setup_profiles(&mut svm);
+
+    let command_id = 1u16;
+    let price = 1000u64;
+
+    // The oracle (the admin in this case) signs a message with a timestamp in the past.
+    let old_timestamp = svm.get_sysvar::<Clock>().unix_timestamp - 100; // 100 seconds ago
+
+    let message = [
+        command_id.to_le_bytes().as_ref(),
+        price.to_le_bytes().as_ref(),
+        old_timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    let signature = admin_authority.sign_message(&message);
+    let pubkey_bytes = admin_authority.pubkey().to_bytes();
+    let signature_bytes: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature(
+        &message,
+        &signature_bytes,
+        &pubkey_bytes,
+    );
+
+    // Advance the SVM clock to make the timestamp definitively "too old".
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.unix_timestamp += w3b2_solana_program::instructions::MAX_TIMESTAMP_AGE_SECONDS + 10;
+    svm.set_sysvar(&clock);
+
+    let dispatch_ix = user::ix_dispatch_command(
+        &user_authority,
+        admin_pda,
+        command_id,
+        price,
+        old_timestamp, // Pass the old timestamp
+        vec![],
+    );
+
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[ed25519_ix, dispatch_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+
+    // === 2. Act ===
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(error_code, to_error_code(BridgeError::TimestampTooOld));
+
+    println!("✅ Timestamp Too Old Test Passed!");
+}
+
+/// Tests that `user_dispatch_command` fails with `SignatureVerificationFailed`
+/// if the arguments passed to the instruction do not match the data signed by the oracle.
+#[test]
+fn test_fail_signature_verification_failed() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, _) = setup_profiles(&mut svm);
+
+    let command_id = 1u16;
+    let signed_price = 1000u64; // The price the oracle actually signed
+    let attempted_price = 1u64; // The price the user tries to pass to the instruction
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+
+    // The oracle signs the message with the CORRECT price.
+    let message = [
+        command_id.to_le_bytes().as_ref(),
+        signed_price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    let signature = admin_authority.sign_message(&message);
+    let pubkey_bytes = admin_authority.pubkey().to_bytes();
+    let signature_bytes: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature(
+        &message,
+        &signature_bytes,
+        &pubkey_bytes,
+    );
+
+    // The user calls the instruction with the WRONG price.
+    let dispatch_ix = user::ix_dispatch_command(
+        &user_authority,
+        admin_pda,
+        command_id,
+        attempted_price, // Maliciously low price
+        timestamp,
+        vec![],
+    );
+
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[ed25519_ix, dispatch_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+
+    // === 2. Act ===
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(
+        error_code,
+        to_error_code(BridgeError::SignatureVerificationFailed)
+    );
+
+    println!("✅ Signature Verification Failed (Price Mismatch) Test Passed!");
+}

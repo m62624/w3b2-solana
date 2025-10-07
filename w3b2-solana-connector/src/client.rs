@@ -1,7 +1,7 @@
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
-use solana_ed25519_program;
+use solana_sdk::ed25519_instruction;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
@@ -457,7 +457,7 @@ where
         .concat();
 
         // 2. Create the Ed25519 signature verification instruction.
-        let ed25519_ix = solana_ed25519_program::new_ed25519_instruction_with_signature(
+        let ed25519_ix = ed25519_instruction::new_ed25519_instruction_with_signature(
             &message,
             &oracle_signature,
             &oracle_pubkey.to_bytes(),

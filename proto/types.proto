@@ -156,6 +156,10 @@ message PrepareUserDispatchCommandRequest {
   int64 timestamp = 5;
   /// An opaque byte array for application-specific data.
   bytes payload = 6;
+  /// The public key of the oracle that signed the price data.
+  string oracle_pubkey = 7;
+  /// The 64-byte Ed25519 signature from the oracle, as raw bytes.
+  bytes oracle_signature = 8;
 }
 
 // --- Messages for Event Streaming ---

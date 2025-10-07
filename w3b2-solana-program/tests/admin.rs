@@ -12,7 +12,7 @@ use anchor_lang::AccountDeserialize;
 use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
-use solana_sdk::signature::Signer;
+use solana_sdk::signature::{Keypair, Signer};
 use w3b2_solana_program::state::{AdminProfile, UserProfile};
 
 /// Tests the successful creation of an `AdminProfile` PDA.
@@ -121,6 +121,37 @@ fn test_admin_close_profile_success() {
     println!(
         "   -> Authority balance correctly refunded: {} -> {}",
         authority_balance_before, authority_balance_after
+    );
+}
+
+/// Tests the successful update of an `AdminProfile`'s oracle authority.
+#[test]
+fn test_admin_set_oracle_success() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
+    let comm_key = create_keypair();
+
+    let admin_pda = admin::create_profile(&mut svm, &authority, comm_key.pubkey());
+    let new_oracle = Keypair::new();
+
+    // === 2. Act ===
+    println!("Setting new oracle authority...");
+    admin::set_oracle(&mut svm, &authority, new_oracle.pubkey());
+    println!("Oracle authority updated.");
+
+    // === 3. Assert ===
+    let admin_account_data = svm.get_account(&admin_pda).unwrap();
+    let admin_profile =
+        AdminProfile::try_deserialize(&mut admin_account_data.data.as_slice()).unwrap();
+
+    assert_eq!(admin_profile.oracle_authority, new_oracle.pubkey());
+    assert_ne!(admin_profile.oracle_authority, authority.pubkey());
+
+    println!("✅ Set Oracle Test Passed!");
+    println!(
+        "   -> New Oracle Authority: {}",
+        admin_profile.oracle_authority
     );
 }
 

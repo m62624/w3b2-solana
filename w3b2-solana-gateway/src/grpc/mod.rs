@@ -393,10 +393,7 @@ impl BridgeGatewayService for GatewayServer {
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
                     .map_err(GatewayError::from)?;
-            tracing::debug!(
-                "Prepared admin_set_oracle tx for authority {}",
-                authority
-            );
+            tracing::debug!("Prepared admin_set_oracle tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
         })
@@ -688,6 +685,13 @@ impl BridgeGatewayService for GatewayServer {
             let req = request.into_inner();
             let authority = parse_pubkey(&req.authority_pubkey)?;
             let target_admin_pda = parse_pubkey(&req.target_admin_pda)?;
+            let oracle_pubkey = parse_pubkey(&req.oracle_pubkey)?;
+
+            // Convert the signature from Vec<u8> to [u8; 64]
+            let oracle_signature: [u8; 64] = req.oracle_signature.try_into().map_err(|_| {
+                GatewayError::InvalidArgument("Oracle signature must be 64 bytes".to_string())
+            })?;
+
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
             let transaction = builder
                 .prepare_user_dispatch_command(
@@ -697,6 +701,8 @@ impl BridgeGatewayService for GatewayServer {
                     req.price,
                     req.timestamp,
                     req.payload,
+                    oracle_pubkey,
+                    oracle_signature,
                 )
                 .await
                 .map_err(GatewayError::Connector)?;
