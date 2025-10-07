@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust.builder
+    profiles: ["builder"]
+    volumes:
+      - ./target:/project/target
+      - ./keys:/keys
+    working_dir: /project
+    command: /usr/local/bin/build_and_deploy.sh --build-only
+
+  solana-validator:
+    build:
+      context: .
+      dockerfile: Dockerfile.validator
+    profiles: ["validator", "deploy", "full"]
+    ports:
+      - "8899:8899" # RPC
+      - "8900:8900" # Websocket
+      - "8901:8901" # Faucet
+    volumes:
+      - solana-ledger:/ledger
+    command: solana-test-validator --ledger /ledger --reset
+
+  bridge-program:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust.builder
+    profiles: ["deploy", "full"]
+    depends_on:
+      - solana-validator
+    volumes:
+      - ./target:/project/target
+      - ./keys:/keys
+    environment:
+      - PROGRAM_KEYPAIR_PATH=/keys/my_program-keypair.json
+      - SOLANA_RPC_URL=http://solana-validator:8899
+    working_dir: /project
+    command: /usr/local/bin/build_and_deploy.sh --deploy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust.builder
+    profiles: ["gateway", "full"]
+    depends_on:
+      - solana-validator
+      - bridge-program
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./target:/project/target
+      - ./keys:/keys
+      - ./w3b2-solana-gateway/config.toml:/project/config.toml
+    environment:
+      - HOST=0.0.0.0
+      - PORT=50051
+      - RPC_URL=http://solana-validator:8899
+      - WS_URL=ws://solana-validator:8900
+      - PROGRAM_ID=${PROGRAM_ID}
+    command: >
+      bash -c "
+        if [ -z \"$$PROGRAM_ID\" ]; then
+          export PROGRAM_ID=$$(solana-keygen pubkey /keys/my_program-keypair.json);
+        fi;
+        echo 'Starting gateway with PROGRAM_ID='$$PROGRAM_ID;
+        /project/target/release/w3b2-solana-gateway --config /project/config.toml
+      "
+
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile.docs
+    profiles: ["docs", "full"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./docs:/project/docs
+      - ./mkdocs.yml:/project/mkdocs.yml
+
+volumes:
+  solana-ledger:
+  keys:
+  target:
+  connector-data:

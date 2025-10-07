@@ -1,14 +1,35 @@
-target
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Build artifacts
+target/
+**/target/
+
+# Keys
+/keys/
+
+# Ledger data
+solana-ledger/
+
+# IDE files
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
 .env
-node_modules
-.vscode
-.anchor
+
+# Node
+node_modules/
+.npm/
+
+# Rust
+Cargo.lock
+# Keep Cargo.lock in version control, but ignore local overrides
+/Cargo.lock
+
+# OS-specific
 .DS_Store
-**/*.rs.bk
-test-ledger
-.yarn
-build
-dist
-w3b2_db
-w3b2_gateway.db
-test_db_*
+Thumbs.db
