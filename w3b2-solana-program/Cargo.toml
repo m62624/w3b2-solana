@@ -26,6 +26,7 @@ anchor-lang = { workspace = true, features = ["init-if-needed"] }
 solana-program = { workspace = true }
 solana-sdk = { workspace = true, features = ["full"] }
 solana-message = { workspace = true }
+solana-ed25519-program = { workspace = true }
 
 # --- Testing & Simulation ---
 litesvm = { workspace = true }

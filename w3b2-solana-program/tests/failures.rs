@@ -4,10 +4,11 @@
 
 mod instructions;
 
+use anchor_lang::prelude::Clock;
 use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_sdk::signer::Signer;
-use w3b2_solana_program::{errors::BridgeError, state::PriceEntry};
+use w3b2_solana_program::errors::BridgeError;
 
 /// Converts a program-specific error enum into its on-chain numeric code.
 /// Anchor assigns codes starting from 6000.
@@ -85,11 +86,6 @@ fn test_fail_insufficient_admin_balance() {
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
     let command_price = 1 * LAMPORTS_PER_SOL;
-    admin::update_prices(
-        &mut svm,
-        &admin_authority,
-        vec![PriceEntry::new(1, command_price)],
-    );
 
     // Create User, deposit funds, and pay the admin
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
@@ -100,7 +96,19 @@ fn test_fail_insufficient_admin_balance() {
         admin_pda,
     );
     user::deposit(&mut svm, &user_authority, admin_pda, command_price);
-    user::dispatch_command(&mut svm, &user_authority, admin_pda, 1, vec![]);
+
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+
+    user::dispatch_command(
+        &mut svm,
+        &user_authority,
+        admin_pda,
+        &admin_authority,
+        1,
+        command_price,
+        timestamp,
+        vec![],
+    );
 
     // At this point, the admin's internal balance is `command_price`.
     // The admin will try to withdraw *more* than that.
@@ -191,11 +199,6 @@ fn test_fail_insufficient_deposit_balance() {
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
     let command_price = 1 * LAMPORTS_PER_SOL;
-    admin::update_prices(
-        &mut svm,
-        &admin_authority,
-        vec![PriceEntry::new(1, command_price)],
-    );
 
     // Create a user linked to the admin, but DO NOT deposit any funds.
     // The user profile will have `deposit_balance = 0`.
@@ -207,11 +210,40 @@ fn test_fail_insufficient_deposit_balance() {
         admin_pda,
     );
 
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+
     // === 2. Act ===
     println!("User with 0 balance attempting to execute a paid command...");
-    let dispatch_ix = user::ix_dispatch_command(&user_authority, admin_pda, 1, vec![]);
+
+    // Even for a failure test, we need to supply the precedent Ed25519 instruction
+    // that the on-chain program expects to see. The program should fail on the
+    // balance check before it even gets to verifying the signature details.
+    let message = [
+        1u16.to_le_bytes().as_ref(),
+        command_price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    let signature = admin_authority.sign_message(&message);
+    let pubkey_bytes = admin_authority.pubkey().to_bytes();
+    let signature_bytes: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature(
+        &message,
+        &signature_bytes,
+        &pubkey_bytes,
+    );
+
+    let dispatch_ix = user::ix_dispatch_command(
+        &user_authority,
+        admin_pda,
+        1,
+        command_price,
+        timestamp,
+        vec![],
+    );
     let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
-        &[dispatch_ix],
+        &[ed25519_ix, dispatch_ix],
         Some(&user_authority.pubkey()),
     );
     tx.sign(&[&user_authority], svm.latest_blockhash());

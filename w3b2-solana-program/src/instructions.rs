@@ -2,7 +2,9 @@ use super::*;
 use crate::instructions::solana_program::program::invoke;
 use crate::instructions::solana_program::system_instruction;
 use anchor_lang::solana_program;
-use solana_program::sysvar::instructions::{load_current_index_checked, load_instruction_at_checked};
+use solana_program::sysvar::instructions::{
+    load_current_index_checked, load_instruction_at_checked,
+};
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
 pub const MAX_PAYLOAD_SIZE: usize = 1000;
@@ -299,8 +301,7 @@ pub fn user_dispatch_command(
     // The verification instruction must be the one immediately preceding this one.
     require_gt!(current_ix_index, 0, BridgeError::InstructionMismatch);
     let verify_ix_index = (current_ix_index - 1) as usize;
-    let verify_ix =
-        load_instruction_at_checked(verify_ix_index, &ixs.to_account_info())?;
+    let verify_ix = load_instruction_at_checked(verify_ix_index, &ixs.to_account_info())?;
 
     // Check that it's an ed25519 program instruction.
     require_keys_eq!(
@@ -315,8 +316,10 @@ pub fn user_dispatch_command(
 
     // Extract pubkey, signature, and message from the instruction data.
     // See https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
+    // let signer_pubkey_bytes = &ix_data[16..48];
+    // let message_data = &ix_data[48..];
     let signer_pubkey_bytes = &ix_data[16..48];
-    let message_data = &ix_data[48..];
+    let message_data = &ix_data[112..];
 
     // Verify the signer is the admin's designated oracle.
     let signer_pubkey = Pubkey::new_from_array(

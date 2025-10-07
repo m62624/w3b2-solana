@@ -44,15 +44,45 @@ pub fn withdraw(
     build_and_send_tx(svm, vec![withdraw_ix], authority, vec![]);
 }
 
+use solana_ed25519_program;
+use solana_program::sysvar::instructions;
+use solana_sdk::signer::Signer;
+use std::convert::TryInto;
+
 pub fn dispatch_command(
     svm: &mut LiteSVM,
     authority: &Keypair,
     admin_pda: Pubkey,
+    oracle: &Keypair,
     command_id: u16,
+    price: u64,
+    timestamp: i64,
     payload: Vec<u8>,
 ) {
-    let dispatch_ix = ix_dispatch_command(authority, admin_pda, command_id, payload);
-    build_and_send_tx(svm, vec![dispatch_ix], authority, vec![]);
+    // 1. Construct the message the oracle needs to sign
+    let message = [
+        command_id.to_le_bytes().as_ref(),
+        price.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+
+    // 2. Sign the message and create the Ed25519 signature verification instruction
+    let signature = oracle.sign_message(&message);
+    let pubkey_bytes = oracle.pubkey().to_bytes();
+    let signature_bytes: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let ed25519_ix = solana_ed25519_program::new_ed25519_instruction_with_signature(
+        &message,
+        &signature_bytes,
+        &pubkey_bytes,
+    );
+
+    // 3. Create the actual dispatch command instruction
+    let dispatch_ix =
+        ix_dispatch_command(authority, admin_pda, command_id, price, timestamp, payload);
+
+    // 4. Send both instructions in the same transaction
+    build_and_send_tx(svm, vec![ed25519_ix, dispatch_ix], authority, vec![]);
 }
 
 pub fn ix_create_profile(
@@ -192,6 +222,8 @@ pub fn ix_dispatch_command(
     authority: &Keypair,
     admin_pda: Pubkey,
     command_id: u16,
+    price: u64,
+    timestamp: i64,
     payload: Vec<u8>,
 ) -> Instruction {
     let (user_pda, _) = Pubkey::find_program_address(
@@ -201,6 +233,8 @@ pub fn ix_dispatch_command(
 
     let data = w3b2_instruction::UserDispatchCommand {
         command_id,
+        price,
+        timestamp,
         payload,
     }
     .data();
@@ -209,6 +243,7 @@ pub fn ix_dispatch_command(
         authority: authority.pubkey(),
         user_profile: user_pda,
         admin_profile: admin_pda,
+        instructions: instructions::ID,
     }
     .to_account_metas(None);
 
@@ -226,10 +261,14 @@ pub fn build_dispatch_command_instruction(
     user_profile_pda: Pubkey,
     admin_profile_pda: Pubkey,
     command_id: u16,
+    price: u64,
+    timestamp: i64,
     payload: Vec<u8>,
 ) -> Instruction {
     let data = w3b2_instruction::UserDispatchCommand {
         command_id,
+        price,
+        timestamp,
         payload,
     }
     .data();
@@ -238,6 +277,7 @@ pub fn build_dispatch_command_instruction(
         authority: *authority_pubkey,
         user_profile: user_profile_pda,
         admin_profile: admin_profile_pda,
+        instructions: instructions::ID,
     }
     .to_account_metas(None);
 

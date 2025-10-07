@@ -1,6 +1,7 @@
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
+use solana_ed25519_program;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
@@ -82,19 +83,29 @@ where
             .await
     }
 
-    /// A private helper function to create a transaction from a single instruction.
+    /// A private helper function to create a transaction from a vector of instructions.
     ///
     /// This function encapsulates the boilerplate of fetching the latest blockhash
     /// and creating a new transaction with a payer.
+    async fn create_transaction_with_instructions(
+        &self,
+        payer: &Pubkey,
+        instructions: Vec<Instruction>,
+    ) -> Result<Transaction, ClientError> {
+        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
+        let mut tx = Transaction::new_with_payer(&instructions, Some(payer));
+        tx.message.recent_blockhash = latest_blockhash;
+        Ok(tx)
+    }
+
+    /// A private helper function to create a transaction from a single instruction.
     async fn create_transaction(
         &self,
         payer: &Pubkey,
         instruction: Instruction,
     ) -> Result<Transaction, ClientError> {
-        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
-        let mut tx = Transaction::new_with_payer(&[instruction], Some(payer));
-        tx.message.recent_blockhash = latest_blockhash;
-        Ok(tx)
+        self.create_transaction_with_instructions(payer, vec![instruction])
+            .await
     }
 
     // --- Admin Transaction Preparations ---
@@ -413,7 +424,10 @@ where
 
     // --- Operational Transaction Preparations ---
 
-    /// Prepares a `user_dispatch_command` transaction.
+    /// Prepares a `user_dispatch_command` transaction. This method now requires
+    /// a pre-signed message from the oracle. The final transaction will contain
+    /// two instructions: the `Ed25519` signature verification, followed by the
+    /// actual `user_dispatch_command`.
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` **PDA**.
@@ -421,6 +435,8 @@ where
     /// * `price` - The price of the command, as signed by the oracle.
     /// * `timestamp` - The timestamp from the oracle's signature.
     /// * `payload` - An opaque byte array for application-specific data.
+    /// * `oracle_pubkey` - The public key of the oracle that signed the message.
+    /// * `oracle_signature` - The 64-byte Ed25519 signature from the oracle.
     pub async fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
@@ -429,13 +445,31 @@ where
         price: u64,
         timestamp: i64,
         payload: Vec<u8>,
+        oracle_pubkey: Pubkey,
+        oracle_signature: [u8; 64],
     ) -> Result<Transaction, ClientError> {
+        // 1. Reconstruct the message that the oracle signed.
+        let message = [
+            command_id.to_le_bytes().as_ref(),
+            price.to_le_bytes().as_ref(),
+            timestamp.to_le_bytes().as_ref(),
+        ]
+        .concat();
+
+        // 2. Create the Ed25519 signature verification instruction.
+        let ed25519_ix = solana_ed25519_program::new_ed25519_instruction_with_signature(
+            &message,
+            &oracle_signature,
+            &oracle_pubkey.to_bytes(),
+        );
+
+        // 3. Create the main `user_dispatch_command` instruction.
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
             &w3b2_solana_program::ID,
         );
 
-        let ix = Instruction {
+        let dispatch_ix = Instruction {
             program_id: w3b2_solana_program::ID,
             accounts: accounts::UserDispatchCommand {
                 authority,
@@ -453,7 +487,9 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        // 4. Create a transaction containing both instructions in the correct order.
+        self.create_transaction_with_instructions(&authority, vec![ed25519_ix, dispatch_ix])
+            .await
     }
 
     /// Prepares a `log_action` transaction. This instruction requires both the

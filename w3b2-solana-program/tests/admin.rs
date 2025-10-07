@@ -7,12 +7,13 @@
 
 mod instructions;
 
+use anchor_lang::prelude::Clock;
 use anchor_lang::AccountDeserialize;
 use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
 use solana_sdk::signature::Signer;
-use w3b2_solana_program::state::{AdminProfile, PriceEntry, UserProfile};
+use w3b2_solana_program::state::{AdminProfile, UserProfile};
 
 /// Tests the successful creation of an `AdminProfile` PDA.
 /// Verifies that the profile is initialized with correct default values and rent-exempt lamports.
@@ -36,17 +37,13 @@ fn test_admin_create_profile_success() {
 
     assert_eq!(admin_profile.authority, authority.pubkey());
     assert_eq!(admin_profile.communication_pubkey, comm_key.pubkey());
-    assert!(
-        admin_profile.prices.is_empty(),
-        "Prices vector should be empty on initialization"
-    );
     assert_eq!(
         admin_profile.balance, 0,
         "Balance should be 0 on initialization"
     );
 
     let rent = Rent::default();
-    let space = 8 + std::mem::size_of::<AdminProfile>() + (10 * std::mem::size_of::<(u64, u64)>());
+    let space = 8 + std::mem::size_of::<AdminProfile>();
     let rent_exempt_minimum = rent.minimum_balance(space);
     assert_eq!(admin_account_data.lamports, rent_exempt_minimum);
 
@@ -124,55 +121,6 @@ fn test_admin_close_profile_success() {
     println!(
         "   -> Authority balance correctly refunded: {} -> {}",
         authority_balance_before, authority_balance_after
-    );
-}
-
-/// Tests the successful update of an admin's price list and the `realloc` feature.
-/// Verifies that the `prices` vector in the account data is updated correctly and that
-/// the on-chain account size (`data.len()`) is resized to accommodate the new vector.
-#[test]
-fn test_admin_update_prices_success() {
-    // === 1. Arrange ===
-    let mut svm = setup_svm();
-    let authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
-    let comm_key = create_keypair();
-
-    let admin_pda = admin::create_profile(&mut svm, &authority, comm_key.pubkey());
-
-    let new_prices = vec![
-        PriceEntry::new(1, 1000),
-        PriceEntry::new(2, 2500),
-        PriceEntry::new(5, 10000),
-    ];
-
-    let account_before = svm.get_account(&admin_pda).unwrap();
-    let size_before = account_before.data.len();
-
-    // === 2. Act ===
-    println!("Updating prices for admin profile...");
-    admin::update_prices(&mut svm, &authority, new_prices.clone());
-    println!("Prices updated.");
-
-    // === 3. Assert ===
-    let account_after = svm.get_account(&admin_pda).unwrap();
-    let size_after = account_after.data.len();
-    let admin_profile = AdminProfile::try_deserialize(&mut account_after.data.as_slice()).unwrap();
-
-    assert_eq!(admin_profile.prices, new_prices);
-
-    let base_size = 8 + std::mem::size_of::<AdminProfile>();
-    let expected_size_after = base_size + (new_prices.len() * std::mem::size_of::<(u64, u64)>());
-    assert_ne!(size_before, size_after, "Account size should have changed");
-    assert_eq!(
-        size_after, expected_size_after,
-        "Account size is not what was expected after realloc"
-    );
-
-    println!("✅ Update Prices Test Passed!");
-    println!("   -> Prices updated to: {:?}", admin_profile.prices);
-    println!(
-        "   -> Account size changed: {} -> {}",
-        size_before, size_after
     );
 }
 
@@ -263,15 +211,9 @@ fn test_admin_withdraw_success() {
     // === 1. Arrange ===
     let mut svm = setup_svm();
 
-    // Create Admin and set a price for a service
+    // Create Admin. By default, the admin is their own oracle.
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
-    let command_price = LAMPORTS_PER_SOL;
-    admin::update_prices(
-        &mut svm,
-        &admin_authority,
-        vec![PriceEntry::new(1, command_price)],
-    );
 
     // Create a User who will pay the Admin
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
@@ -287,8 +229,20 @@ fn test_admin_withdraw_success() {
     user::deposit(&mut svm, &user_authority, admin_pda, deposit_amount);
 
     // User "buys" the service, transferring funds to the Admin
+    let command_price = LAMPORTS_PER_SOL;
+    // Get the clock from SVM, don't use Clock::get() in tests
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
     println!("User pays admin {} lamports...", command_price);
-    user::dispatch_command(&mut svm, &user_authority, admin_pda, 1, vec![1, 2, 3]);
+    user::dispatch_command(
+        &mut svm,
+        &user_authority,
+        admin_pda,
+        &admin_authority, // Oracle signer is the admin
+        1,                // command_id
+        command_price,
+        timestamp,
+        vec![1, 2, 3], // payload
+    );
 
     // Prepare for the withdrawal
     let destination_wallet = create_keypair();

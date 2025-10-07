@@ -7,12 +7,13 @@
 
 mod instructions;
 
+use anchor_lang::prelude::Clock;
 use anchor_lang::AccountDeserialize;
 use instructions::*;
 use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::sysvar::rent::Rent;
 use solana_sdk::signature::Signer;
-use w3b2_solana_program::state::{AdminProfile, PriceEntry, UserProfile};
+use w3b2_solana_program::state::{AdminProfile, UserProfile};
 
 /// Tests the successful creation of a `UserProfile` PDA.
 /// Verifies that a user can create a profile linked to a specific admin.
@@ -288,15 +289,9 @@ fn test_user_dispatch_command_success() {
     // === 1. Arrange ===
     let mut svm = setup_svm();
 
+    // Admin acts as its own oracle by default
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
-    let command_id_to_call = 1;
-    let command_price = LAMPORTS_PER_SOL;
-    admin::update_prices(
-        &mut svm,
-        &admin_authority,
-        vec![PriceEntry::new(command_id_to_call, command_price)],
-    );
 
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let user_pda = user::create_profile(
@@ -305,23 +300,30 @@ fn test_user_dispatch_command_success() {
         create_keypair().pubkey(),
         admin_pda,
     );
+
     let deposit_amount = 2 * LAMPORTS_PER_SOL;
     user::deposit(&mut svm, &user_authority, admin_pda, deposit_amount);
 
     let user_pda_lamports_before = svm.get_balance(&user_pda).unwrap();
     let admin_pda_lamports_before = svm.get_balance(&admin_pda).unwrap();
-
     let admin_account_data_before = svm.get_account(&admin_pda).unwrap();
     let admin_profile_before =
         AdminProfile::try_deserialize(&mut admin_account_data_before.data.as_slice()).unwrap();
 
+    let command_id_to_call = 1;
+    let command_price = LAMPORTS_PER_SOL;
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+
     // === 2. Act ===
-    println!("User dispatching paid command...");
+    println!("User dispatching paid command with oracle signature...");
     user::dispatch_command(
         &mut svm,
         &user_authority,
         admin_pda,
+        &admin_authority, // Oracle signer
         command_id_to_call,
+        command_price,
+        timestamp,
         vec![1, 2, 3], // Arbitrary payload
     );
     println!("Command dispatched successfully.");
