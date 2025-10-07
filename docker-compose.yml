@@ -3,8 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
-    profiles: ["builder"]
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    profiles: ["builder", "full"]
     volumes:
+      - ./artifacts:/project/artifacts
       - ./target:/project/target
       - ./keys:/keys
     working_dir: /project
@@ -27,10 +31,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
     profiles: ["deploy", "full"]
     depends_on:
       - solana-validator
     volumes:
+      - ./artifacts:/project/artifacts
       - ./target:/project/target
       - ./keys:/keys
     environment:
@@ -43,6 +51,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
     profiles: ["gateway", "full"]
     depends_on:
       - solana-validator
@@ -50,6 +61,7 @@ services:
     ports:
       - "50051:50051"
     volumes:
+      - ./artifacts:/project/artifacts
       - ./target:/project/target
       - ./keys:/keys
       - ./w3b2-solana-gateway/config.toml:/project/config.toml

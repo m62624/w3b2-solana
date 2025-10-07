@@ -101,20 +101,30 @@ echo "🚀 Building Anchor program ($PROGRAM_DIR)..."
 (cd "$PROGRAM_DIR" && anchor build)
 echo "✅ Anchor program build successful."
 
-echo "🚀 Building Rust workspace binaries (gateway, connector)..."
-# This builds all members of the root Cargo.toml workspace,
-# including the gateway which is needed by the 'gateway' docker service.
-cargo build --release --workspace
-echo "✅ Workspace build successful."
+# 6. Update IDL with the correct address and move artifacts
+ARTIFACTS_DIR="artifacts"
+mkdir -p "$ARTIFACTS_DIR"
 
-# 6. Update IDL with the correct address
-echo "🔄 Updating IDL metadata..."
+echo "🔄 Finalizing artifacts..."
 if [ -f "$IDL_PATH_TEMPLATE" ]; then
-    jq ".metadata.address = env.PROGRAM_ID" "$IDL_PATH_TEMPLATE" > /tmp/idl.json && mv /tmp/idl.json "$IDL_PATH_TEMPLATE"
-    echo "✅ IDL updated at $IDL_PATH_TEMPLATE"
+    # Update IDL metadata with the correct address
+    jq ".metadata.address = env.PROGRAM_ID" "$IDL_PATH_TEMPLATE" > /tmp/idl.json
+
+    # Move updated IDL to artifacts
+    mv /tmp/idl.json "$ARTIFACTS_DIR/w3b2_solana_program.json"
+    echo "✅ IDL moved to $ARTIFACTS_DIR/"
 else
-    echo "⚠️ Warning: IDL file not found at $IDL_PATH_TEMPLATE. Skipping update."
+    echo "⚠️ Warning: IDL file not found at $IDL_PATH_TEMPLATE. Skipping."
 fi
+
+if [ -f "$DEPLOY_SO_PATH" ]; then
+    # Move program binary to artifacts
+    cp "$DEPLOY_SO_PATH" "$ARTIFACTS_DIR/"
+    echo "✅ Program binary moved to $ARTIFACTS_DIR/"
+else
+    echo "⚠️ Warning: Program binary not found at $DEPLOY_SO_PATH. Skipping."
+fi
+
 
 echo "✅ Build complete"
 echo "PROGRAM_ID: $PROGRAM_ID"
