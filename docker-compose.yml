@@ -61,11 +61,15 @@ services:
       - PROGRAM_ID=${PROGRAM_ID:-}
     command: >
       bash -c "
+        GATEWAY_BINARY=/project/target/release/w3b2-solana-gateway
+        echo 'Waiting for gateway binary to be built at $$GATEWAY_BINARY...';
+        while [ ! -f \"$$GATEWAY_BINARY\" ]; do sleep 1; done;
+        echo 'Gateway binary found.';
         if [ -z \"$$PROGRAM_ID\" ]; then
           export PROGRAM_ID=$$(solana-keygen pubkey /keys/my_program-keypair.json);
         fi;
         echo 'Starting gateway with PROGRAM_ID='$$PROGRAM_ID;
-        /project/target/release/w3b2-solana-gateway --config /project/config.toml
+        $$GATEWAY_BINARY --config /project/config.toml
       "
 
   docs:

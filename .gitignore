@@ -33,3 +33,5 @@ Cargo.lock
 # OS-specific
 .DS_Store
 Thumbs.db
+
+/w3b2_gateway.db
