@@ -6,7 +6,7 @@ DEFAULT_KEYPAIR_PATH="/keys/my_program-keypair.json"
 PROGRAM_KEYPAIR_PATH="${PROGRAM_KEYPAIR_PATH:-$DEFAULT_KEYPAIR_PATH}"
 PROGRAM_DIR="w3b2-solana-program"
 LIB_RS_PATH="$PROGRAM_DIR/src/lib.rs"
-ANCHOR_TOML_PATH="$PROGRAM_DIR/Anchor.toml"
+ANCHOR_TOML_PATH="Anchor.toml"
 IDL_PATH_TEMPLATE="target/idl/w3b2_solana_program.json"
 DEPLOY_SO_PATH="target/deploy/w3b2_solana_program.so"
 
