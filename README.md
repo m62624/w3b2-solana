@@ -1,25 +1,41 @@
 # W3B2: A Non-Custodial Web3-to-Web2 Bridge Protocol
 
-W3B2 is a protocol and set of tools for building decentralized, non-custodial services on the Solana blockchain. It enables secure, auditable interactions between end-users (clients) and service providers by using the blockchain as a message bus and state machine, rather than for direct data storage.
+W3B2 is a protocol and toolset for building non-custodial services on the Solana blockchain that interact with traditional Web2 applications. It provides a bridge that allows Web2 backends (e.g., SaaS platforms, API services, game servers) to leverage blockchain features like security, transparency, and cryptocurrency payments without migrating their core logic on-chain.
 
-## Core Concept
+## Core Problems Addressed
 
-The fundamental idea behind W3B2 is to leverage the blockchain for what it does best: providing a secure, decentralized, and auditable log of state transitions. Instead of building entire applications on-chain, W3B2 uses the blockchain to manage user-service relationships, handle payments, and bootstrap secure off-chain communication channels.
+W3B2 is designed to solve key challenges at the intersection of Web2 and Web3 for both developers and end-users.
 
-**Key Principles:**
+### 1. The Custody Problem
+*   **Problem**: In traditional online services, users must trust the company with their funds on a centralized balance. If the company fails, the funds are at risk.
+*   **Solution**: W3B2 is **non-custodial**. User funds are held in a program-controlled `UserProfile` PDA, which only the user's wallet can deposit to or withdraw from. The service can only debit funds for services rendered according to on-chain rules, never directly control them.
 
-1.  **Per-Service Profiles**: A user's identity and funds are not monolithic. For each service they use, a unique `UserProfile` Program-Derived Address (PDA) is created. This isolates funds and interactions, meaning a user's relationship with "Service A" is cryptographically and financially separate from their relationship with "Service B".
-2.  **Non-Custodial Authority**: The user's main wallet (`authority`) is only used to sign for transactions that create or manage their profiles. It never gives up control of its main funds. Daily operations and payments are handled by the program-controlled `UserProfile` PDAs.
-3.  **Blockchain as a Message Bus**: The primary role of the on-chain program is to emit events. A backend service (like the `w3b2-solana-gateway`) listens *only* to the blockchain for these events. When a user creates a profile or sends a command, the service discovers this by observing the corresponding on-chain event.
-4.  **Bootstrapping Secure Off-Chain Communication**: The protocol facilitates, but does not implement, secure off-chain communication. By emitting events containing public keys (e.g., `communication_pubkey`), a user and a service can discover each other's keys from the immutable blockchain log. They can then use these keys to establish a secure, end-to-end encrypted off-chain connection (e.g., via WebSocket, WebRTC) for transmitting large payloads or sensitive data. The `payload` field in `dispatch_command` instructions can be used to exchange initial connection configurations.
+### 2. The Vendor Lock-in Problem
+*   **Problem**: A user's balance and relationship with one service are often tied to a single, monolithic account.
+*   **Solution**: W3B2 creates a distinct `UserProfile` PDA for each service a user interacts with. This isolates funds and relationships, meaning a user's engagement with "Service A" is cryptographically and financially separate from "Service B". Closing one profile returns all associated funds without affecting others.
+
+### 3. The Auditability Problem
+*   **Problem**: In Web2, operations like payments and actions occur on private servers, making independent verification impossible.
+*   **Solution**: The blockchain is used as an **immutable audit log**. Every significant state change—profile creation, deposits, command execution (`user_dispatch_command`), or service notifications (`admin_dispatch_command`)—emits a verifiable on-chain event. This creates a transparent and auditable history of all interactions.
+
+### 4. The Integration Complexity Problem
+*   **Problem**: Integrating blockchain technology into an existing Web2 business is complex, requiring expertise in smart contracts, key management, and transaction processing.
+*   **Solution**: W3B2 provides a suite of turnkey components:
+    *   **`w3b2-solana-program`**: A pre-built, audited on-chain program.
+    *   **`w3b2-solana-connector`**: A backend library that handles the complexities of tracking historical and real-time on-chain events.
+    *   **`w3b2-solana-gateway`**: A ready-to-deploy gRPC server that exposes the protocol's functionality via a simple API, consumable by any language.
+
+### 5. The On-Chain Bloat Problem
+*   **Problem**: Storing and processing large amounts of data on-chain is expensive and inefficient.
+*   **Solution**: The protocol uses a **hybrid model**. The blockchain is used only for critical state management (ownership, balances) and as a message bus. All heavy business logic and data remain off-chain. The `payload` field in transactions allows applications to pass opaque data through the blockchain, which simply records it in an event without interpretation, using the chain as a verifiable message courier.
 
 ## Workspace Components
 
-This monorepo contains three main components:
+This monorepo contains the following components:
 
 ### 1. `w3b2-solana-program`
 
-The on-chain Anchor program that implements the core logic of the W3B2 protocol.
+The core on-chain Anchor program.
 
 *   **State Management**: Defines the `AdminProfile` (for services) and `UserProfile` (for users) account structures.
 *   **Instruction Logic**: Contains all on-chain instructions, such as creating profiles, depositing/withdrawing funds, and dispatching commands.
@@ -28,7 +44,7 @@ The on-chain Anchor program that implements the core logic of the W3B2 protocol.
 
 ### 2. `w3b2-solana-connector`
 
-A core Rust library for building backend services that interact with the `w3b2-solana-program`. It is the ideal choice if you need to build a custom backend and the `w3b2-solana-gateway` does not fit your needs.
+A Rust library for building backend services that interact with the on-chain program. It is the ideal choice for building a custom backend if the gateway does not fit your needs.
 
 *   **`TransactionBuilder`**: A non-custodial helper for constructing unsigned transactions for all program instructions.
 *   **`EventManager`**: A robust service for synchronizing and dispatching on-chain events in real-time. It handles the complexity of fetching both historical (`catchup`) and live events, ensuring no event is missed.
