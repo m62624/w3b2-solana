@@ -46,8 +46,12 @@ impl CatchupWorker {
                         self.process_signatures(signatures).await?;
                     }
                 }
-                // Shutdown is handled by the main EventManager task.
-                // If the synchronizer is dropped, this worker will be dropped too.
+                // Listen for the shutdown signal from the dispatcher. If the dispatcher
+                // shuts down, this worker should also terminate gracefully.
+                _ = self.ctx.dispatcher.command_tx.closed() => {
+                    tracing::info!("CatchupWorker: shutdown signal received, exiting.");
+                    return Ok(());
+                }
             }
         }
     }
