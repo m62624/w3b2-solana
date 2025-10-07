@@ -281,7 +281,13 @@ fn test_fail_invalid_oracle_signer() {
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
     let legitimate_oracle = create_keypair();
-    admin::set_oracle(&mut svm, &admin_authority, legitimate_oracle.pubkey());
+    admin::set_config(
+        &mut svm,
+        &admin_authority,
+        Some(legitimate_oracle.pubkey()),
+        None,
+        None,
+    );
 
     // Create a user.
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);

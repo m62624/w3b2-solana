@@ -23,9 +23,8 @@ use crate::{
     grpc::proto::w3b2::protocol::gateway::{
         self, EventStreamItem, ListenRequest, PrepareAdminCloseProfileRequest,
         PrepareAdminDispatchCommandRequest, PrepareAdminRegisterProfileRequest,
-        PrepareAdminSetOracleRequest, PrepareAdminUpdateCommKeyRequest,
-        PrepareAdminWithdrawRequest, PrepareLogActionRequest, PrepareUserCloseProfileRequest,
-        PrepareUserCreateProfileRequest, PrepareUserDepositRequest,
+        PrepareAdminSetConfigRequest, PrepareAdminWithdrawRequest, PrepareLogActionRequest,
+        PrepareUserCloseProfileRequest, PrepareUserCreateProfileRequest, PrepareUserDepositRequest,
         PrepareUserDispatchCommandRequest, PrepareUserUpdateCommKeyRequest,
         PrepareUserWithdrawRequest, SubmitTransactionRequest, TransactionResponse,
         UnsignedTransactionResponse, UnsubscribeRequest,
@@ -335,65 +334,42 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
-    async fn prepare_admin_update_comm_key(
+    async fn prepare_admin_set_config(
         &self,
-        request: Request<PrepareAdminUpdateCommKeyRequest>,
+        request: Request<PrepareAdminSetConfigRequest>,
     ) -> Result<Response<UnsignedTransactionResponse>, Status> {
         let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
             tracing::info!(
-                "Received PrepareAdminUpdateCommKey request: {:?}",
+                "Received PrepareAdminSetConfig request: {:?}",
                 request.get_ref()
             );
 
             let req = request.into_inner();
             let authority = parse_pubkey(&req.authority_pubkey)?;
-            let new_key = parse_pubkey(&req.new_key)?;
+            let new_oracle_authority = req
+                .new_oracle_authority
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            let new_communication_pubkey = req
+                .new_communication_pubkey
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
             let transaction = builder
-                .prepare_admin_update_comm_key(authority, new_key)
+                .prepare_admin_set_config(
+                    authority,
+                    new_oracle_authority,
+                    req.new_timestamp_validity,
+                    new_communication_pubkey,
+                )
                 .await
                 .map_err(GatewayError::Connector)?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
                     .map_err(GatewayError::from)?;
-            tracing::debug!(
-                "Prepared admin_update_comm_key tx for authority {}",
-                authority
-            );
-
-            Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
-        })
-        .await;
-
-        result.map_err(Status::from)
-    }
-
-    async fn prepare_admin_set_oracle(
-        &self,
-        request: Request<PrepareAdminSetOracleRequest>,
-    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
-        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
-            tracing::info!(
-                "Received PrepareAdminSetOracle request: {:?}",
-                request.get_ref()
-            );
-
-            let req = request.into_inner();
-            let authority = parse_pubkey(&req.authority_pubkey)?;
-            let new_oracle_authority = parse_pubkey(&req.new_oracle_authority)?;
-
-            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let transaction = builder
-                .prepare_admin_set_oracle(authority, new_oracle_authority)
-                .await
-                .map_err(GatewayError::Connector)?;
-
-            let unsigned_tx =
-                bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
-                    .map_err(GatewayError::from)?;
-            tracing::debug!("Prepared admin_set_oracle tx for authority {}", authority);
+            tracing::debug!("Prepared admin_set_config tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
         })

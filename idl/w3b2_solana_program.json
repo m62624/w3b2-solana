@@ -216,24 +216,27 @@
       ]
     },
     {
-      "name": "admin_update_comm_key",
+      "name": "admin_set_config",
       "docs": [
-        "Updates the `communication_pubkey` for an existing `AdminProfile`.",
-        "This allows a service provider to rotate their off-chain encryption keys.",
+        "Sets or updates the configuration for an existing `AdminProfile`.",
+        "This allows changing the `oracle_authority`, `timestamp_validity_seconds`,",
+        "and `communication_pubkey`. Any field passed as `None` will be ignored.",
         "",
         "# Arguments",
         "* `ctx` - The context, containing the admin's wallet as a `Signer`.",
-        "* `new_key` - The new `Pubkey` to set as the communication key."
+        "* `new_oracle_authority` - An optional new `Pubkey` for the oracle.",
+        "* `new_timestamp_validity` - An optional new duration in seconds for signature validity.",
+        "* `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication."
       ],
       "discriminator": [
-        250,
-        22,
-        125,
-        65,
-        130,
-        76,
-        55,
-        151
+        35,
+        56,
+        160,
+        84,
+        132,
+        156,
+        27,
+        79
       ],
       "accounts": [
         {
@@ -273,82 +276,21 @@
       ],
       "args": [
         {
-          "name": "new_key",
-          "type": "pubkey"
-        }
-      ]
-    },
-    {
-      "name": "admin_update_prices",
-      "docs": [
-        "Updates the price list for an admin's services. The associated `AdminProfile`",
-        "account is automatically resized to fit the new list.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the admin's wallet as a `Signer`.",
-        "* `args` - A struct containing `new_prices`, a `Vec<PriceEntry>`."
-      ],
-      "discriminator": [
-        91,
-        14,
-        109,
-        72,
-        34,
-        18,
-        165,
-        89
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "docs": [
-            "The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "admin_profile",
-          "docs": [
-            "The `AdminProfile` account to be updated. Constraints verify the `authority`",
-            "and the account's PDA seeds. The account will be resized (`realloc`) to",
-            "fit the new price list."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  100,
-                  109,
-                  105,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
+          "name": "new_oracle_authority",
+          "type": {
+            "option": "pubkey"
           }
         },
         {
-          "name": "system_program",
-          "docs": [
-            "The System Program, required by Anchor for `realloc`."
-          ],
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
+          "name": "new_timestamp_validity",
           "type": {
-            "defined": {
-              "name": "UpdatePricesArgs"
-            }
+            "option": "i64"
+          }
+        },
+        {
+          "name": "new_communication_pubkey",
+          "type": {
+            "option": "pubkey"
           }
         }
       ]
@@ -770,13 +712,15 @@
     {
       "name": "user_dispatch_command",
       "docs": [
-        "The primary instruction for a user to call a service's API. If the command is priced,",
-        "it handles payment by debiting the user's deposit and crediting the admin's balance.",
+        "The primary instruction for a user to call a service's API. It verifies a price",
+        "signature from the admin's oracle and, if valid, transfers payment.",
         "",
         "# Arguments",
-        "* `ctx` - The context, including the user's wallet (`authority`), their `user_profile`, and the target `admin_profile`.",
-        "* `command_id` - The `u16` identifier of the service's command to be executed.",
-        "* `payload` - An opaque `Vec<u8>` containing serialized, application-specific data for the off-chain service."
+        "* `ctx` - The context, including the user's wallet, their profile, and the target admin profile.",
+        "* `command_id` - The `u16` identifier of the service's command.",
+        "* `price` - The price in lamports, as signed by the oracle.",
+        "* `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.",
+        "* `payload` - An opaque `Vec<u8>` for application-specific data."
       ],
       "discriminator": [
         13,
@@ -851,12 +795,27 @@
               }
             ]
           }
+        },
+        {
+          "name": "instructions",
+          "docs": [
+            "The Instructions sysvar, used to verify the preceding instruction."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
         {
           "name": "command_id",
           "type": "u16"
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp",
+          "type": "i64"
         },
         {
           "name": "payload",
@@ -1042,19 +1001,6 @@
   ],
   "events": [
     {
-      "name": "AdminCommKeyUpdated",
-      "discriminator": [
-        243,
-        91,
-        246,
-        110,
-        36,
-        16,
-        153,
-        74
-      ]
-    },
-    {
       "name": "AdminCommandDispatched",
       "discriminator": [
         166,
@@ -1068,6 +1014,19 @@
       ]
     },
     {
+      "name": "AdminConfigUpdated",
+      "discriminator": [
+        18,
+        41,
+        213,
+        66,
+        26,
+        214,
+        54,
+        76
+      ]
+    },
+    {
       "name": "AdminFundsWithdrawn",
       "discriminator": [
         215,
@@ -1078,19 +1037,6 @@
         243,
         225,
         83
-      ]
-    },
-    {
-      "name": "AdminPricesUpdated",
-      "discriminator": [
-        241,
-        85,
-        233,
-        155,
-        255,
-        22,
-        147,
-        14
       ]
     },
     {
@@ -1239,55 +1185,31 @@
     },
     {
       "code": 6005,
-      "name": "CommandNotFound",
-      "msg": "Command Not Found: The requested command_id does not exist in the admin's price list."
+      "name": "PayloadTooLarge",
+      "msg": "Payload Too Large: The provided payload exceeds the maximum allowed size."
     },
     {
       "code": 6006,
-      "name": "PayloadTooLarge",
-      "msg": "Payload Too Large: The provided payload exceeds the maximum allowed size."
+      "name": "InstructionMismatch",
+      "msg": "Instruction Mismatch: Expected an Ed25519 signature verification instruction."
+    },
+    {
+      "code": 6007,
+      "name": "SignatureVerificationFailed",
+      "msg": "Signature Verification Failed: The oracle signature could not be verified."
+    },
+    {
+      "code": 6008,
+      "name": "InvalidOracleSigner",
+      "msg": "Invalid Oracle Signer: The signer does not match the registered oracle authority."
+    },
+    {
+      "code": 6009,
+      "name": "TimestampTooOld",
+      "msg": "Timestamp Too Old: The provided timestamp is outside the acceptable time window."
     }
   ],
   "types": [
-    {
-      "name": "AdminCommKeyUpdated",
-      "docs": [
-        "Emitted when an admin updates their off-chain communication public key."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "docs": [
-              "The public key of the admin's wallet (`authority`) that authorized this update."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "admin_pda",
-            "docs": [
-              "The public key of the `AdminProfile` PDA that was updated."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "new_comm_pubkey",
-            "docs": [
-              "The new communication public key that has been set for the `AdminProfile`."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "ts",
-            "docs": [
-              "The Unix timestamp of the update."
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
     {
       "name": "AdminCommandDispatched",
       "docs": [
@@ -1342,6 +1264,59 @@
       }
     },
     {
+      "name": "AdminConfigUpdated",
+      "docs": [
+        "Emitted when an admin updates their profile configuration."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "The public key of the admin's wallet (`authority`) that authorized this update."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_pda",
+            "docs": [
+              "The public key of the `AdminProfile` PDA that was updated."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "new_oracle_authority",
+            "docs": [
+              "The new public key for the oracle."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "new_timestamp_validity",
+            "docs": [
+              "The new validity period for oracle signatures in seconds."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "new_communication_pubkey",
+            "docs": [
+              "The new public key for off-chain communication."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "docs": [
+              "The Unix timestamp of the update."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "AdminFundsWithdrawn",
       "docs": [
         "Emitted when an admin withdraws earned funds from their profile's internal balance."
@@ -1388,56 +1363,11 @@
       }
     },
     {
-      "name": "AdminPricesUpdated",
-      "docs": [
-        "Emitted when an admin updates their service prices."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "docs": [
-              "The public key of the `AdminProfile`'s owner (the admin's `authority` wallet)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "admin_pda",
-            "docs": [
-              "The public key of the `AdminProfile` PDA that was updated."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "new_prices",
-            "docs": [
-              "The new price list for the service, as a vector of `PriceEntry` structs."
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "PriceEntry"
-                }
-              }
-            }
-          },
-          {
-            "name": "ts",
-            "docs": [
-              "The Unix timestamp of the price update."
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
       "name": "AdminProfile",
       "docs": [
         "Represents the on-chain profile for a Service Provider (an \"Admin\").",
-        "This PDA holds the service's configuration, such as its price list, and serves",
-        "as a treasury for collected fees. Its address is derived from the admin's wallet key."
+        "This PDA holds the service's configuration, and serves as a treasury for",
+        "collected fees. Its address is derived from the admin's wallet key."
       ],
       "type": {
         "kind": "struct",
@@ -1446,7 +1376,7 @@
             "name": "authority",
             "docs": [
               "The public key of the admin's wallet, which is the sole `authority`",
-              "allowed to manage this profile (e.g., update prices, withdraw funds)."
+              "allowed to manage this profile (e.g., withdraw funds)."
             ],
             "type": "pubkey"
           },
@@ -1459,18 +1389,20 @@
             "type": "pubkey"
           },
           {
-            "name": "prices",
+            "name": "oracle_authority",
             "docs": [
-              "A dynamic list of `PriceEntry` structs that defines the cost",
-              "in lamports for various off-chain services offered by the admin."
+              "The public key of the off-chain oracle responsible for signing price data.",
+              "The program will only accept price information signed by this authority."
             ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "PriceEntry"
-                }
-              }
-            }
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp_validity_seconds",
+            "docs": [
+              "The duration in seconds for which an oracle's signature is considered valid.",
+              "This helps prevent replay attacks with old price data."
+            ],
+            "type": "i64"
           },
           {
             "name": "balance",
@@ -1606,55 +1538,6 @@
               "The Unix timestamp of the logged action."
             ],
             "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PriceEntry",
-      "docs": [
-        "Represents a single entry in an admin's price list."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "command_id",
-            "docs": [
-              "Identifier of the command (stable u16)."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "price",
-            "docs": [
-              "Price in lamports."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "UpdatePricesArgs",
-      "docs": [
-        "A container struct for instruction arguments that involve a `Vec`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "new_prices",
-            "docs": [
-              "The new price list to set for the admin's services."
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "PriceEntry"
-                }
-              }
-            }
           }
         ]
       }

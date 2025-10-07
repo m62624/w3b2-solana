@@ -26,19 +26,13 @@ impl From<ConnectorEvents::BridgeEvent> for gateway::EventStreamItem {
                     },
                 ))
             }
-            ConnectorEvents::BridgeEventData::AdminCommKeyUpdated(e) => Some(
-                gateway::bridge_event::Event::AdminCommKeyUpdated(gateway::AdminCommKeyUpdated {
-                    authority: e.authority.to_string(),
-                    admin_pda: e.admin_pda.to_string(),
-                    new_comm_pubkey: e.new_comm_pubkey.to_string(),
-                    ts: e.ts,
-                }),
-            ),
-            ConnectorEvents::BridgeEventData::AdminOracleUpdated(e) => Some(
-                gateway::bridge_event::Event::AdminOracleUpdated(gateway::AdminOracleUpdated {
+            ConnectorEvents::BridgeEventData::AdminConfigUpdated(e) => Some(
+                gateway::bridge_event::Event::AdminConfigUpdated(gateway::AdminConfigUpdated {
                     authority: e.authority.to_string(),
                     admin_pda: e.admin_pda.to_string(),
                     new_oracle_authority: e.new_oracle_authority.to_string(),
+                    new_timestamp_validity: e.new_timestamp_validity,
+                    new_communication_pubkey: e.new_communication_pubkey.to_string(),
                     ts: e.ts,
                 }),
             ),

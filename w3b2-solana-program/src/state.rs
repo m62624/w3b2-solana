@@ -19,6 +19,9 @@ pub struct AdminProfile {
     /// The public key of the off-chain oracle responsible for signing price data.
     /// The program will only accept price information signed by this authority.
     pub oracle_authority: Pubkey,
+    /// The duration in seconds for which an oracle's signature is considered valid.
+    /// This helps prevent replay attacks with old price data.
+    pub timestamp_validity_seconds: i64,
     /// The internal balance in lamports where fees from paid user commands are collected.
     /// This balance can be withdrawn by the admin via the `admin_withdraw` instruction.
     pub balance: u64,
@@ -58,7 +61,7 @@ pub struct AdminRegisterProfile<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + std::mem::size_of::<AdminProfile>(),
+        space = 8 + std::mem::size_of::<AdminProfile>(), // Anchor will calculate this correctly
         seeds = [b"admin", authority.key().as_ref()],
         bump
     )]
@@ -90,26 +93,9 @@ pub struct AdminWithdraw<'info> {
     pub destination: AccountInfo<'info>,
 }
 
-/// Defines the accounts for the `admin_set_oracle` instruction.
+/// Defines the accounts for the `admin_set_config` instruction.
 #[derive(Accounts)]
-pub struct AdminSetOracle<'info> {
-    /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    /// The `AdminProfile` account to be updated. Constraints verify the `authority`
-    /// and the account's PDA seeds.
-    #[account(
-        mut,
-        seeds = [b"admin", authority.key().as_ref()],
-        bump,
-        constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
-    )]
-    pub admin_profile: Account<'info, AdminProfile>,
-}
-
-/// Defines the accounts for the `admin_update_comm_key` instruction.
-#[derive(Accounts)]
-pub struct AdminUpdateCommKey<'info> {
+pub struct AdminSetConfig<'info> {
     /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
     #[account(mut)]
     pub authority: Signer<'info>,

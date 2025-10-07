@@ -43,16 +43,6 @@ pub mod w3b2_solana_program {
         instructions::admin_register_profile(ctx, communication_pubkey)
     }
 
-    /// Updates the `communication_pubkey` for an existing `AdminProfile`.
-    /// This allows a service provider to rotate their off-chain encryption keys.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `new_key` - The new `Pubkey` to set as the communication key.
-    pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
-        instructions::admin_update_comm_key(ctx, new_key)
-    }
-
     /// Closes an `AdminProfile` account and refunds its rent lamports to the owner.
     /// This effectively unregisters a service from the protocol.
     ///
@@ -62,17 +52,27 @@ pub mod w3b2_solana_program {
         instructions::admin_close_profile(ctx)
     }
 
-    /// Sets or updates the `oracle_authority` for an existing `AdminProfile`.
-    /// This key is authorized to sign off-chain price data for paid commands.
+    /// Sets or updates the configuration for an existing `AdminProfile`.
+    /// This allows changing the `oracle_authority`, `timestamp_validity_seconds`,
+    /// and `communication_pubkey`. Any field passed as `None` will be ignored.
     ///
     /// # Arguments
     /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `new_oracle_authority` - The `Pubkey` of the new oracle.
-    pub fn admin_set_oracle(
-        ctx: Context<AdminSetOracle>,
-        new_oracle_authority: Pubkey,
+    /// * `new_oracle_authority` - An optional new `Pubkey` for the oracle.
+    /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
+    /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
+    pub fn admin_set_config(
+        ctx: Context<AdminSetConfig>,
+        new_oracle_authority: Option<Pubkey>,
+        new_timestamp_validity: Option<i64>,
+        new_communication_pubkey: Option<Pubkey>,
     ) -> Result<()> {
-        instructions::admin_set_oracle(ctx, new_oracle_authority)
+        instructions::admin_set_config(
+            ctx,
+            new_oracle_authority,
+            new_timestamp_validity,
+            new_communication_pubkey,
+        )
     }
 
     /// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance

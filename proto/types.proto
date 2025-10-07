@@ -36,19 +36,17 @@ message PrepareAdminRegisterProfileRequest {
   /// The public key for secure off-chain communication.
   string communication_pubkey = 2;
 }
-/// Prepares a transaction to update an AdminProfile's communication key.
-message PrepareAdminUpdateCommKeyRequest {
+/// Prepares a transaction to configure an AdminProfile.
+/// Fields are optional; only provided values will be updated.
+message PrepareAdminSetConfigRequest {
   /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The new communication public key to set.
-  string new_key = 2;
-}
-/// Prepares a transaction to set an AdminProfile's oracle authority.
-message PrepareAdminSetOracleRequest {
-  /// The public key of the admin's wallet (`authority`).
-  string authority_pubkey = 1;
-  /// The public key of the new oracle.
-  string new_oracle_authority = 2;
+  /// The new public key of the oracle.
+  optional string new_oracle_authority = 2;
+  /// The new validity period for oracle signatures in seconds.
+  optional int64 new_timestamp_validity = 3;
+  /// The new public key for off-chain communication.
+  optional string new_communication_pubkey = 4;
 }
 /// Prepares a transaction for an admin to withdraw earned funds.
 message PrepareAdminWithdrawRequest {
@@ -204,28 +202,6 @@ message AdminProfileRegistered {
   /// The Unix timestamp of the registration.
   int64 ts = 4;
 }
-/// Emitted when an admin updates their communication key.
-message AdminCommKeyUpdated {
-  /// The public key of the admin's wallet (`authority`).
-  string authority = 1;
-  /// The public key of the `AdminProfile` PDA that was updated.
-  string admin_pda = 2;
-  /// The new communication public key.
-  string new_comm_pubkey = 3;
-  /// The Unix timestamp of the update.
-  int64 ts = 4;
-}
-/// Emitted when an admin sets or updates their oracle authority.
-message AdminOracleUpdated {
-  /// The public key of the admin's wallet (`authority`).
-  string authority = 1;
-  /// The public key of the `AdminProfile` PDA that was updated.
-  string admin_pda = 2;
-  /// The new public key for the oracle.
-  string new_oracle_authority = 3;
-  /// The Unix timestamp of the update.
-  int64 ts = 4;
-}
 /// Emitted when an admin withdraws earned funds.
 message AdminFundsWithdrawn {
   /// The public key of the admin's wallet (`authority`).
@@ -376,8 +352,7 @@ message OffChainActionLogged {
 message BridgeEvent {
   oneof event {
     AdminProfileRegistered admin_profile_registered = 1;
-    AdminCommKeyUpdated admin_comm_key_updated = 2;
-    AdminOracleUpdated admin_oracle_updated = 3;
+    AdminConfigUpdated admin_config_updated = 3;
     AdminFundsWithdrawn admin_funds_withdrawn = 4;
     AdminProfileClosed admin_profile_closed = 5;
     AdminCommandDispatched admin_command_dispatched = 6;
@@ -389,4 +364,14 @@ message BridgeEvent {
     UserCommandDispatched user_command_dispatched = 12;
     OffChainActionLogged off_chain_action_logged = 13;
   }
+}
+
+/// Emitted when an admin updates their profile configuration.
+message AdminConfigUpdated {
+  string authority = 1;
+  string admin_pda = 2;
+  string new_oracle_authority = 3;
+  int64 new_timestamp_validity = 4;
+  string new_communication_pubkey = 5;
+  int64 ts = 6;
 }

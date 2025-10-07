@@ -26,6 +26,7 @@ pub fn admin_register_profile(
     admin_profile.communication_pubkey = communication_pubkey;
     // By default, the admin is their own oracle. They can delegate this later.
     admin_profile.oracle_authority = ctx.accounts.authority.key();
+    admin_profile.timestamp_validity_seconds = MAX_TIMESTAMP_AGE_SECONDS; // Set default value
     admin_profile.balance = 0;
 
     emit!(AdminProfileRegistered {
@@ -37,27 +38,31 @@ pub fn admin_register_profile(
     Ok(())
 }
 
-/// Sets the oracle authority for an `AdminProfile`.
-/// The provided public key will be the only one authorized to sign price data for this service.
-pub fn admin_set_oracle(ctx: Context<AdminSetOracle>, new_oracle_authority: Pubkey) -> Result<()> {
-    ctx.accounts.admin_profile.oracle_authority = new_oracle_authority;
-    emit!(AdminOracleUpdated {
-        authority: ctx.accounts.authority.key(),
-        admin_pda: ctx.accounts.admin_profile.key(),
-        new_oracle_authority,
-        ts: Clock::get()?.unix_timestamp,
-    });
-    Ok(())
-}
+/// Sets the configuration for an `AdminProfile`, including the oracle authority and timestamp validity.
+pub fn admin_set_config(
+    ctx: Context<AdminSetConfig>,
+    new_oracle_authority: Option<Pubkey>,
+    new_timestamp_validity: Option<i64>,
+    new_communication_pubkey: Option<Pubkey>,
+) -> Result<()> {
+    let admin_profile = &mut ctx.accounts.admin_profile;
 
-/// Updates the `communication_pubkey` for an existing `AdminProfile`.
-/// This allows a service provider to rotate their off-chain encryption keys.
-pub fn admin_update_comm_key(ctx: Context<AdminUpdateCommKey>, new_key: Pubkey) -> Result<()> {
-    ctx.accounts.admin_profile.communication_pubkey = new_key;
-    emit!(AdminCommKeyUpdated {
-        authority: ctx.accounts.authority.key(),
-        admin_pda: ctx.accounts.admin_profile.key(),
-        new_comm_pubkey: new_key,
+    if let Some(new_oracle) = new_oracle_authority {
+        admin_profile.oracle_authority = new_oracle;
+    }
+    if let Some(new_validity) = new_timestamp_validity {
+        admin_profile.timestamp_validity_seconds = new_validity;
+    }
+    if let Some(new_comm_key) = new_communication_pubkey {
+        admin_profile.communication_pubkey = new_comm_key;
+    }
+
+    emit!(AdminConfigUpdated {
+        authority: admin_profile.authority,
+        admin_pda: admin_profile.key(),
+        new_oracle_authority: admin_profile.oracle_authority,
+        new_timestamp_validity: admin_profile.timestamp_validity_seconds,
+        new_communication_pubkey: admin_profile.communication_pubkey,
         ts: Clock::get()?.unix_timestamp,
     });
     Ok(())
@@ -336,7 +341,7 @@ pub fn user_dispatch_command(
     // Verify the timestamp isn't too old to prevent replay attacks.
     let now = Clock::get()?.unix_timestamp;
     require!(
-        now.saturating_sub(timestamp) <= MAX_TIMESTAMP_AGE_SECONDS,
+        now.saturating_sub(timestamp) <= admin_profile.timestamp_validity_seconds,
         BridgeError::TimestampTooOld
     );
 

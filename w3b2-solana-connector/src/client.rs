@@ -1,7 +1,7 @@
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
-use solana_sdk::ed25519_instruction;
+use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
@@ -141,46 +141,28 @@ where
         self.create_transaction(&authority, ix).await
     }
 
-    /// Prepares an `admin_update_comm_key` transaction.
-    pub async fn prepare_admin_update_comm_key(
+    /// Prepares an `admin_set_config` transaction.
+    pub async fn prepare_admin_set_config(
         &self,
         authority: Pubkey,
-        new_key: Pubkey,
+        new_oracle_authority: Option<Pubkey>,
+        new_timestamp_validity: Option<i64>,
+        new_communication_pubkey: Option<Pubkey>,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
-            accounts: accounts::AdminUpdateCommKey {
+            accounts: accounts::AdminSetConfig {
                 authority,
                 admin_profile: admin_pda,
             }
             .to_account_metas(None),
-            data: instruction::AdminUpdateCommKey { new_key }.data(),
-        };
-
-        self.create_transaction(&authority, ix).await
-    }
-
-    /// Prepares an `admin_set_oracle` transaction.
-    pub async fn prepare_admin_set_oracle(
-        &self,
-        authority: Pubkey,
-        new_oracle_authority: Pubkey,
-    ) -> Result<Transaction, ClientError> {
-        let (admin_pda, _) =
-            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
-
-        let ix = Instruction {
-            program_id: w3b2_solana_program::ID,
-            accounts: accounts::AdminSetOracle {
-                authority,
-                admin_profile: admin_pda,
-            }
-            .to_account_metas(None),
-            data: instruction::AdminSetOracle {
+            data: instruction::AdminSetConfig {
                 new_oracle_authority,
+                new_timestamp_validity,
+                new_communication_pubkey,
             }
             .data(),
         };
@@ -457,7 +439,7 @@ where
         .concat();
 
         // 2. Create the Ed25519 signature verification instruction.
-        let ed25519_ix = ed25519_instruction::new_ed25519_instruction_with_signature(
+        let ed25519_ix = new_ed25519_instruction_with_signature(
             &message,
             &oracle_signature,
             &oracle_pubkey.to_bytes(),

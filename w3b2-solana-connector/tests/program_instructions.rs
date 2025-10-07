@@ -169,40 +169,6 @@ async fn test_admin_profile_creation() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "Requires a compiled BPF program"]
-async fn test_admin_update_comm_key() -> anyhow::Result<()> {
-    let mut context = setup_test_environment().await;
-    let (transaction_builder, admin_authority, admin_pda) =
-        setup_admin_profile(&mut context).await?;
-
-    let new_comm_key = Keypair::new();
-
-    let mut update_tx = transaction_builder
-        .prepare_admin_update_comm_key(admin_authority.pubkey(), new_comm_key.pubkey())
-        .await?;
-    update_tx.message.recent_blockhash = context.last_blockhash;
-    update_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&update_tx).await?;
-
-    let account = context
-        .banks_client
-        .get_account(admin_pda)
-        .await?
-        .expect("Admin PDA account not found");
-    let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
-
-    assert_eq!(admin_profile.communication_pubkey, new_comm_key.pubkey());
-
-    println!(
-        "✅ Test passed: Admin {} updated communication key. Signature: {}",
-        admin_authority.pubkey(),
-        signature
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "Requires a compiled BPF program"]
 async fn test_admin_close_profile() -> anyhow::Result<()> {
     let mut context = setup_test_environment().await;
     let (transaction_builder, admin_authority, admin_pda) =
@@ -237,6 +203,47 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
         signature
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "Requires a compiled BPF program"]
+async fn test_admin_set_config() -> anyhow::Result<()> {
+    let mut context = setup_test_environment().await;
+    let (transaction_builder, admin_authority, admin_pda) =
+        setup_admin_profile(&mut context).await?;
+
+    let new_oracle = Keypair::new();
+    let new_validity = 120i64;
+    let new_comm_key = Keypair::new();
+
+    let mut set_config_tx = transaction_builder
+        .prepare_admin_set_config(
+            admin_authority.pubkey(),
+            Some(new_oracle.pubkey()),
+            Some(new_validity),
+            Some(new_comm_key.pubkey()),
+        )
+        .await?;
+    set_config_tx.message.recent_blockhash = context.last_blockhash;
+    set_config_tx.sign(&[&admin_authority], context.last_blockhash);
+    let signature = transaction_builder.submit_transaction(&set_config_tx).await?;
+
+    let account = context.banks_client.get_account(admin_pda).await?.unwrap();
+    let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
+
+    assert_eq!(admin_profile.oracle_authority, new_oracle.pubkey());
+    assert_eq!(admin_profile.timestamp_validity_seconds, new_validity);
+    assert_eq!(
+        admin_profile.communication_pubkey,
+        new_comm_key.pubkey()
+    );
+
+    println!(
+        "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
+        admin_authority.pubkey(),
+        signature
+    );
     Ok(())
 }
 
