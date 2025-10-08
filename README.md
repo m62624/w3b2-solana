@@ -1,4 +1,4 @@
-# W3B2: A Non-Custodial Web3-to-Web2 Bridge Protocol
+# W3B2: A Non-Custodial Web2-to-Web3 Bridge Protocol
 
 W3B2 is a protocol and toolset for building non-custodial services on the Solana blockchain that interact with traditional Web2 applications. It provides a bridge that allows Web2 backends to leverage blockchain features like security, transparency, and cryptocurrency payments without migrating their core logic on-chain.
 
@@ -26,16 +26,12 @@ This project is equipped with a complete Docker pipeline to ensure a consistent 
 
 ### Usage Examples
 
-**1. Build All Artifacts**
+**1. Build Artifacts Only**
 
-This command compiles the Anchor program and the gateway binary. The resulting artifacts will be in the `./target` directory on your host.
+This command runs only the `builder` service. It compiles the Anchor program and gateway, then places the final artifacts (`w3b2_solana_program.so` and `w3b2_solana_program.json`) into the `./artifacts` directory on your host.
 
 ```bash
-# Optional: Define the keypair path
-export PROGRAM_KEYPAIR_PATH=./keys/my_program-keypair.json
-
-# Run the builder
-docker compose --profile builder up --build
+docker compose --profile builder up --build --force-recreate
 ```
 
 **2. Run the Validator & Deploy the Program**

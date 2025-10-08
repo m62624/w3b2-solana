@@ -19,7 +19,6 @@ solana-ledger/
 # Python
 __pycache__/
 *.pyc
-.env
 
 # Node
 node_modules/
@@ -35,3 +34,5 @@ Cargo.lock
 Thumbs.db
 
 /w3b2_gateway.db
+
+artifacts/

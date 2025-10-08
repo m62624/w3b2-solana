@@ -1,0 +1,53 @@
+# ===================================================================
+# == Docker-Specific Gateway Configuration
+# ===================================================================
+# This file configures the gateway to run inside the Docker Compose network.
+
+# Settings for the core `w3b2-solana-connector` library, which handles
+# the direct communication with the Solana blockchain.
+[connector]
+
+# The Program ID of the on-chain program to interact with.
+# This value is intentionally left blank. The gateway's startup command
+# in docker-compose.yml will read it from the build artifacts and set it
+# as an environment variable (W3B2_CONNECTOR__PROGRAM_ID), which overrides this.
+program-id = ""
+
+# --- Solana Network Configuration ---
+[connector.solana]
+# Use the service name `solana-validator` which is resolvable inside the Docker network.
+rpc-url = "http://solana-validator:8899"
+ws-url = "ws://solana-validator:8900"
+commitment = "Confirmed"
+
+# --- Event Synchronizer Configuration ---
+[connector.synchronizer]
+max-catchup-depth = 1
+poll-interval-secs = 3
+max-signature-fetch = 1000
+
+# --- Channel Capacities ---
+[connector.channels]
+dispatcher-event-buffer = 256
+dispatcher-command-buffer = 128
+listener-event-buffer = 128
+
+# ===================================================================
+# == Gateway Application Settings
+# ===================================================================
+[gateway]
+# Use a path inside the container's persistent volume (`gateway-data`).
+db-path = "/data/w3b2_gateway.db"
+
+# --- gRPC Server Configuration ---
+[gateway.grpc]
+# Listen on all interfaces inside the container.
+host = "0.0.0.0"
+port = 50051
+
+# --- Logging Configuration ---
+[gateway.log]
+level = "info"
+format = "plain"
+output = "stdout"
+# file-path is not needed for stdout

@@ -1,15 +1,17 @@
 # --- Builder ---
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:1.85-slim-bookworm AS builder
 
-ARG SOLANA_VERSION=2.1.0
-ARG ANCHOR_VERSION=0.31.1
-ARG USER_ID=1000
-ARG GROUP_ID=1000
+ARG SOLANA_VERSION
+ARG ANCHOR_VERSION
+ARG USER_ID
+ARG GROUP_ID
+ARG PROGRAM_KEYPAIR_PATH
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/home/builder/.local/share/solana/install/active_release/bin:/home/builder/.cargo/bin:/usr/local/bin:${PATH}"
+ENV PROGRAM_KEYPAIR_PATH=${PROGRAM_KEYPAIR_PATH}
 
-# deps (minimal set for anchor + solana)
+# Dependencies (minimal set for anchor + solana)
 RUN apt-get update && apt-get install -y \
     build-essential pkg-config libssl-dev git python3 python3-toml \
     libudev-dev ca-certificates wget gnupg bzip2 xz-utils sudo \
@@ -27,7 +29,7 @@ RUN groupadd --gid $GROUP_ID builder && \
 USER builder
 WORKDIR /home/builder
 
-# Solana CLI (через Anza installer)
+# Solana CLI (via Anza installer)
 RUN curl -sSfL https://release.anza.xyz/stable/install | sh -s - v${SOLANA_VERSION}
 
 # Anchor CLI
@@ -35,19 +37,22 @@ RUN cargo install anchor-cli@${ANCHOR_VERSION} --locked
 
 WORKDIR /project
 
-# Подготовка Cargo deps. This is to cache dependencies.
+# Prepare Cargo deps. This is to cache dependencies.
 COPY --chown=builder:builder Cargo.toml Cargo.lock Anchor.toml ./
 COPY --chown=builder:builder w3b2-solana-program/Cargo.toml ./w3b2-solana-program/
 COPY --chown=builder:builder w3b2-solana-program/Xargo.toml ./w3b2-solana-program/
 COPY --chown=builder:builder w3b2-solana-connector/Cargo.toml ./w3b2-solana-connector/
 COPY --chown=builder:builder w3b2-solana-gateway/Cargo.toml ./w3b2-solana-gateway/
 
-# Create dummy source files to allow `cargo fetch` to work
+# Create dummy source files to allow `cargo build --workspace --bins` to pre-compile dependencies.
+# This is more effective for caching than `cargo fetch`.
 RUN mkdir -p w3b2-solana-program/src w3b2-solana-connector/src w3b2-solana-gateway/src && \
     touch w3b2-solana-program/src/lib.rs && \
     touch w3b2-solana-connector/src/lib.rs && \
-    touch w3b2-solana-gateway/src/main.rs && \
-    cargo fetch
+    echo "fn main() {}" > w3b2-solana-gateway/src/main.rs && \
+    # Build only the dependencies to cache them
+    # We build an empty binary to cache dependencies for the whole workspace
+    cargo build --workspace --release --bin w3b2-solana-gateway && rm -rf target/release/w3b2-solana-gateway*
 
 # Copy the application code
 COPY --chown=builder:builder . .

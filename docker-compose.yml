@@ -1,16 +1,20 @@
 services:
+  # This service is a one-off builder.
+  # It starts, builds all artifacts, and then exits.
+  # Other services depend on it and start afterward.
   builder:
-    # This service is a one-off builder.
-    # It starts, builds all artifacts, and then exits.
-    # Other services depend on it and start afterward.
-    # To re-run the build, use `docker compose up --build --force-recreate builder`
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
       args:
         USER_ID: ${UID:-1000}
         GROUP_ID: ${GID:-1000}
-    profiles: ["builder", "full"]
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0} # Use from .env or default
+        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1} # Use from .env or default
+        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    env_file:
+      - .env
+    profiles: ["builder", "deploy", "full"]
     volumes:
       - ./artifacts:/project/artifacts
       - ./target:/project/target
@@ -22,43 +26,49 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.validator
+      args:
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
+    env_file:
+      - .env
     profiles: ["validator", "deploy", "full"]
     ports:
-      - "8899:8899" # RPC
-      - "8900:8900" # Websocket
+      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899" # RPC
+      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900" # Websocket
       - "8901:8901" # Faucet
     volumes:
       - solana-ledger:/ledger
-    command: solana-test-validator --ledger /ledger --reset
+    # We pipe the output to `grep -v` to filter out the noisy slot processing logs,
+    # making it easier to see logs from other services during startup.
+    # We use `awk` to print all startup lines until the first "Processed Slot" line.
+    # After that, `awk` continues running but stops printing, which keeps the validator
+    # process alive. The `fflush()` call ensures output is not buffered.
+    command: >
+      bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
 
-  bridge-program:
-    build:
-      context: .
-      dockerfile: Dockerfile.rust.builder
-      args:
-        USER_ID: ${UID:-1000}
-        GROUP_ID: ${GID:-1000}
+
+  # This service deploys the program and then exits.
+  # It runs AFTER the builder and BEFORE the gateway.
+  deployer:
+    # We can reuse the builder image since it has all the tools.
+    image: w3b2-builder # Re-use the image built for the builder service
     profiles: ["deploy", "full"]
-    depends_on: # Depends on the validator AND a successful build
+    depends_on:
       solana-validator:
         condition: service_started
       builder:
         condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      # Override the RPC URL to point to the validator service name inside the Docker network
+      - SOLANA_RPC_URL=http://solana-validator:8899
+    # We need to mount the artifacts created by the builder.
     volumes:
       - ./artifacts:/project/artifacts
       - ./keys:/keys
-    environment:
-      - PROGRAM_KEYPAIR_PATH=/keys/my_program-keypair.json
-      - SOLANA_RPC_URL=http://solana-validator:8899
     working_dir: /project
-    # The command now just deploys the finished .so file without running a new build.
-    command: >
-      bash -c "
-        echo '--- [BRIDGE-PROGRAM] Waiting for validator...';
-        while ! solana --url http://solana-validator:8899 ping --no-address-labels > /dev/null 2>&1; do sleep 1; done;
-        echo 'Validator ready. Deploying program...';
-        solana program deploy /project/artifacts/w3b2_solana_program.so --program-id /keys/my_program-keypair.json --url http://solana-validator:8899;
-      "
+    # The key change is here: we run deploy and then the container exits.
+    command: /usr/local/bin/build_and_deploy.sh --deploy
 
   gateway:
     build:
@@ -67,34 +77,40 @@ services:
       args:
         USER_ID: ${UID:-1000}
         GROUP_ID: ${GID:-1000}
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
+        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1}
+        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
     profiles: ["gateway", "full"]
-    depends_on: # Depends on the deployed program AND a successful build
-      bridge-program:
-        condition: service_completed_successfully
-      builder:
+    depends_on:
+      solana-validator:
+        condition: service_started
+      deployer:
         condition: service_completed_successfully
     ports:
-      - "50051:50051"
+      - "${GATEWAY_PORT:-50051}:50051"
+    env_file:
+      - .env
     volumes:
-      - ./artifacts:/project/artifacts
+      - ./artifacts:/project/artifacts # Mount artifacts to read the program ID
       - ./target:/project/target
       - ./keys:/keys
-      - ./w3b2-solana-gateway/config.toml:/project/config.toml
-    environment:
-      - HOST=0.0.0.0
-      - PORT=50051
-      - RPC_URL=http://solana-validator:8899
-      - WS_URL=ws://solana-validator:8900
-      - PROGRAM_ID=${PROGRAM_ID:-}
+      # Mount the docker-specific config file into the container
+      - ./config.docker.toml:/project/config.docker.toml
+      - gateway-data:/data
+    working_dir: /project
     command: >
-      # Now we can be sure the binary exists because we depend on the builder.
       bash -c "
-        GATEWAY_BINARY=/project/target/release/w3b2-solana-gateway
-        if [ -z \"$$PROGRAM_ID\" ]; then
+        # The PROGRAM_ID might be empty on the first run, so we read it from the IDL.
+        if [ -z \"$${PROGRAM_ID}\" ]; then
           export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         fi;
-        echo 'Starting gateway with PROGRAM_ID='$$PROGRAM_ID;
-        $$GATEWAY_BINARY --config /project/config.toml
+        # Ensure the non-root user can write to the data volume.
+        # The volume is owned by root by default, so we change ownership.
+        sudo chown -R $$(id -u):$$(id -g) /data;
+        # Update the connector's PROGRAM_ID in the environment for the gateway process
+        export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
+        echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
+        /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
       "
 
   docs:
@@ -103,10 +119,11 @@ services:
       dockerfile: Dockerfile.docs
     profiles: ["docs", "full"]
     ports:
-      - "8000:8000"
+      - "${DOCS_PORT:-8000}:8000"
     volumes:
       - ./docs:/project/docs
       - ./mkdocs.yml:/project/mkdocs.yml
 
 volumes:
   solana-ledger:
+  gateway-data:

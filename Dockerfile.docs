@@ -3,14 +3,14 @@ FROM python:3.9-slim
 
 WORKDIR /project
 
-# Копируем requirements и устанавливаем зависимости
+# Copy requirements and install dependencies
 COPY ./docs/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем содержимое docs
+# Copy docs content
 COPY ./docs ./docs
 
-# Копируем mkdocs.yml
+# Copy mkdocs.yml
 COPY mkdocs.yml .
 
 EXPOSE 8000

@@ -1,41 +1,22 @@
 # Getting Started
 
-This guide will walk you through setting up the W3B2 development environment and running the core components.
+This guide will walk you through setting up the W3B2 development environment using Docker Compose. This is the **highly recommended** approach as it guarantees a consistent and reproducible environment for all components, from the Solana validator to the gRPC gateway, with simple commands.
 
 ## Prerequisites
 
 Before you begin, ensure you have the following tools installed on your system:
 
--   **Rust Toolchain**: Install via `rustup`. W3B2 is a Rust-native project.
-    ```bash
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    ```
--   **Solana CLI**: The command-line tool for interacting with the Solana network.
-    ```bash
-    sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"
-    ```
--   **Anchor CLI**: The framework used for developing the on-chain program.
-    ```bash
-    cargo install --git https://github.com/project-serum/anchor anchor-cli --locked
-    ```
--   **Node.js and npm**: Required for some client-side libraries and potentially for Protobuf generation.
-    ```bash
-    # Use your system's package manager, e.g., on Ubuntu:
-    sudo apt-get install nodejs npm
-    ```
--   **Protobuf Compiler (`protoc`)**: Needed for generating code from `.proto` files if you want to build your own clients.
-    ```bash
-    # E.g., on Ubuntu:
-    sudo apt-get install protobuf-compiler
-    ```
+-   **Docker**: [Install Docker](https://docs.docker.com/get-docker/)
+-   **Docker Compose**: Install Docker Compose (usually included with Docker Desktop).
+-   **Git**: For cloning the repository.
 
 ## 1. Clone the Repository
 
-First, clone the W3B2 monorepo from GitHub.
+First, clone the W3B2 monorepo.
 
 ```bash
-git clone <repository-url>
-cd w3b2-protocol
+git clone <your-repository-url>
+cd w3b2
 ```
 
 ## 2. Build the Project Components

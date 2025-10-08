@@ -42,6 +42,7 @@ test_db_*
 # Build artifacts
 dist/
 build/
+artifacts/
 
 # Environment files
 .env

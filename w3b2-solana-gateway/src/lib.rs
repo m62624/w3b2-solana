@@ -7,15 +7,15 @@ pub mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use config::{GatewayConfig, load_config};
+use config::{load_config, GatewayConfig};
 use std::{fs::File, str::FromStr};
 use tokio::signal;
 use tracing::Level;
 use tracing_subscriber::{
-    Registry,
     filter::LevelFilter,
     fmt::{self, writer::MakeWriterExt},
     prelude::*,
+    Registry,
 };
 
 /// The main entry point for running the gateway application logic.
@@ -75,6 +75,7 @@ pub async fn run() -> Result<()> {
                 }
             };
 
+            tracing::info!("{:#?}", &config);
             // --- 4. Start the main application logic ---
             let event_manager_handle = grpc::start(&config).await?;
 

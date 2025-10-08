@@ -1,22 +1,22 @@
 # --- Validator ---
 FROM debian:bookworm-slim
 
-ARG SOLANA_VERSION=2.1.0
+ARG SOLANA_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/root/.local/share/solana/install/active_release/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y \
-    curl libssl-dev ca-certificates wget gnupg xz-utils \
+    curl libssl-dev ca-certificates wget gnupg xz-utils coreutils \
     && update-ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Solana CLI
 RUN curl -sSfL https://release.anza.xyz/stable/install | sh -s - v${SOLANA_VERSION}
 
-# Директория для ledger и ключей
+# Directory for ledger and keys
 VOLUME ["/ledger"]
 
 EXPOSE 8899 8900 8901
 
-# по умолчанию reset (новый ledger)
+# By default, reset the ledger
 CMD ["solana-test-validator", "--ledger", "/ledger", "--reset"]
