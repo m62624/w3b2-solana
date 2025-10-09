@@ -16,7 +16,7 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [programs.localnet]
-w3b2_bridge_program = "3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr"
+w3b2_solana_program = "HykRMCadVCe49q4GVrXKTwLG3fqCEgd5W5qQqN3AFAEY"
 
 [workspace]
-members = ["w3b2-program"]
+members = ["w3b2-solana-program"]

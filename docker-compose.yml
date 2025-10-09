@@ -1,120 +1,129 @@
 services:
-  # Rust builder (сборка и артефакты)
+  # This service is a one-off builder.
+  # It starts, builds all artifacts, and then exits.
+  # Other services depend on it and start afterward.
   builder:
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
-      target: builder
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0} # Use from .env or default
+        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1} # Use from .env or default
+        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    env_file:
+      - .env
+    profiles: ["builder", "deploy", "full"]
     volumes:
-      - ./target:/project/target   # сохраняем артефакты наружу
-    profiles: ["builder"]
+      - ./artifacts:/project/artifacts
+      - ./target:/project/target
+      - ./keys:/keys
+    working_dir: /project
+    command: /usr/local/bin/build_and_deploy.sh --build-only
 
-  # Solana Test Validator
   solana-validator:
     build:
       context: .
       dockerfile: Dockerfile.validator
-    ports:
-      - "8899:8899"  # RPC
-      - "8900:8900"  # WebSocket
-      - "8901:8901"  # Gossip
-    volumes:
-      - solana-ledger:/ledger
-    networks:
-      - w3b2-network
+      args:
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
+    env_file:
+      - .env
     profiles: ["validator", "deploy", "full"]
-
-  # Деплой программы
-  bridge-program:
-    build:
-      context: .
-      dockerfile: Dockerfile.rust.builder
-      target: builder
-    depends_on:
-      - solana-validator
+    ports:
+      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899" # RPC
+      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900" # Websocket
+      - "8901:8901" # Faucet
     volumes:
       - solana-ledger:/ledger
-    environment:
-      - SOLANA_RPC_URL=http://solana-validator:8899
-      - BRIDGE_KEYPAIR_B64=${BRIDGE_KEYPAIR_B64}
-    networks:
-      - w3b2-network
-    command: ["bash", "/project/deploy.sh"]
-    profiles: ["deploy", "full"]
+    # We pipe the output to `grep -v` to filter out the noisy slot processing logs,
+    # making it easier to see logs from other services during startup.
+    # We use `awk` to print all startup lines until the first "Processed Slot" line.
+    # After that, `awk` continues running but stops printing, which keeps the validator
+    # process alive. The `fflush()` call ensures output is not buffered.
+    command: >
+      bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
 
-  # W3B2 Connector
-  connector:
+
+  # This service deploys the program and then exits.
+  # It runs AFTER the builder and BEFORE the gateway.
+  deployer:
+    # We can reuse the builder image since it has all the tools.
+    image: w3b2-builder # Re-use the image built for the builder service
+    profiles: ["deploy", "full"]
+    depends_on:
+      solana-validator:
+        condition: service_started
+      builder:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      # Override the RPC URL to point to the validator service name inside the Docker network
+      - SOLANA_RPC_URL=http://solana-validator:8899
+    # We need to mount the artifacts created by the builder.
+    volumes:
+      - ./artifacts:/project/artifacts
+      - ./keys:/keys
+    working_dir: /project
+    # The key change is here: we run deploy and then the container exits.
+    command: /usr/local/bin/build_and_deploy.sh --deploy
+
+  gateway:
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
-      target: builder
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
+        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1}
+        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    profiles: ["gateway", "full"]
     depends_on:
-      - solana-validator
-      - bridge-program
+      solana-validator:
+        condition: service_started
+      deployer:
+        condition: service_completed_successfully
     ports:
-      - "50051:50051"
+      - "${GATEWAY_PORT:-50051}:50051"
+    env_file:
+      - .env
     volumes:
-      - connector-data:/project/w3b2_db
-    environment:
-      - RPC_URL=http://solana-validator:8899
-      - WS_URL=ws://solana-validator:8900
-      - HOST=0.0.0.0
-      - PORT=50051
-    networks:
-      - w3b2-network
+      - ./artifacts:/project/artifacts # Mount artifacts to read the program ID
+      - ./target:/project/target
+      - ./keys:/keys
+      # Mount the docker-specific config file into the container
+      - ./config.docker.toml:/project/config.docker.toml
+      - gateway-data:/data
+    working_dir: /project
     command: >
-      bash -c "./target/release/w3b2-connector --config /project/config.toml"
-    profiles: ["deploy", "full"]
+      bash -c "
+        # The PROGRAM_ID might be empty on the first run, so we read it from the IDL.
+        if [ -z \"$${PROGRAM_ID}\" ]; then
+          export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
+        fi;
+        # Ensure the non-root user can write to the data volume.
+        # The volume is owned by root by default, so we change ownership.
+        sudo chown -R $$(id -u):$$(id -g) /data;
+        # Update the connector's PROGRAM_ID in the environment for the gateway process
+        export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
+        echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
+        /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
+      "
 
-  # Backend
-  backend:
-    user: "0:0"
+  docs:
     build:
       context: .
-      dockerfile: Dockerfile.backend
-    depends_on:
-      - connector
+      dockerfile: Dockerfile.docs
+    profiles: ["docs", "full"]
     ports:
-      - "3001:3001"
-      - "50052:50052"
+      - "${DOCS_PORT:-8000}:8000"
     volumes:
-      - ./w3b2-connector/proto:/project/w3b2-bridge-backend/proto:ro   
-      - backend-data:/project/w3b2-bridge-backend/data
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - GRPC_PORT=50052
-      - SOLANA_RPC_URL=http://solana-validator:8899
-      - CONNECTOR_GRPC_URL=connector:50051
-      - PROGRAM_ID=3LhCu6pXXdiwpvBUrFKLxCy1XQ5qyE7v6WSCLbkbS8Dr
-      - DATABASE_URL=sqlite:./data/database.sqlite
-      - ENCRYPTION_KEY=your-32-character-secret-key-here
-    networks:
-      - w3b2-network
-    profiles: ["backend", "full"]
-
-  # Frontend
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    depends_on:
-      - backend
-    ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://localhost:3001
-      - REACT_APP_WS_URL=ws://localhost:3001
-      - GENERATE_SOURCEMAP=false
-    networks:
-      - w3b2-network
-    profiles: ["frontend", "full"]
+      - ./docs:/project/docs
+      - ./mkdocs.yml:/project/mkdocs.yml
 
 volumes:
   solana-ledger:
-  connector-data:
-  backend-data:
-
-networks:
-  w3b2-network:
-    driver: bridge
+  gateway-data:

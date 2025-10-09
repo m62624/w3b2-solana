@@ -1,0 +1,40 @@
+[package]
+name = "w3b2-solana-program"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "w3b2_solana_program"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+
+[dependencies]
+# --- Anchor Framework ---
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+
+[dev-dependencies]
+# --- Solana ---
+solana-program = { workspace = true }
+solana-sdk = { workspace = true, features = ["full"] }
+solana-message = { workspace = true }
+solana-ed25519-program = { workspace = true }
+
+# --- Testing & Simulation ---
+litesvm = { workspace = true }
+base64 = { workspace = true }
+# --- Serialization & Hashing ---
+borsh = { workspace = true }
+sha2 = { workspace = true }
+
+# --- Error Handling & Utilities ---
+anyhow = { workspace = true }
+lazy_static = { workspace = true }

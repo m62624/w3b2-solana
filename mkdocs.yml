@@ -1,0 +1,34 @@
+site_name: W3B2 Toolset Documentation
+site_url: https://example.com/
+theme:
+  name: material
+  palette:
+    # Palette toggle for light vs dark mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark vs light mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.tabs.link
+    - navigation.top
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Getting Started: getting-started.md
+  - API Reference:
+    - On-chain Program: api/on-chain.md
+    - Gateway Service: api/gateway.md
+    - Connector Library: api/connector.md
+  - Examples:
+    - Full Flow Example: examples/full-flow.md
+    - Rust Client: examples/rust.md
+    - TypeScript Client: examples/typescript.md
+    - Python Client: examples/python.md
