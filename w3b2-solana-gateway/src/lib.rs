@@ -19,79 +19,85 @@ use tracing_subscriber::{
 };
 
 /// The main entry point for running the gateway application logic.
-/// This function handles CLI parsing, configuration, logging, and service startup.
+/// This function handles CLI parsing, configuration, and service startup.
 pub async fn run() -> Result<()> {
-    // --- 1. Parse CLI arguments ---
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Run(run_cmd) => {
-            // --- 2. Load configuration or use defaults ---
-            let config = if let Some(config_path) = run_cmd.config {
-                // We can't log yet, so we print directly.
-                println!("Loading configuration from '{}'", &config_path);
-                load_config(&config_path)?
-            } else {
-                println!("No config file provided, using default settings.");
-                GatewayConfig::default()
-            };
+    let Commands::Run(run_cmd) = cli.command;
+    let config = load_config_from_cli(run_cmd)?;
+    init_logging(&config)?;
+    tracing::info!("Configuration loaded: {:#?}", &config);
+    run_server(config).await?;
 
-            // --- 3. Initialize logging based on config ---
-            let log_level = Level::from_str(&config.gateway.log.level).unwrap_or(Level::INFO);
-            let level_filter = LevelFilter::from_level(log_level);
+    Ok(())
+}
 
-            let subscriber = Registry::default().with(level_filter);
+/// Loads the gateway configuration based on the provided CLI command.
+fn load_config_from_cli(run_cmd: cli::RunCmd) -> Result<GatewayConfig> {
+    if let Some(config_path) = run_cmd.config {
+        println!("Loading configuration from '{}'", &config_path);
+        load_config(&config_path)
+    } else {
+        println!("No config file provided, using default settings.");
+        Ok(GatewayConfig::default())
+    }
+}
 
-            // Configure based on output destination first
-            if config.gateway.log.output == config::LogOutput::File {
-                let file_path = config.gateway.log.file_path.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Log output is 'file' but 'file_path' is not specified in config"
-                    )
-                })?;
-                let log_file = File::create(file_path)?;
-                let file_writer = log_file.with_max_level(log_level);
+/// Initializes the logging system based on the provided configuration.
+fn init_logging(config: &GatewayConfig) -> Result<()> {
+    let log_level = Level::from_str(&config.gateway.log.level).unwrap_or(Level::INFO);
+    let level_filter = LevelFilter::from_level(log_level);
+    let subscriber = Registry::default().with(level_filter);
 
-                match config.gateway.log.format {
-                    config::LogFormat::Plain => subscriber
-                        .with(fmt::layer().with_writer(file_writer).pretty())
-                        .init(),
-                    config::LogFormat::Json => subscriber
-                        .with(fmt::layer().with_writer(file_writer).json())
-                        .init(),
+    match config.gateway.log.output {
+        config::LogOutput::File => {
+            let file_path = config
+                .gateway
+                .log
+                .file_path
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("Log output is 'file' but 'file_path' is not specified"))?;
+            let log_file = File::create(file_path)?;
+            let file_writer = log_file.with_max_level(log_level);
+
+            match config.gateway.log.format {
+                config::LogFormat::Json => {
+                    subscriber.with(fmt::layer().with_writer(file_writer).json()).init()
                 }
-            } else {
-                // Default to stdout
-                let stdout_writer = std::io::stdout.with_max_level(log_level);
-                match config.gateway.log.format {
-                    config::LogFormat::Plain => {
-                        let fmt_layer = fmt::layer().with_writer(stdout_writer).pretty();
-                        subscriber.with(fmt_layer).init();
-                    }
-                    config::LogFormat::Json => {
-                        let fmt_layer = fmt::layer().with_writer(stdout_writer).json();
-                        subscriber.with(fmt_layer).init();
-                    }
+                config::LogFormat::Plain => subscriber
+                    .with(fmt::layer().with_writer(file_writer).pretty())
+                    .init(),
+            }
+        }
+        config::LogOutput::Stdout => {
+            let stdout_writer = std::io::stdout.with_max_level(log_level);
+            match config.gateway.log.format {
+                config::LogFormat::Json => {
+                    subscriber.with(fmt::layer().with_writer(stdout_writer).json()).init()
                 }
-            };
-
-            tracing::info!("{:#?}", &config);
-            // --- 4. Start the main application logic ---
-            let event_manager_handle = grpc::start(&config).await?;
-
-            // --- 5. Wait for a shutdown signal ---
-            match signal::ctrl_c().await {
-                Ok(()) => {
-                    tracing::info!("Received Ctrl+C, initiating graceful shutdown...");
-                    event_manager_handle.stop().await;
-                    tracing::info!("Shutdown complete.");
-                }
-                Err(err) => {
-                    tracing::error!(error = %err, "Failed to listen for shutdown signal.");
+                config::LogFormat::Plain => {
+                    subscriber.with(fmt::layer().with_writer(stdout_writer).pretty()).init()
                 }
             }
         }
-    }
+    };
 
+    Ok(())
+}
+
+/// Starts the gRPC server and handles graceful shutdown.
+async fn run_server(config: GatewayConfig) -> Result<()> {
+    let event_manager_handle = grpc::start(&config).await?;
+
+    match signal::ctrl_c().await {
+        Ok(()) => {
+            tracing::info!("Received Ctrl+C, initiating graceful shutdown...");
+            event_manager_handle.stop().await;
+            tracing::info!("Shutdown complete.");
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "Failed to listen for shutdown signal.");
+        }
+    }
     Ok(())
 }

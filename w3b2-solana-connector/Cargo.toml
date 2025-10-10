@@ -18,6 +18,7 @@ solana-ed25519-program = { workspace = true }
 async-trait = { workspace = true }
 tokio.workspace = true
 tokio-stream.workspace = true
+futures = { workspace = true }
 
 # --- Serialization and Data Handling ---
 base64 = { workspace = true }

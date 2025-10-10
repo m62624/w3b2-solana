@@ -14,6 +14,7 @@ use crate::{
     config::ConnectorConfig,
     events::{BridgeEvent, EventSource},
 };
+use futures::future;
 use solana_sdk::pubkey::Pubkey;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc;
@@ -25,10 +26,7 @@ use tokio::sync::mpsc;
 /// the public keys associated with each event.
 pub struct Dispatcher {
     listeners: HashMap<Pubkey, ListenerChannels>,
-    /// A receiver for commands to manage the `listeners` map (e.g., adding or
-    /// removing subscriptions).
     command_rx: mpsc::Receiver<DispatcherCommand>,
-    /// A receiver for events from the synchronizer workers.
     event_tx: mpsc::Sender<BridgeEvent>,
     event_rx: mpsc::Receiver<BridgeEvent>,
 }
@@ -36,13 +34,9 @@ pub struct Dispatcher {
 /// Defines commands that can be sent to the Dispatcher task.
 #[derive(Debug)]
 pub enum DispatcherCommand {
-    /// Registers a new listener for a given public key.
     Register(Pubkey, ListenerChannels),
-    /// Unregisters a listener for a given public key.
     Unregister(Pubkey),
-    /// An event to be dispatched.
     Dispatch(BridgeEvent),
-    /// Signals the dispatcher to shut down gracefully.
     Shutdown,
 }
 
@@ -59,24 +53,14 @@ pub struct DispatcherHandle {
 
 impl DispatcherHandle {
     pub async fn dispatch(&self, event: BridgeEvent) {
-        if self
-            .command_tx
-            .send(DispatcherCommand::Dispatch(event))
-            .await
-            .is_err()
-        {
-            tracing::warn!("Failed to dispatch event, dispatcher may be down");
+        if self.command_tx.send(DispatcherCommand::Dispatch(event)).await.is_err() {
+            tracing::warn!("Failed to dispatch event: dispatcher may be down");
         }
     }
 
     pub async fn stop(&self) {
-        if self
-            .command_tx
-            .send(DispatcherCommand::Shutdown)
-            .await
-            .is_err()
-        {
-            tracing::warn!("Failed to send shutdown to dispatcher, it may already be down");
+        if self.command_tx.send(DispatcherCommand::Shutdown).await.is_err() {
+            tracing::warn!("Failed to send shutdown to dispatcher: it may already be down");
         }
     }
 }
@@ -89,16 +73,8 @@ impl Dispatcher {
         command_rx: mpsc::Receiver<DispatcherCommand>,
     ) -> (Self, DispatcherHandle) {
         let (event_tx, event_rx) = mpsc::channel(config.channels.dispatcher_event_buffer);
-
-        let dispatcher = Self {
-            listeners: HashMap::new(),
-            command_rx,
-            event_tx,
-            event_rx,
-        };
-
+        let dispatcher = Self { listeners: HashMap::new(), command_rx, event_tx, event_rx };
         let handle = DispatcherHandle { command_tx };
-
         (dispatcher, handle)
     }
 
@@ -107,43 +83,10 @@ impl Dispatcher {
         tracing::info!("Dispatcher started. Waiting for events and commands...");
         loop {
             tokio::select! {
-                Some(event) = self.event_rx.recv() => {
-                    let relevant_pdas = extract_pdas_from_event(&event.data);
-                    for pda in relevant_pdas {
-                        if let Some(channels) = self.listeners.get(&pda) {
-                            let target_tx = match event.source {
-                                EventSource::Live => &channels.live,
-                                EventSource::Catchup => &channels.catchup,
-                            };
-
-                            if target_tx.send(event.clone()).await.is_err() {
-                                tracing::warn!("Attempted to send to a disconnected listener for PDA {}. Removing.", pda);
-                                // The listener is gone, let's remove it.
-                                self.listeners.remove(&pda);
-                            }
-                        }
-                    }
-                },
+                Some(event) = self.event_rx.recv() => self.handle_event(event).await,
                 Some(command) = self.command_rx.recv() => {
-                    match command {
-                        DispatcherCommand::Register(pda, channels) => {
-                            tracing::info!("Dispatcher: Registering new listener for PDA {}", pda);
-                            self.listeners.insert(pda, channels);
-                        },
-                        DispatcherCommand::Unregister(pda) => {
-                            tracing::info!("Dispatcher: Unregistering listener for PDA {}", pda);
-                            self.listeners.remove(&pda);
-                        },
-                        DispatcherCommand::Dispatch(event) => {
-                            if self.event_tx.send(event).await.is_err() {
-                                tracing::error!("Event receiver closed. Shutting down dispatcher.");
-                                break;
-                            }
-                        }
-                        DispatcherCommand::Shutdown => {
-                            tracing::info!("Dispatcher: Received shutdown command. Exiting.");
-                            break;
-                        }
+                    if self.handle_command(command).await {
+                        break;
                     }
                 },
                 else => {
@@ -153,6 +96,57 @@ impl Dispatcher {
             }
         }
         Ok(())
+    }
+
+    /// Handles an incoming event by dispatching it to all relevant listeners.
+    async fn handle_event(&mut self, event: BridgeEvent) {
+        let pdas = extract_pdas_from_event(&event.data);
+        let sends = pdas.iter()
+            .filter_map(|pda| self.listeners.get(pda).map(|channels| (pda, channels)))
+            .map(|(pda, channels)| {
+                let target_tx = match event.source {
+                    EventSource::Live => &channels.live,
+                    EventSource::Catchup => &channels.catchup,
+                };
+                let event_clone = event.clone();
+                async move {
+                    if target_tx.send(event_clone).await.is_err() {
+                        tracing::warn!("Listener for PDA {} disconnected. It will be removed.", pda);
+                        return Some(*pda);
+                    }
+                    None
+                }
+            });
+
+        let results = future::join_all(sends).await;
+        for pda_to_remove in results.into_iter().flatten() {
+            self.listeners.remove(&pda_to_remove);
+        }
+    }
+
+    /// Handles an incoming command. Returns `true` if the dispatcher should shut down.
+    async fn handle_command(&mut self, command: DispatcherCommand) -> bool {
+        match command {
+            DispatcherCommand::Register(pda, channels) => {
+                tracing::info!("Registering new listener for PDA {}", pda);
+                self.listeners.insert(pda, channels);
+            }
+            DispatcherCommand::Unregister(pda) => {
+                tracing::info!("Unregistering listener for PDA {}", pda);
+                self.listeners.remove(&pda);
+            }
+            DispatcherCommand::Dispatch(event) => {
+                if self.event_tx.send(event).await.is_err() {
+                    tracing::error!("Event receiver closed. Shutting down dispatcher.");
+                    return true; // Signal shutdown
+                }
+            }
+            DispatcherCommand::Shutdown => {
+                tracing::info!("Received shutdown command. Exiting.");
+                return true; // Signal shutdown
+            }
+        }
+        false
     }
 }
 
