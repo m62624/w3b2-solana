@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 # --- Internal Workspace Crates ---
+w3b2-solana-logger = { path = "../w3b2-solana-logger" }
 w3b2-solana-connector = { workspace = true, features = ["serde"] }
 w3b2-solana-program.workspace = true
 
@@ -29,7 +30,6 @@ tonic = { workspace = true }
 
 # --- Logging and Tracing ---
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3.20", features = ["json"] }
 
 # --- Configuration ---
 config = { workspace = true }

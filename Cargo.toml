@@ -4,6 +4,7 @@ members = [
     "w3b2-solana-program",
     "w3b2-solana-connector",
     "w3b2-solana-gateway",
+    "w3b2-solana-logger",
 ]
 
 [workspace.dependencies]

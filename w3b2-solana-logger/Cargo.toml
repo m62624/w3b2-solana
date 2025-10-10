@@ -1,0 +1,16 @@
+[package]
+name = "w3b2-solana-logger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["fmt", "json", "env-filter"] }
+config = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+bincode = { workspace = true }
+chrono = { workspace = true }
+solana-sdk = { workspace = true }
+thiserror = { workspace = true }

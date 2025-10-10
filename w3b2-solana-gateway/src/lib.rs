@@ -7,16 +7,9 @@ pub mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
+use w3b2_solana_logger::logging;
 use config::{load_config, GatewayConfig};
-use std::{fs::File, str::FromStr};
 use tokio::signal;
-use tracing::Level;
-use tracing_subscriber::{
-    filter::LevelFilter,
-    fmt::{self, writer::MakeWriterExt},
-    prelude::*,
-    Registry,
-};
 
 /// The main entry point for running the gateway application logic.
 /// This function handles CLI parsing, configuration, and service startup.
@@ -25,7 +18,7 @@ pub async fn run() -> Result<()> {
 
     let Commands::Run(run_cmd) = cli.command;
     let config = load_config_from_cli(run_cmd)?;
-    init_logging(&config)?;
+    logging::init(&config.gateway.log)?;
     tracing::info!("Configuration loaded: {:#?}", &config);
     run_server(config).await?;
 
@@ -43,47 +36,6 @@ fn load_config_from_cli(run_cmd: cli::RunCmd) -> Result<GatewayConfig> {
     }
 }
 
-/// Initializes the logging system based on the provided configuration.
-fn init_logging(config: &GatewayConfig) -> Result<()> {
-    let log_level = Level::from_str(&config.gateway.log.level).unwrap_or(Level::INFO);
-    let level_filter = LevelFilter::from_level(log_level);
-    let subscriber = Registry::default().with(level_filter);
-
-    match config.gateway.log.output {
-        config::LogOutput::File => {
-            let file_path = config
-                .gateway
-                .log
-                .file_path
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("Log output is 'file' but 'file_path' is not specified"))?;
-            let log_file = File::create(file_path)?;
-            let file_writer = log_file.with_max_level(log_level);
-
-            match config.gateway.log.format {
-                config::LogFormat::Json => {
-                    subscriber.with(fmt::layer().with_writer(file_writer).json()).init()
-                }
-                config::LogFormat::Plain => subscriber
-                    .with(fmt::layer().with_writer(file_writer).pretty())
-                    .init(),
-            }
-        }
-        config::LogOutput::Stdout => {
-            let stdout_writer = std::io::stdout.with_max_level(log_level);
-            match config.gateway.log.format {
-                config::LogFormat::Json => {
-                    subscriber.with(fmt::layer().with_writer(stdout_writer).json()).init()
-                }
-                config::LogFormat::Plain => {
-                    subscriber.with(fmt::layer().with_writer(stdout_writer).pretty()).init()
-                }
-            }
-        }
-    };
-
-    Ok(())
-}
 
 /// Starts the gRPC server and handles graceful shutdown.
 async fn run_server(config: GatewayConfig) -> Result<()> {
