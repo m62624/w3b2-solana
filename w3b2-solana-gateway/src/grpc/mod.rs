@@ -297,6 +297,104 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    async fn prepare_user_request_unban(
+        &self,
+        request: Request<proto::w3b2::protocol::gateway::PrepareUserRequestUnbanRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserRequestUnban request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let transaction = builder
+                .prepare_user_request_unban(authority, admin_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx =
+                bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
+                    .map_err(GatewayError::from)?;
+            tracing::debug!(
+                "Prepared user_request_unban tx for authority {}",
+                authority
+            );
+            Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    async fn prepare_admin_ban_user(
+        &self,
+        request: Request<proto::w3b2::protocol::gateway::PrepareAdminBanUserRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminBanUser request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let transaction = builder
+                .prepare_admin_ban_user(authority, target_user_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx =
+                bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
+                    .map_err(GatewayError::from)?;
+            tracing::debug!("Prepared admin_ban_user tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    async fn prepare_admin_unban_user(
+        &self,
+        request: Request<proto::w3b2::protocol::gateway::PrepareAdminUnbanUserRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminUnbanUser request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let transaction = builder
+                .prepare_admin_unban_user(authority, target_user_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx =
+                bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
+                    .map_err(GatewayError::from)?;
+            tracing::debug!("Prepared admin_unban_user tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse { unsigned_tx }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
     async fn prepare_admin_register_profile(
         &self,
         request: Request<PrepareAdminRegisterProfileRequest>,
@@ -360,6 +458,7 @@ impl BridgeGatewayService for GatewayServer {
                     new_oracle_authority,
                     req.new_timestamp_validity,
                     new_communication_pubkey,
+                    req.new_unban_fee,
                 )
                 .await
                 .map_err(|e| GatewayError::Connector(Box::new(e)))?;

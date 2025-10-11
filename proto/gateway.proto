@@ -64,6 +64,12 @@ service BridgeGatewayService {
   /// notification to a user.
   rpc PrepareAdminDispatchCommand(PrepareAdminDispatchCommandRequest)
       returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to ban a user.
+  rpc PrepareAdminBanUser(PrepareAdminBanUserRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for an admin to unban a user.
+  rpc PrepareAdminUnbanUser(PrepareAdminUnbanUserRequest)
+      returns (UnsignedTransactionResponse);
 
   // User Methods
   /// Prepares a transaction for a user to create a profile linked to a specific
@@ -89,6 +95,9 @@ service BridgeGatewayService {
   /// Prepares a transaction for a user to call a service's command. If the
   /// command is priced, this transaction will include the payment transfer.
   rpc PrepareUserDispatchCommand(PrepareUserDispatchCommandRequest)
+      returns (UnsignedTransactionResponse);
+  /// Prepares a transaction for a user to request an unban from an admin.
+  rpc PrepareUserRequestUnban(PrepareUserRequestUnbanRequest)
       returns (UnsignedTransactionResponse);
 
   // Operational Methods

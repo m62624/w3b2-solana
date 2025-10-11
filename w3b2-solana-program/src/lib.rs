@@ -68,12 +68,14 @@ pub mod w3b2_solana_program {
         new_oracle_authority: Option<Pubkey>,
         new_timestamp_validity: Option<i64>,
         new_communication_pubkey: Option<Pubkey>,
+        new_unban_fee: Option<u64>,
     ) -> Result<()> {
         instructions::admin_set_config(
             ctx,
             new_oracle_authority,
             new_timestamp_validity,
             new_communication_pubkey,
+            new_unban_fee,
         )
     }
 
@@ -137,6 +139,16 @@ pub mod w3b2_solana_program {
         instructions::user_close_profile(ctx)
     }
 
+    /// Allows an admin to ban a user, preventing them from using the service.
+    pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
+        instructions::admin_ban_user(ctx)
+    }
+
+    /// Allows an admin to unban a user, restoring their access to the service.
+    pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
+        instructions::admin_unban_user(ctx)
+    }
+
     /// Allows a user to deposit lamports into their `UserProfile` PDA to pre-fund
     /// future payments for a service.
     ///
@@ -186,5 +198,10 @@ pub mod w3b2_solana_program {
     /// * `action_code` - A `u16` code representing the specific off-chain action.
     pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {
         instructions::log_action(ctx, session_id, action_code)
+    }
+
+    /// Allows a banned user to pay a fee to request an unban from the admin.
+    pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
+        instructions::user_request_unban(ctx)
     }
 }

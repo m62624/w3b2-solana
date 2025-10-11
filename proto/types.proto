@@ -47,6 +47,8 @@ message PrepareAdminSetConfigRequest {
   optional int64 new_timestamp_validity = 3;
   /// The new public key for off-chain communication.
   optional string new_communication_pubkey = 4;
+  /// The new fee for a user to request an unban.
+  optional uint64 new_unban_fee = 5;
 }
 /// Prepares a transaction for an admin to withdraw earned funds.
 message PrepareAdminWithdrawRequest {
@@ -73,6 +75,20 @@ message PrepareAdminDispatchCommandRequest {
   uint64 command_id = 3;
   /// An opaque byte array for application-specific data.
   bytes payload = 4;
+}
+/// Prepares a transaction for an admin to ban a user.
+message PrepareAdminBanUserRequest {
+  /// The public key of the admin's wallet (`authority`).
+  string authority_pubkey = 1;
+  /// The public key of the target `UserProfile` **PDA** to ban.
+  string target_user_profile_pda = 2;
+}
+/// Prepares a transaction for an admin to unban a user.
+message PrepareAdminUnbanUserRequest {
+  /// The public key of the admin's wallet (`authority`).
+  string authority_pubkey = 1;
+  /// The public key of the target `UserProfile` **PDA** to unban.
+  string target_user_profile_pda = 2;
 }
 /// Prepares a transaction to log a generic off-chain action.
 message PrepareLogActionRequest {
@@ -158,6 +174,13 @@ message PrepareUserDispatchCommandRequest {
   string oracle_pubkey = 7;
   /// The 64-byte Ed25519 signature from the oracle, as raw bytes.
   bytes oracle_signature = 8;
+}
+/// Prepares a transaction for a user to request an unban.
+message PrepareUserRequestUnbanRequest {
+  /// The public key of the user's wallet (`authority`).
+  string authority_pubkey = 1;
+  /// The public key of the `AdminProfile` **PDA** this user profile is linked to.
+  string admin_profile_pda = 2;
 }
 
 // --- Messages for Event Streaming ---
@@ -363,6 +386,10 @@ message BridgeEvent {
     UserProfileClosed user_profile_closed = 11;
     UserCommandDispatched user_command_dispatched = 12;
     OffChainActionLogged off_chain_action_logged = 13;
+    AdminUnbanFeeUpdated admin_unban_fee_updated = 14;
+    UserBanned user_banned = 15;
+    UserUnbanned user_unbanned = 16;
+    UserUnbanRequested user_unban_requested = 17;
   }
 }
 
@@ -374,4 +401,54 @@ message AdminConfigUpdated {
   int64 new_timestamp_validity = 4;
   string new_communication_pubkey = 5;
   int64 ts = 6;
+}
+
+/// Emitted when an admin updates the unban fee.
+message AdminUnbanFeeUpdated {
+  /// The public key of the admin's wallet (`authority`).
+  string authority = 1;
+  /// The public key of the `AdminProfile` PDA that was updated.
+  string admin_pda = 2;
+  /// The new fee in lamports for requesting an unban.
+  uint64 new_unban_fee = 3;
+  /// The Unix timestamp of the update.
+  int64 ts = 4;
+}
+
+/// Emitted when a user is banned by an admin.
+message UserBanned {
+  /// The public key of the admin's wallet (`authority`).
+  string admin_authority = 1;
+  /// The public key of the `AdminProfile` PDA.
+  string admin_pda = 2;
+  /// The public key of the `UserProfile` PDA that was banned.
+  string user_profile_pda = 3;
+  /// The Unix timestamp of the ban.
+  int64 ts = 4;
+}
+
+/// Emitted when a user is unbanned by an admin.
+message UserUnbanned {
+  /// The public key of the admin's wallet (`authority`).
+  string admin_authority = 1;
+  /// The public key of the `AdminProfile` PDA.
+  string admin_pda = 2;
+  /// The public key of the `UserProfile` PDA that was unbanned.
+  string user_profile_pda = 3;
+  /// The Unix timestamp of the unban.
+  int64 ts = 4;
+}
+
+/// Emitted when a user requests to be unbanned.
+message UserUnbanRequested {
+  /// The public key of the user's wallet (`authority`).
+  string user_authority = 1;
+  /// The public key of the `UserProfile` PDA.
+  string user_profile_pda = 2;
+  /// The public key of the `AdminProfile` PDA this user is linked to.
+  string admin_pda = 3;
+  /// The fee paid by the user in lamports.
+  uint64 fee_paid = 4;
+  /// The Unix timestamp of the request.
+  int64 ts = 5;
 }

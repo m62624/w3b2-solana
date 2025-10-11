@@ -151,6 +151,52 @@ where
         self.create_transaction(&authority, ix).await
     }
 
+    /// Prepares an `admin_ban_user` transaction.
+    pub async fn prepare_admin_ban_user(
+        &self,
+        authority: Pubkey,
+        target_user_profile_pda: Pubkey,
+    ) -> Result<Transaction, ClientError> {
+        let (admin_pda, _) =
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
+
+        let ix = Instruction {
+            program_id: w3b2_solana_program::ID,
+            accounts: accounts::AdminBanUser {
+                authority,
+                admin_profile: admin_pda,
+                user_profile: target_user_profile_pda,
+            }
+            .to_account_metas(None),
+            data: instruction::AdminBanUser {}.data(),
+        };
+
+        self.create_transaction(&authority, ix).await
+    }
+
+    /// Prepares an `admin_unban_user` transaction.
+    pub async fn prepare_admin_unban_user(
+        &self,
+        authority: Pubkey,
+        target_user_profile_pda: Pubkey,
+    ) -> Result<Transaction, ClientError> {
+        let (admin_pda, _) =
+            Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
+
+        let ix = Instruction {
+            program_id: w3b2_solana_program::ID,
+            accounts: accounts::AdminUnbanUser {
+                authority,
+                admin_profile: admin_pda,
+                user_profile: target_user_profile_pda,
+            }
+            .to_account_metas(None),
+            data: instruction::AdminUnbanUser {}.data(),
+        };
+
+        self.create_transaction(&authority, ix).await
+    }
+
     /// Prepares an `admin_set_config` transaction.
     pub async fn prepare_admin_set_config(
         &self,
@@ -158,6 +204,7 @@ where
         new_oracle_authority: Option<Pubkey>,
         new_timestamp_validity: Option<i64>,
         new_communication_pubkey: Option<Pubkey>,
+        new_unban_fee: Option<u64>,
     ) -> Result<Transaction, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
@@ -173,6 +220,7 @@ where
                 new_oracle_authority,
                 new_timestamp_validity,
                 new_communication_pubkey,
+                new_unban_fee,
             }
             .data(),
         };
@@ -477,6 +525,35 @@ where
         // 4. Create a transaction containing both instructions in the correct order.
         self.create_transaction_with_instructions(&authority, vec![ed25519_ix, dispatch_ix])
             .await
+    }
+
+    /// Prepares a `user_request_unban` transaction.
+    ///
+    /// * `authority` - The user's wallet `Pubkey`.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    pub async fn prepare_user_request_unban(
+        &self,
+        authority: Pubkey,
+        admin_profile_pda: Pubkey,
+    ) -> Result<Transaction, ClientError> {
+        let (user_pda, _) = Pubkey::find_program_address(
+            &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
+            &w3b2_solana_program::ID,
+        );
+
+        let ix = Instruction {
+            program_id: w3b2_solana_program::ID,
+            accounts: accounts::UserRequestUnban {
+                authority,
+                user_profile: user_pda,
+                admin_profile: admin_profile_pda,
+                system_program: solana_sdk::system_program::id(),
+            }
+            .to_account_metas(None),
+            data: instruction::UserRequestUnban {}.data(),
+        };
+
+        self.create_transaction(&authority, ix).await
     }
 
     /// Prepares a `log_action` transaction. This instruction requires both the

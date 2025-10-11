@@ -202,3 +202,61 @@ pub struct OffChainActionLogged {
     /// The Unix timestamp of the logged action.
     pub ts: i64,
 }
+
+/// Emitted when an admin updates the unban fee for their service.
+#[event]
+#[derive(Debug, Clone)]
+pub struct AdminUnbanFeeUpdated {
+    /// The public key of the admin's wallet (`authority`) that authorized this update.
+    pub authority: Pubkey,
+    /// The public key of the `AdminProfile` PDA that was updated.
+    pub admin_pda: Pubkey,
+    /// The new fee in lamports for requesting an unban.
+    pub new_unban_fee: u64,
+    /// The Unix timestamp of the update.
+    pub ts: i64,
+}
+
+/// Emitted when an admin bans a user.
+#[event]
+#[derive(Debug, Clone)]
+pub struct UserBanned {
+    /// The public key of the admin's wallet (`authority`) who initiated the ban.
+    pub admin_authority: Pubkey,
+    /// The public key of the `AdminProfile` PDA of the admin.
+    pub admin_pda: Pubkey,
+    /// The public key of the `UserProfile` PDA that was banned.
+    pub user_profile_pda: Pubkey,
+    /// The Unix timestamp of the ban.
+    pub ts: i64,
+}
+
+/// Emitted when an admin unbans a user.
+#[event]
+#[derive(Debug, Clone)]
+pub struct UserUnbanned {
+    /// The public key of the admin's wallet (`authority`) who lifted the ban.
+    pub admin_authority: Pubkey,
+    /// The public key of the `AdminProfile` PDA of the admin.
+    pub admin_pda: Pubkey,
+    /// The public key of the `UserProfile` PDA that was unbanned.
+    pub user_profile_pda: Pubkey,
+    /// The Unix timestamp of the unban.
+    pub ts: i64,
+}
+
+/// Emitted when a user pays the fee to request an unban.
+#[event]
+#[derive(Debug, Clone)]
+pub struct UserUnbanRequested {
+    /// The public key of the user's wallet (`authority`) who requested the unban.
+    pub user_authority: Pubkey,
+    /// The public key of the `UserProfile` PDA.
+    pub user_profile_pda: Pubkey,
+    /// The public key of the `AdminProfile` PDA this user is linked to.
+    pub admin_pda: Pubkey,
+    /// The fee paid by the user in lamports.
+    pub fee_paid: u64,
+    /// The Unix timestamp of the request.
+    pub ts: i64,
+}
