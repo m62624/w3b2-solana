@@ -1,0 +1,26 @@
+# Use a slim Python base image
+FROM python:3.10-slim
+
+# Set the working directory
+WORKDIR /app
+
+# Copy protobuf files and the client script
+COPY proto/ /app/proto/
+COPY examples/python-client/ /app/client/
+
+# Install Python dependencies
+# We install grpcio-tools first to ensure its dependencies are met.
+RUN pip install grpcio-tools solana
+
+# Generate Python code from .proto files
+# This command creates the gateway_pb2.py and gateway_pb2_grpc.py files
+# that the client script imports.
+RUN python -m grpc_tools.protoc \
+    -I/app/proto \
+    --python_out=. \
+    --grpc_python_out=. \
+    /app/proto/gateway.proto /app/proto/types.proto
+
+# Set the command to run the client script
+# The script will wait for the gateway to be available before running.
+CMD ["python", "/app/client/client.py"]

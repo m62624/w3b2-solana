@@ -124,16 +124,21 @@ services:
       - ./docs:/project/docs
       - ./mkdocs.yml:/project/mkdocs.yml
 
-  chat-simulation:
+  example-client:
     build:
-      context: ./examples/rust-chat-simulation
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.example-client
     profiles: ["full"]
     depends_on:
       gateway:
         condition: service_started
-    # We don't need to expose any ports for this simple logger
-    command: /usr/local/bin/rust-chat-simulation
+    env_file:
+      - .env
+    environment:
+      # Pass the Program ID to the client container
+      - W3B2_CONNECTOR__PROGRAM_ID=${PROGRAM_ID}
+      # The client needs to know where the gateway is inside the Docker network
+      - GATEWAY_HOST=gateway
 
 volumes:
   solana-ledger:

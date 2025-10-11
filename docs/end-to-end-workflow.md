@@ -1,156 +1,64 @@
-# Tutorial: End-to-End Workflow
+# Tutorial: End-to-End Workflow with the Example Client
 
-This tutorial demonstrates the primary use case: executing a paid command on-chain.
+This tutorial demonstrates the project's primary end-to-end workflow using the provided `example-client`.
 
-**Goal:** A user will pay the off-chain Gateway, and in return, the Gateway will provide a signature that authorizes the `user_dispatch_command` instruction on the Solana program.
+The previous version of this document showed a complex, multi-step process involving manual transaction creation and interaction with a separate gateway. This was a conceptual guide, not a practical example.
 
-### The Flow
+We have replaced that with a fully functional, automated Python client that demonstrates the entire lifecycle of an interaction with the w3b2 toolset. This provides a realistic, hands-on example for developers.
 
-1.  **Client:** Prepare the command data.
-2.  **Client -> Gateway:** Request a signature for this data. The Gateway will handle payment logic internally.
-3.  **Gateway -> Client:** Return an oracle signature if payment is successful.
-4.  **Client:** Construct a transaction including the oracle's signature and the command instruction.
-5.  **Client -> Solana:** Send the transaction to the network for execution.
-6.  **Solana Program:** Verify the oracle signature and execute the command.
+### The Flow at a Glance
 
----
+The `example-client` service automates the following sequence of on-chain actions through the gRPC gateway:
 
-### Step 1: Prepare the Command (TypeScript Client)
+1.  **Wait for Gateway**: The client waits until the `gateway` service is running and responsive.
+2.  **Generate Keypairs**: It creates two in-memory keypairs: one for the `admin_authority` (which also acts as the oracle) and one for the `user_authority`.
+3.  **Register Admin**: It calls `PrepareAdminRegisterProfile` and submits the transaction to create a new Admin PDA.
+4.  **Register User**: It calls `PrepareUserCreateProfile`, linking the user to the newly created Admin PDA.
+5.  **Deposit Funds**: The user calls `PrepareUserDeposit` to add funds to their on-chain profile.
+6.  **Dispatch Paid Command**: This is the key step.
+    *   The client locally creates a command message (price, timestamp, payload).
+    *   It signs this message with the oracle key (`admin_authority`).
+    *   It calls `PrepareUserDispatchCommand`, passing the command data and the oracle's signature to the gateway.
+    *   The gateway prepares a transaction which the user signs and submits.
+7.  **Log Everything**: Throughout this process, the client prints public keys, PDAs, and transaction signatures to the console, providing a clear, real-time log of the entire on-chain interaction.
 
-First, the client defines what it wants to do. The command is a simple string in this example. The client also specifies which on-chain account this command is for.
+### How to Run the Example
 
-```typescript
-// src/client.ts
-import { PublicKey } from '@solana/web3.js';
-import { getCommandMessage } from './utils';
+The best part is that you don't need to run any code manually. The entire demonstration is integrated into the Docker Compose `full` profile.
 
-const userWalletPubkey = new PublicKey("USER_WALLET_ADDRESS");
-const targetAccountPubkey = new PublicKey("ON_CHAIN_ACCOUNT_ADDRESS");
-const command = "EXECUTE_PREMIUM_ACTION";
+1.  **Start the Full Stack:**
+    From the root of the project, run the following command:
+    ```bash
+    docker compose --profile full up
+    ```
 
-// This function creates a standardized message buffer for the oracle to sign.
-// It must match the format expected by the on-chain program.
-const messageToSign = getCommandMessage(
-  userWalletPubkey,
-  targetAccountPubkey,
-  command
-);
-```
+2.  **Observe the Logs:**
+    Docker Compose will build and start all the necessary services: the builder, the validator, the deployer, the gateway, and finally, the `example-client`.
 
-### Step 2: Request Oracle Signature (TypeScript Client & Gateway API)
+    You will see the logs from all services interleaved. Look for the output from the `example-client-1` container. It will look like this, showing the real-time progress of the on-chain workflow:
 
-The client sends the message to the Gateway's `/sign_command` endpoint. The Gateway is responsible for authenticating the user and verifying they have paid for this action.
+    ```
+    example-client-1  |
+    example-client-1  | ============================================================
+    example-client-1  |  1. Generating Local Keypairs
+    example-client-1  | ============================================================
+    example-client-1  | Program ID:           [Program ID]
+    example-client-1  | Admin Authority:      [Admin Pubkey]
+    example-client-1  | User Authority:       [User Pubkey]
+    example-client-1  | Oracle Authority:     [Oracle Pubkey]
+    example-client-1  |
+    example-client-1  | ============================================================
+    example-client-1  |  2. Registering Admin Profile
+    example-client-1  | ============================================================
+    example-client-1  | Derived Admin PDA:    [Admin PDA]
+    example-client-1  | Admin registration successful. Signature: [Transaction Signature]
+    example-client-1  |
+    example-client-1  | ============================================================
+    example-client-1  |  3. Registering User Profile
+    example-client-1  | ============================================================
+    example-client-1  | Derived User PDA:     [User PDA]
+    example-client-1  | User registration successful. Signature: [Transaction Signature]
+    ...and so on.
+    ```
 
-```typescript
-// src/client.ts
-import axios from 'axios';
-
-// The Gateway API requires the message to be sent in base64 format.
-const messageBase64 = Buffer.from(messageToSign).toString('base64');
-
-let oracleSignature: string;
-
-try {
-  const response = await axios.post('http://localhost:8000/api/v1/sign_command', {
-    message: messageBase64,
-  }, {
-    headers: { 'Authorization': 'Bearer USER_AUTH_TOKEN' } // The Gateway handles user auth
-  });
-
-  // The Gateway returns the signature, also in base64.
-  oracleSignature = response.data.signature;
-
-} catch (error) {
-  console.error("Failed to get oracle signature:", error.response.data);
-  throw error;
-}
-```
-
-### Step 3: Construct the Full Transaction (TypeScript Client)
-
-This is the most critical step. A `user_dispatch_command` instruction **must** be preceded by an `Ed25519Program.createInstructionWithPublicKey` instruction in the same transaction. This "pre-instruction" loads the oracle's signature into the runtime for the main program to use.
-
-```typescript
-// src/client.ts
-import {
-  Transaction,
-  sendAndConfirmTransaction,
-  Ed25519Program,
-} from '@solana/web3.js';
-import { MyProgram } from './program'; // Your Anchor-generated client
-
-const program = new MyProgram(...); // Initialize your program client
-const oracleAuthorityPubkey = new PublicKey("ORACLE_PUBLIC_KEY_CONFIGURED_ON_CHAIN");
-
-// Pre-instruction: Load the oracle signature for verification.
-const verifyInstruction = Ed25519Program.createInstructionWithPublicKey({
-  publicKey: oracleAuthorityPubkey.toBytes(),
-  message: messageToSign,
-  signature: Buffer.from(oracleSignature, 'base64'),
-});
-
-// Main instruction: The actual command to execute.
-const dispatchInstruction = await program.methods
-  .userDispatchCommand(command)
-  .accounts({
-    user: userWalletPubkey,
-    targetAccount: targetAccountPubkey,
-    // The instructions sysvar is how the program reads the signature
-    // from the preceding instruction.
-    instructions: web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-  })
-  .instruction();
-
-// Build the transaction
-const transaction = new Transaction()
-  .add(verifyInstruction) // MUST BE FIRST!
-  .add(dispatchInstruction);
-
-// Sign and send
-const signature = await sendAndConfirmTransaction(connection, transaction, [userWallet]);
-console.log("Transaction confirmed:", signature);
-```
-
-### Step 4: On-Chain Verification (Rust Solana Program)
-
-You don't need to write this code, but it's important to understand how it works. The on-chain program verifies the work done by the client and gateway.
-
-```rust
-// programs/w3b2-solana-program/src/lib.rs
-
-// ...
-use solana_program::sysvar::instructions::{load_current_index_checked, load_instruction_at_checked};
-
-#[program]
-pub mod w3b2_solana_program {
-    pub fn user_dispatch_command(ctx: Context<UserDispatchCommand>, command: String) -> Result<()> {
-        // 1. Get the preceding instruction from the Instructions Sysvar
-        let ixs = ctx.accounts.instructions.to_account_info();
-        let current_index = load_current_index_checked(&ixs)? as usize;
-        let verify_ix = load_instruction_at_checked(current_index - 1, &ixs)?;
-
-        // 2. Verify it's the correct Ed25519 signature verification instruction
-        // (Code to check program_id, message data, and public key is here)
-        // ...
-
-        // 3. If verification passes, execute the command logic
-        msg!("Oracle signature verified. Executing command: {}", command);
-        // ... update state, etc.
-
-        Ok(())
-    }
-}
-
-#[derive(Accounts)]
-pub struct UserDispatchCommand<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
-    #[account(mut)]
-    pub target_account: Account<'info, MyState>,
-    /// CHECK: This is not dangerous because we only read from it.
-    #[account(address = sysvar::instructions::ID)]
-    pub instructions: UncheckedAccount<'info>,
-}
-```
-
-This completes the full, secure workflow, documented with code examples for each component of the system.
+This automated client serves as a much more powerful and realistic example than the previous conceptual guide. It provides developers with a clear, working model of how to integrate with the `w3b2-gateway` from a client application.
