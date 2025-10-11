@@ -124,6 +124,17 @@ services:
       - ./docs:/project/docs
       - ./mkdocs.yml:/project/mkdocs.yml
 
+  chat-simulation:
+    build:
+      context: ./examples/rust-chat-simulation
+      dockerfile: Dockerfile
+    profiles: ["full"]
+    depends_on:
+      gateway:
+        condition: service_started
+    # We don't need to expose any ports for this simple logger
+    command: /usr/local/bin/rust-chat-simulation
+
 volumes:
   solana-ledger:
   gateway-data:

@@ -1,5 +1,4 @@
-site_name: W3B2 Toolset Documentation
-site_url: https://example.com/
+site_name: 'W3B2 Toolset Documentation'
 theme:
   name: material
   palette:
@@ -19,16 +18,15 @@ theme:
     - navigation.tabs
     - navigation.sections
     - toc.integrate
+
 nav:
-  - Home: index.md
-  - Architecture: architecture.md
-  - Getting Started: getting-started.md
-  - API Reference:
-    - On-chain Program: api/on-chain.md
-    - Gateway Service: api/gateway.md
-    - Connector Library: api/connector.md
-  - Examples:
-    - Full Flow Example: examples/full-flow.md
-    - Rust Client: examples/rust.md
-    - TypeScript Client: examples/typescript.md
-    - Python Client: examples/python.md
+  - 'Home': 'index.md'
+  - 'Core Concepts': 'concepts.md'
+  - 'End-to-End Tutorial': 'end-to-end-workflow.md'
+  - 'Code Examples':
+    - '1. Initial Setup & Wallet': 'examples/01-initial-setup.md'
+    - '2. The Ed25519 Instruction': 'examples/02-constructing-the-ed25519-instruction.md'
+  - 'API Reference':
+    - 'Solana Program': 'reference/solana-program.md'
+    - 'Gateway API': 'reference/gateway-api.md'
+    - 'TypeScript Client': 'reference/ts-client.md'
