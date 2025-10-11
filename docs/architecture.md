@@ -1,88 +1,107 @@
 # System Architecture
 
-This document describes the core architectural patterns of the W3B2 toolset, focusing on the non-custodial account model and the use of a developer-owned oracle for transaction validation.
+This document describes the architecture of the W3B2 toolset, detailing how the different components interact to provide a secure, non-custodial bridge between a Web2 application and the Solana blockchain.
 
-## 1. Non-Custodial Account Model
+## Component Overview
 
-The on-chain program uses a non-custodial design to ensure that users retain control over their funds. This is achieved through a specific structure of Program Derived Addresses (PDAs) and ownership rules.
+The system is composed of four main parts: the **Client**, the **Gateway**, the **Connector**, and the **On-Chain Program**.
 
--   **User-Controlled Deposits**: Funds are held in a `UserProfile` PDA. The authority to deposit funds into this account or withdraw the entire remaining balance is restricted to the user's wallet.
--   **Program-Controlled Debits**: The service provider (the "Admin") cannot directly access funds in a `UserProfile`. The on-chain program only permits the transfer of funds from a user's profile to the admin's profile under specific, predefined conditions—namely, when the user signs a `user_dispatch_command` transaction for a service with a known price.
--   **On-Chain Transparency**: All financial movements are standard Solana transactions, making them publicly verifiable.
+```mermaid
+graph TD
+    subgraph "User's Device"
+        A[Client Browser/App]
+    end
 
-This model removes the need for users to trust the service provider with their funds, as control is enforced by the on-chain program's logic.
+    subgraph "Service Provider's Backend"
+        B[gRPC Gateway]
+        C[Solana Connector]
+        D[Oracle Service]
+    end
 
-## 2. Developer-Owned Oracle Pattern
+    subgraph "Solana Network"
+        E[On-Chain Program]
+        F[Solana RPC Node]
+    end
 
-The system is designed to keep a service's business logic (e.g., pricing, access control) off-chain. To connect this off-chain logic to the on-chain program securely, the system uses a "developer-owned oracle" pattern.
+    A -- "1. Prepare Tx (gRPC)" --> B
+    B -- "2. Build Unsigned Tx" --> C
+    C -- "3. Return Unsigned Tx" --> B
+    B -- "4. Return Unsigned Tx (gRPC)" --> A
+    A -- "5. Sign Tx w/ Wallet" --> A
+    A -- "6. Submit Signed Tx (gRPC)" --> B
+    B -- "7. Submit to Network" --> C
+    C -- "8. Send to RPC" --> F
+    F -- "9. Processed by" --> E
 
-**The service developer is responsible for running an oracle service.** This service's function is to sign data related to a user's action, creating a "quote" that the on-chain program can verify. The W3B2 components (gateway, connector) do not create or manage oracle keys; they only package the signature for on-chain verification.
+    D -- "Signs Price Data" --> A
 
-### End-to-End Signature and Transaction Flow
+    C -- "Listens for Events" --> F
+    B -- "Receives Events" --> C
 
-The following sequence details how a paid user command is processed:
-
-**1. Oracle Service Prepares and Signs Data**
-
-When a user initiates an action, the developer's backend service (the oracle) assembles the relevant data and signs it.
-
-1.  **Data construction**: The service constructs a message containing the details of the action, such as a `command_id`, the `price`, and a `timestamp` (to prevent replay attacks).
-2.  **Signing**: The service signs this message with its private oracle key. This key must be kept secure and is never exposed to the client or the W3B2 components.
-3.  **Payload generation**: The service returns a payload (e.g., JSON) to the user's client containing the signed data and the public key of the oracle for verification.
-
-```json
-{
-  "command_id": 123,
-  "price": 100000,
-  "timestamp": 1678886400,
-  "signature": "base64_encoded_signature...",
-  "oracle_pubkey": "Pubkey_of_the_oracle..."
-}
+    style D fill:#f9f,stroke:#333,stroke-width:2px
 ```
 
-**2. Client Prepares the On-Chain Transaction**
+### 1. Client
 
-The user's client (e.g., a web browser) uses the gateway or connector to prepare the final transaction.
+The client is the user-facing part of your application (e.g., a web browser, a mobile app). Its key responsibilities are:
+-   Interacting with the user's wallet (e.g., Phantom) to get their public key and request signatures.
+-   Communicating with your backend (the gRPC Gateway) to prepare and submit transactions.
+-   (For paid commands) Receiving signed data from your Oracle Service.
 
-1.  The client calls the `PrepareUserDispatchCommand` method, passing the data from the oracle's response.
-2.  The gateway/connector constructs a Solana transaction containing two essential instructions:
-    -   An `Ed25519` instruction to verify the `signature` from the payload.
-    -   The `user_dispatch_command` instruction, which contains the command details.
-3.  The gateway/connector returns the **unsigned** transaction to the client.
+### 2. gRPC Gateway (`w3b2-solana-gateway`)
 
-**3. Client Signs and Submits**
+This is a ready-to-use gRPC service that acts as the primary API layer for your clients. It simplifies interaction with the blockchain by exposing a clear, language-agnostic API.
+-   **Role**: Translates simple gRPC requests from the client into more complex blockchain operations using the Connector.
+-   **Functionality**: Exposes methods to prepare unsigned transactions, submit signed transactions, and stream on-chain events.
 
-1.  The user signs the transaction with their wallet. This signature authorizes the potential transfer of funds from their `UserProfile`.
-2.  The client submits the now-signed transaction to the Solana network (typically via the gateway's `SubmitTransaction` endpoint).
+### 3. Solana Connector (`w3b2-solana-connector`)
 
-The on-chain program executes the transaction only if both the oracle's signature and the user's signature are valid. This separation of concerns ensures that the developer retains full control over their business logic (via the oracle) while the user retains full control over their funds. The absence of signature creation methods in the connector and gateway is a deliberate security feature of this architecture.
+This is a low-level, asynchronous Rust library that forms the core of the backend logic.
+-   **Role**: Handles all direct communication with the Solana network.
+-   **Functionality**:
+    -   `TransactionBuilder`: Constructs unsigned Solana transactions for each instruction in the on-chain program.
+    -   `EventManager`: A robust system for listening to on-chain events. It fetches historical transactions to ensure state consistency and opens a WebSocket connection for real-time events.
 
-## 3. User Management: Banning and Unbanning
+### 4. On-Chain Program (`w3b2-solana-program`)
 
-The on-chain program provides a mechanism for service providers (Admins) to manage user access by banning and unbanning them. This functionality is intended for moderation and to prevent abuse of the service.
+The Anchor-based smart contract that acts as the single source of truth.
+-   **Role**: Enforces the rules of the system in a decentralized and verifiable manner.
+-   **Functionality**:
+    -   Manages `AdminProfile` and `UserProfile` PDAs.
+    -   Secures all value transfer (deposits, payments).
+    -   Verifies signatures from the user and the oracle.
+    -   Emits events as a permanent record of all state changes.
 
-### Banning a User
+## The Non-Custodial Transaction Flow
 
-An Admin can ban any user who has created a `UserProfile` for their service. The `admin_ban_user` instruction sets a `banned` flag in the user's on-chain profile. When this flag is `true`, the user is blocked from performing most actions, including:
+A core principle of the architecture is that the service provider's backend **never** handles private keys. The following sequence for a paid command (`user_dispatch_command`) illustrates this non-custodial flow.
 
-*   Dispatching commands (`user_dispatch_command`)
-*   Withdrawing funds (`user_withdraw`)
-*   Updating their communication key (`user_update_comm_key`)
-*   Closing their profile (`user_close_profile`)
+#### **Phase 1: Oracle Signature (Off-Chain)**
 
-The ban is enforced by the on-chain program, ensuring that a banned user cannot interact with the service's core functions.
+1.  **User Action**: The user initiates a paid action in the client application.
+2.  **Oracle Signs Data**: Your backend's **Oracle Service** (which you must implement) signs a message containing the `command_id`, `price`, and a `timestamp`.
+3.  **Client Receives Signature**: The client receives the signature and the data that was signed.
 
-### Unbanning a User
+#### **Phase 2: Transaction Preparation (Client -> Gateway -> Connector)**
 
-An Admin can lift a ban at any time using the `admin_unban_user` instruction. This resets the `banned` flag to `false`, restoring the user's access.
+4.  **Client Request**: The client sends a `PrepareUserDispatchCommand` gRPC request to the Gateway, including the data and signature from the oracle.
+5.  **Gateway Builds Transaction**: The Gateway uses the `w3b2-solana-connector`'s `TransactionBuilder` to construct a Solana transaction. This transaction contains two crucial instructions:
+    -   An `Ed25519` instruction to verify the oracle's signature on-chain.
+    -   The `user_dispatch_command` instruction itself.
+6.  **Gateway Responds**: The Gateway returns the **unsigned** transaction to the client, typically as a base64-encoded string.
 
-### Requesting an Unban (User-Initiated)
+#### **Phase 3: User Signature & Submission (Client -> Gateway -> Network)**
 
-A banned user has one available action: to request an unban. This is a paid operation, designed to create a hurdle for spam or abuse while providing a path for legitimate users to appeal.
+7.  **User Signs**: The client prompts the user to sign the transaction with their wallet. This signature authorizes the potential transfer of funds from their `UserProfile` PDA.
+8.  **Client Submits**: The client sends the now-signed transaction back to the Gateway via the `SubmitTransaction` RPC method.
+9.  **Gateway Submits to Network**: The Gateway uses the `connector` to send the transaction to a Solana RPC node for processing. The on-chain program validates both the oracle's signature and the user's signature before executing the instruction and transferring funds.
 
-1.  **Configurable Fee**: The Admin can set an "unban fee" using the `admin_set_config` instruction. This fee is stored in the `AdminProfile`.
-2.  **User Request**: The user calls the `user_request_unban` instruction. This action verifies that the user has sufficient funds in their `UserProfile` deposit balance to pay the fee.
-3.  **Fee Transfer**: The on-chain program transfers the `unban_fee` amount from the user's deposit balance to the admin's internal balance.
-4.  **Flag Set**: The instruction sets the `unban_requested` flag in the user's profile to `true`.
+## The "Request for Review" Unban Model
 
-This process does **not** automatically unban the user. It serves as a formal, on-chain request that the Admin can review. The Admin must still manually call `admin_unban_user` to restore the user's access. This two-step process ensures the Admin retains final control over access to their service.
+The process for unbanning a user is intentionally asynchronous and requires admin intervention. A user pays an `unban_fee` to request a review, and an off-chain listener notifies the admin, who must then manually approve the unban by calling `admin_unban_user`.
+
+This model was chosen over a simpler "pay-to-unban" atomic model for several key reasons:
+
+1.  **Admin Sovereignty**: A ban is a disciplinary measure. If a user could automatically unban themselves, the ban would lose its meaning as a deterrent for malicious behavior (e.g., spam). The service administrator must have the final say.
+2.  **Flexibility**: The current model allows the admin to unban a user for free (e.g., if the ban was an error) or to refuse an unban request even if the fee was paid.
+3.  **Clear Separation of Concerns**: The smart contract's role is to act as an incorruptible financial arbiter. It verifiably records the facts: "Yes, the user paid the fee. Yes, they have requested a review." The final business decision remains off-chain, where it belongs.

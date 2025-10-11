@@ -1,3 +1,24 @@
+//! # Non-Custodial Transaction Builder
+//!
+//! This module provides the [`TransactionBuilder`], a core component for creating
+//! unsigned Solana transactions for the `w3b2-solana-program`.
+//!
+//! It is designed for a non-custodial architecture where private keys never leave the
+//! client's device. A backend service (e.g., a gRPC gateway) uses this builder to
+//! construct a transaction, which is then sent to the client for signing. The client
+//! signs it and returns the signature, and the backend submits the signed transaction
+//! to the network.
+//!
+//! ## Features
+//!
+//! - **Async API**: All methods are `async` and designed for use in asynchronous Rust applications.
+//! - **RPC Abstraction**: Uses a generic [`AsyncRpcClient`] trait, allowing it to work with
+//!   the standard `solana-client` `RpcClient` as well as mock clients for testing (e.g., `BanksClient`).
+//! - **Comprehensive Coverage**: Provides a `prepare_` method for every instruction in the on-chain program.
+//! - **Security**: Handles the complexity of instruction creation, including deriving PDAs and
+//!   composing multi-instruction transactions (like for `user_dispatch_command` with its
+//!   required `Ed25519` verification instruction).
+
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
@@ -10,11 +31,15 @@ use solana_sdk::{hash::Hash, signature::Signature};
 use std::sync::Arc;
 use w3b2_solana_program::{accounts, instruction};
 
-/// A trait abstracting over the asynchronous RPC client functionality needed by `TransactionBuilder`.
-/// This allows for mocking and using different clients like `RpcClient` and `BanksClient`.
+/// A trait abstracting over the asynchronous RPC client functionality.
+///
+/// This allows the [`TransactionBuilder`] to be generic over the RPC client,
+/// making it easy to use with both the live `RpcClient` and the `BanksClient` for integration tests.
 #[async_trait]
 pub trait AsyncRpcClient: Send + Sync {
+    /// Fetches the latest blockhash from the RPC endpoint.
     async fn get_latest_blockhash(&self) -> Result<Hash, ClientError>;
+    /// Sends and confirms a transaction, waiting for it to be finalized.
     async fn send_and_confirm_transaction(
         &self,
         transaction: &Transaction,
@@ -34,27 +59,33 @@ impl AsyncRpcClient for RpcClient {
         self.send_and_confirm_transaction(transaction).await
     }
 }
-/// A builder for preparing on-chain transactions for remote signing.
+
+/// A collection of arguments required for the `prepare_user_dispatch_command` method.
 ///
-/// This struct provides methods to construct unsigned transactions for every
-/// instruction in the W3B2 Bridge Program. It is designed for a non-custodial
-/// architecture where the private key never leaves the client's device.
-/// The server-side component (like a gRPC gateway) uses this builder to create
-/// a transaction, sends it to the client for signing, and then receives the
-/// signed transaction back for submission.
-/// Arguments for the `prepare_user_dispatch_command` method.
+/// This struct simplifies the method signature by grouping all the parameters
+/// related to the oracle-signed command.
 pub struct UserDispatchCommandArgs {
+    /// The `u16` identifier for the command, as signed by the oracle.
     pub command_id: u16,
+    /// The price of the command in lamports, as signed by the oracle.
     pub price: u64,
+    /// The Unix timestamp from the oracle's signature, used to prevent replay attacks.
     pub timestamp: i64,
+    /// An opaque byte array for application-specific data.
     pub payload: Vec<u8>,
+    /// The public key of the oracle that signed the message.
     pub oracle_pubkey: Pubkey,
+    /// The 64-byte Ed25519 signature from the oracle.
     pub oracle_signature: [u8; 64],
 }
 
+/// A builder for preparing on-chain transactions for remote signing.
+///
+/// This struct provides methods to construct unsigned transactions for every
+/// instruction in the `w3b2-solana-program`.
 #[derive(Clone)]
 pub struct TransactionBuilder<C: AsyncRpcClient + ?Sized> {
-    /// A shared, thread-safe reference to the Solana JSON RPC client.
+    /// A shared, thread-safe reference to a Solana JSON RPC client.
     rpc_client: Arc<C>,
 }
 
@@ -66,7 +97,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `rpc_client` - A shared client that implements `AsyncRpcClient` (e.g., `RpcClient` or `BanksClient`).
+    /// * `rpc_client` - A shared client that implements [`AsyncRpcClient`] (e.g., `Arc<RpcClient>`).
     pub fn new(rpc_client: Arc<C>) -> Self {
         Self { rpc_client }
     }
@@ -79,7 +110,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `transaction` - A `Transaction` object that has already been signed.
+    /// * `transaction` - A `Transaction` object that has been signed by the fee payer.
     ///
     /// # Returns
     ///
@@ -93,10 +124,10 @@ where
             .await
     }
 
-    /// A private helper function to create a transaction from a vector of instructions.
+    /// A private helper to create a transaction from a vector of instructions.
     ///
     /// This function encapsulates the boilerplate of fetching the latest blockhash
-    /// and creating a new transaction with a payer.
+    /// and creating a new transaction with a specified fee payer.
     async fn create_transaction_with_instructions(
         &self,
         payer: &Pubkey,
@@ -108,7 +139,7 @@ where
         Ok(tx)
     }
 
-    /// A private helper function to create a transaction from a single instruction.
+    /// A private helper to create a transaction from a single instruction.
     async fn create_transaction(
         &self,
         payer: &Pubkey,
@@ -152,6 +183,11 @@ where
     }
 
     /// Prepares an `admin_ban_user` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
+    /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be banned.
     pub async fn prepare_admin_ban_user(
         &self,
         authority: Pubkey,
@@ -175,6 +211,11 @@ where
     }
 
     /// Prepares an `admin_unban_user` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
+    /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be unbanned.
     pub async fn prepare_admin_unban_user(
         &self,
         authority: Pubkey,
@@ -198,6 +239,14 @@ where
     }
 
     /// Prepares an `admin_set_config` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
+    /// * `new_oracle_authority` - An optional new `Pubkey` for the oracle.
+    /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
+    /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
+    /// * `new_unban_fee` - An optional new fee in lamports for unban requests.
     pub async fn prepare_admin_set_config(
         &self,
         authority: Pubkey,
@@ -229,6 +278,12 @@ where
     }
 
     /// Prepares an `admin_withdraw` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
+    /// * `amount` - The amount of lamports to withdraw from the `AdminProfile` balance.
+    /// * `destination` - The public key of the account to receive the funds.
     pub async fn prepare_admin_withdraw(
         &self,
         authority: Pubkey,
@@ -253,6 +308,10 @@ where
     }
 
     /// Prepares an `admin_close_profile` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
     pub async fn prepare_admin_close_profile(
         &self,
         authority: Pubkey,
@@ -274,6 +333,13 @@ where
     }
 
     /// Prepares an `admin_dispatch_command` transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The public key of the admin's wallet.
+    /// * `target_user_profile_pda` - The PDA of the target `UserProfile`.
+    /// * `command_id` - A `u64` identifier for the command.
+    /// * `payload` - An opaque byte array for application-specific data.
     pub async fn prepare_admin_dispatch_command(
         &self,
         authority: Pubkey,
@@ -304,11 +370,12 @@ where
 
     // --- User Transaction Preparations ---
 
-    /// Prepares a `user_create_profile` transaction. The on-chain instruction
-    /// requires the `admin_profile` PDA to be passed in the accounts list for verification.
+    /// Prepares a `user_create_profile` transaction.
+    ///
+    /// # Arguments
     ///
     /// * `authority` - The user's wallet `Pubkey` that will sign and own the profile.
-    /// * `target_admin_pda` - The `Pubkey` of the `AdminProfile` **PDA** to link to.
+    /// * `target_admin_pda` - The `Pubkey` of the `AdminProfile` PDA to link to.
     /// * `communication_pubkey` - The user's public key for off-chain communication.
     pub async fn prepare_user_create_profile(
         &self,
@@ -342,8 +409,10 @@ where
 
     /// Prepares a `user_update_comm_key` transaction.
     ///
+    /// # Arguments
+    ///
     /// * `authority` - The user's wallet `Pubkey`.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `new_key` - The new communication key to set.
     pub async fn prepare_user_update_comm_key(
         &self,
@@ -372,8 +441,10 @@ where
 
     /// Prepares a `user_deposit` transaction.
     ///
+    /// # Arguments
+    ///
     /// * `authority` - The user's wallet `Pubkey`.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to deposit.
     pub async fn prepare_user_deposit(
         &self,
@@ -403,8 +474,10 @@ where
 
     /// Prepares a `user_withdraw` transaction.
     ///
+    /// # Arguments
+    ///
     /// * `authority` - The user's wallet `Pubkey`.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to withdraw.
     /// * `destination` - The `Pubkey` of the wallet to receive the funds.
     pub async fn prepare_user_withdraw(
@@ -436,8 +509,10 @@ where
 
     /// Prepares a `user_close_profile` transaction.
     ///
+    /// # Arguments
+    ///
     /// * `authority` - The user's wallet `Pubkey`.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     pub async fn prepare_user_close_profile(
         &self,
         authority: Pubkey,
@@ -464,19 +539,17 @@ where
 
     // --- Operational Transaction Preparations ---
 
-    /// Prepares a `user_dispatch_command` transaction. This method now requires
-    /// a pre-signed message from the oracle. The final transaction will contain
-    /// two instructions: the `Ed25519` signature verification, followed by the
-    /// actual `user_dispatch_command`.
+    /// Prepares a `user_dispatch_command` transaction.
     ///
-    /// * `authority` - The user's wallet `Pubkey`.
-    /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` **PDA**.
-    /// * `command_id` - The `u16` identifier for the command.
-    /// * `price` - The price of the command, as signed by the oracle.
-    /// * `timestamp` - The timestamp from the oracle's signature.
-    /// * `payload` - An opaque byte array for application-specific data.
-    /// * `oracle_pubkey` - The public key of the oracle that signed the message.
-    /// * `oracle_signature` - The 64-byte Ed25519 signature from the oracle.
+    /// This method creates a transaction containing two instructions in the correct order:
+    /// 1.  An `Ed25519` signature verification instruction.
+    /// 2.  The actual `user_dispatch_command` instruction.
+    ///
+    /// # Arguments
+    ///
+    /// * `authority` - The user's wallet `Pubkey` that will sign the transaction.
+    /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` PDA.
+    /// * `args` - A [`UserDispatchCommandArgs`] struct containing all oracle-signed parameters.
     pub async fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
@@ -529,8 +602,10 @@ where
 
     /// Prepares a `user_request_unban` transaction.
     ///
+    /// # Arguments
+    ///
     /// * `authority` - The user's wallet `Pubkey`.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA** this user profile is linked to.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     pub async fn prepare_user_request_unban(
         &self,
         authority: Pubkey,
@@ -555,13 +630,17 @@ where
         self.create_transaction(&authority, ix).await
     }
 
-    /// Prepares a `log_action` transaction. This instruction requires both the
-    /// `UserProfile` and `AdminProfile` PDAs to be passed in the accounts list
-    /// to ensure the action is logged within a valid, existing relationship.
+    /// Prepares a `log_action` transaction.
+    ///
+    /// This instruction requires both the `UserProfile` and `AdminProfile` PDAs to be
+    /// passed in the accounts list to ensure the action is logged within a valid,
+    /// existing relationship.
+    ///
+    /// # Arguments
     ///
     /// * `authority` - The `Pubkey` of the signer (can be user or admin wallet).
-    /// * `user_profile_pda` - The `Pubkey` of the `UserProfile` **PDA**.
-    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` **PDA**.
+    /// * `user_profile_pda` - The `Pubkey` of the `UserProfile` PDA.
+    /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA.
     /// * `session_id` - A `u64` identifier to correlate actions.
     /// * `action_code` - A `u16` code for the specific action.
     pub async fn prepare_log_action(

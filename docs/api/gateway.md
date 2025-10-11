@@ -1,83 +1,93 @@
 # API Reference: Gateway Service
 
-The `w3b2-solana-gateway` is a gRPC service that provides a language-agnostic API for interacting with the W3B2 on-chain program. It handles transaction building and event handling.
+The `w3b2-solana-gateway` is a gRPC service that provides a language-agnostic API for interacting with the `w3b2-solana-program`. It is the primary entry point for most client applications.
 
-## Transaction Workflow: Prepare, Sign, Submit
+## Core Functionality
 
-The gateway uses a non-custodial workflow for all state-changing operations. Private keys are never sent over the network. Instead, interactions follow a three-step process:
+The gateway provides three main categories of RPC methods, defined in the `proto/w3b2/protocol/gateway/bridge_gateway_service.proto` file:
 
-1.  **Prepare**: The client calls a `Prepare...` RPC method (e.g., `PrepareUserDeposit`). The gateway constructs the Solana transaction and returns it to the client, unsigned.
-2.  **Sign**: The client signs the transaction locally using the appropriate private key (e.g., in a browser wallet or on a backend server).
-3.  **Submit**: The client sends the signed transaction to the `SubmitTransaction` RPC endpoint, which broadcasts it to the Solana network.
+1.  **Transaction Preparation (`prepare_*`)**: A suite of methods that map one-to-one with the instructions in the on-chain program. Each method constructs an **unsigned** transaction and returns it to the client as a serialized byte array. This enables a non-custodial workflow where the gateway never handles private keys.
+2.  **Transaction Submission (`submit_transaction`)**: A single method that accepts a signed transaction from a client, deserializes it, and submits it to the Solana network, returning the transaction signature.
+3.  **Event Streaming (`listen_as_user`, `listen_as_admin`, `unsubscribe`)**: Methods that allow clients to open a persistent, server-side stream of on-chain events for a specific `UserProfile` or `AdminProfile` PDA.
 
-## Service: `w3b2.protocol.gateway.BridgeGatewayService`
+## Usage Example with `grpcurl`
 
-The following methods are available on this service.
+The following example demonstrates how a client would interact with the gateway to prepare a transaction, and separately, how to listen for events.
 
-### Event Streaming
+### Prerequisites
 
-RPCs for subscribing to on-chain events.
+-   `grpcurl` installed.
+-   The gateway server running locally on `localhost:9090`.
 
----
+### 1. Prepare a `user_deposit` Transaction
 
-**`ListenAsUser(ListenRequest) returns (stream EventStreamItem)`**
+This RPC call asks the gateway to create an unsigned transaction for a user to deposit 0.1 SOL (100,000,000 lamports) into their profile.
 
-Subscribes to all events for a specific `UserProfile` PDA. This server-streaming RPC first sends all historical events (`catch-up`) and then streams live events as they occur.
+**Request:**
 
--   **Request**: `ListenRequest { pda: string }`
--   **Stream Item**: `EventStreamItem { event: Oneof<AllEvents> }`
+```bash
+grpcurl -plaintext \
+    -d '{
+        "authority_pubkey": "USER_WALLET_PUBKEY",
+        "admin_profile_pda": "ADMIN_PDA_PUBKEY",
+        "amount": 100000000
+    }' \
+    localhost:9090 w3b2.protocol.gateway.BridgeGatewayService/PrepareUserDeposit
+```
 
----
+-   `USER_WALLET_PUBKEY`: The user's public key (e.g., `5x...`). This wallet will be the fee-payer and signer.
+-   `ADMIN_PDA_PUBKEY`: The public key of the admin service the user is depositing funds for.
 
-**`ListenAsAdmin(ListenRequest) returns (stream EventStreamItem)`**
+**Response:**
 
-Subscribes to all events for a specific `AdminProfile` PDA. This includes events from all users who have created a profile with that admin.
+The gateway returns a JSON object containing the unsigned transaction, encoded as a base64 string.
 
--   **Request**: `ListenRequest { pda: string }`
--   **Stream Item**: `EventStreamItem { event: Oneof<AllEvents> }`
+```json
+{
+  "unsignedTx": "AVuD9J...base64_encoded_transaction...m8gQ=="
+}
+```
 
----
+The client would then decode this transaction, sign it with the user's private key, and send it back to the `submit_transaction` endpoint.
 
-**`Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty)`**
+### 2. Listen for User Events
 
-Closes an active event stream using its `subscription_id`.
+This RPC call opens a persistent stream to listen for events related to a specific `UserProfile` PDA. The server will first send all historical events and then continue to send new events as they happen.
 
--   **Request**: `UnsubscribeRequest { subscription_id: string }`
+**Request:**
 
----
+```bash
+grpcurl -plaintext \
+    -d '{
+        "pda": "USER_PROFILE_PDA_PUBKEY"
+    }' \
+    localhost:9090 w3b2.protocol.gateway.BridgeGatewayService/ListenAsUser
+```
 
-### Transaction Preparation
+-   `USER_PROFILE_PDA_PUBKEY`: The public key of the user's profile account.
 
-RPCs that prepare unsigned transactions. All methods in this section return an `UnsignedTransactionResponse { transaction: bytes }`.
+**Response Stream:**
 
-#### **Admin Methods**
+The server will stream back `EventStreamItem` messages. The first events will be historical (from the catch-up worker), followed by live events.
 
--   `PrepareAdminRegisterProfile`: Prepares a transaction to create an `AdminProfile`.
--   `PrepareAdminSetConfig`: Prepares a transaction to configure an admin's oracle settings.
--   `PrepareAdminWithdraw`: Prepares a transaction to withdraw earned funds.
--   `PrepareAdminCloseProfile`: Prepares a transaction to close an `AdminProfile`.
--   `PrepareAdminDispatchCommand`: Prepares a transaction for an admin to send a command to a user.
+```json
+{
+  "userProfileCreated": {
+    "authority": "USER_WALLET_PUBKEY",
+    "userPda": "USER_PROFILE_PDA_PUBKEY",
+    "targetAdminPda": "ADMIN_PDA_PUBKEY",
+    // ... other fields
+  }
+}
+{
+  "userFundsDeposited": {
+    "authority": "USER_WALLET_PUBKEY",
+    "userProfilePda": "USER_PROFILE_PDA_PUBKEY",
+    "amount": "100000000",
+    // ... other fields
+  }
+}
+...
+```
 
-#### **User Methods**
-
--   `PrepareUserCreateProfile`: Prepares a transaction to create a `UserProfile`.
--   `PrepareUserUpdateCommKey`: Prepares a transaction to update a user's communication key.
--   `PrepareUserDeposit`: Prepares a transaction to deposit funds into a `UserProfile`.
--   `PrepareUserWithdraw`: Prepares a transaction to withdraw funds from a `UserProfile`.
--   `PrepareUserCloseProfile`: Prepares a transaction to close a `UserProfile`.
--   `PrepareUserDispatchCommand`: Prepares a transaction for a user to execute a service command. The developer-owned oracle signature is passed in this method's request.
-
-#### **Operational Methods**
-
--   `PrepareLogAction`: Prepares a transaction to log a generic action on-chain for auditing.
-
----
-
-### Transaction Submission
-
-**`SubmitTransaction(SubmitTransactionRequest) returns (TransactionResponse)`**
-
-Submits a signed transaction to the Solana network.
-
--   **Request**: `SubmitTransactionRequest { signed_transaction: bytes }`
--   **Response**: `TransactionResponse { signature: string }` (The transaction signature).
+The client can maintain this stream to keep its own state synchronized with the blockchain in real-time. To close the connection, the client can either terminate the gRPC call or use the `Unsubscribe` method.

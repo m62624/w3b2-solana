@@ -1,131 +1,87 @@
 # Getting Started
 
-This guide walks through setting up the development environment manually. For a simpler, containerized setup, see the Docker Compose instructions in the main `README.md` file.
+This guide provides a step-by-step walkthrough for setting up a complete local development environment using Docker Compose. This is the recommended approach as it handles all dependencies, networking, and deployment automatically.
 
 ## Prerequisites
 
-Ensure the following tools are installed on your system:
+- **Docker**: [Install Docker](httpshttps://docs.docker.com/get-docker/)
+- **Docker Compose**: Included with Docker Desktop. For Linux, you may need to [install it separately](https://docs.docker.com/compose/install/).
+- **`grpcurl`** (Optional but recommended): A command-line tool for interacting with gRPC services. [Installation instructions](https://github.com/fullstorydev/grpcurl/blob/master/README.md#installation).
 
--   **Rust & Cargo**: [Install Rust](https://www.rust-lang.org/tools/install)
--   **Solana Tool Suite**: [Install Solana](https://docs.solana.com/cli/install-solana-cli-tools)
--   **Anchor**: [Install Anchor](https://www.anchor-lang.com/docs/installation)
--   **Git**: For cloning the repository.
+## 1. Generate a Program Keypair
 
-## 1. Clone the Repository
+The on-chain program requires a Solana keypair to determine its public key (Program ID). The deployment scripts expect this keypair to exist at a specific path.
 
+First, create a directory to store your keys:
 ```bash
-git clone <your-repository-url>
-cd w3b2
+mkdir keys
 ```
 
-## 2. Build the Project Components
-
-The project is structured as a Cargo workspace.
-
-### Build the On-Chain Program
-
-The on-chain program must be built first.
+Next, use the `solana-keygen` tool (which is included in the `builder` Docker image) to generate a new keypair.
 
 ```bash
-anchor build --project w3b2-solana-program
+docker compose run --rm builder solana-keygen new --outfile /keys/program-keypair.json
 ```
+- `docker compose run --rm builder`: This command runs the `builder` service defined in `docker-compose.yml`. The `--rm` flag ensures the container is removed after the command completes.
+- `solana-keygen ...`: This is the command executed *inside* the container.
+- `--outfile /keys/program-keypair.json`: This tells `solana-keygen` where to save the file *inside the container's filesystem*. Because `docker-compose.yml` mounts the host's `./keys` directory to `/keys` in the container, the generated file will appear at `./keys/program-keypair.json` on your host machine.
 
-This command compiles the program and creates a `target/deploy/w3b2_solana_program.so` file, which is the binary to be deployed to the blockchain.
+**Important**: Your `./keys/` directory is included in `.gitignore`. **Do not** commit your keypair to version control.
 
-### Build the Off-Chain Components
+## 2. Build, Deploy, and Run the Full Stack
 
-Build the connector and gateway libraries.
+With the keypair in place, you can now bring up the entire local development stack using the `full` Docker Compose profile.
 
 ```bash
-cargo build
+docker compose --profile full up --build
 ```
 
-## 3. Run the Local Environment
+This single command performs the following steps in the correct order:
+1.  **`builder`**:
+    -   Reads your `program-keypair.json` to get the Program ID.
+    -   Injects this Program ID into the on-chain program's source code.
+    -   Compiles the on-chain program (`.so` artifact and IDL).
+    -   Builds the gRPC gateway binary.
+2.  **`solana-validator`**: Starts a local Solana test validator with a persistent ledger stored in `./solana-ledger`.
+3.  **`deployer`**: Waits for the `builder` and `validator` to be ready, then deploys the compiled on-chain program to the local validator.
+4.  **`gateway`**: Starts the gRPC gateway, configured to connect to the local validator and use your Program ID.
+5.  **`docs`**: Starts a local web server to serve this documentation site.
 
-To test the full system, you need a local Solana validator and the Gateway service.
+You will see logs from all services in your terminal.
 
-### Start the Solana Test Validator
+## 3. Verify the Setup
 
-Open a new terminal and run the local validator. This command will also airdrop lamports to your default wallet, which is needed to deploy the program.
+Once all services are running, you can verify that the gateway is operational using `grpcurl`.
+
+#### List gRPC Services
+
+In a new terminal, list the services exposed by the gateway:
 
 ```bash
-solana-test-validator
+grpcurl -plaintext localhost:9090 list
 ```
 
-Keep this validator running in the background.
+You should see `w3b2.protocol.gateway.BridgeGatewayService` in the output.
 
-### Deploy the On-Chain Program
+#### Prepare a Transaction
 
-In another terminal, deploy the compiled program to your local validator.
+You can also test the `prepare` methods. Since no `AdminProfile` exists yet, you can't create a real transaction, but you can still see the gateway respond. This command attempts to prepare a registration transaction.
 
 ```bash
-anchor deploy --provider.cluster localhost --project w3b2-solana-program
+grpcurl -plaintext \
+    -d '{
+        "authority_pubkey": "5x2g37tGztWvYJkdeYc2n1f2g4v3p5q6r7s8t9u0v1w2",
+        "communication_pubkey": "5x2g37tGztWvYJkdeYc2n1f2g4v3p5q6r7s8t9u0v1w2"
+    }' \
+    localhost:9090 w3b2.protocol.gateway.BridgeGatewayService/PrepareAdminRegisterProfile
 ```
 
-Make a note of the **Program ID** that is output by this command. You will need it to configure the gateway.
+You should receive a JSON response containing a base64-encoded `unsignedTx`, confirming that the gateway is running and connected to the underlying components.
 
-### Configure and Run the Gateway
-
-The gateway requires a configuration file to specify the Solana cluster connection and the on-chain program ID.
-
-1.  **Copy the example configuration:**
-    ```bash
-    cp w3b2-solana-gateway/config.example.toml config.dev.toml
-    ```
-
-2.  **Edit `config.dev.toml`**:
-    -   Set `program_id` to the Program ID you noted after deploying.
-    -   Ensure the `rpc_url` and `ws_url` point to your local validator (the defaults are usually correct).
-
-3.  **Run the gateway:**
-    ```bash
-    cargo run --bin w3b2-solana-gateway -- --config ./config.dev.toml
-    ```
-
-The gateway will start and listen for gRPC requests on `localhost:50051` by default.
-
-## 4. Interact with the Gateway
-
-With the gateway running, you can interact with the system using any gRPC-compatible client. A simple way to test this is with `grpcurl`.
-
-### List the gRPC Services
-
-```bash
-grpcurl -plaintext localhost:50051 list
+```json
+{
+  "unsignedTx": "AVuD9J...base64_encoded_transaction...m8gQ=="
+}
 ```
 
-This should list the `w3b2.protocol.gateway.BridgeGatewayService`.
-
-### Subscribe to Events
-
-To monitor on-chain events, you can open a new terminal and subscribe to events for a specific account. This command will maintain an open connection and stream events as they are emitted.
-
-```bash
-# Replace YOUR_PDA_ADDRESS_HERE with a real AdminProfile or UserProfile PDA
-grpcurl -plaintext -d '{"pda": "YOUR_PDA_ADDRESS_HERE"}' \
-  localhost:50051 w3b2.protocol.gateway.BridgeGatewayService/ListenAsUser
-```
-
-## Docker Profiles & Program ID
-
-If you use the Docker Compose environment, you can run any part of the stack using profiles:
-
-- `builder`: Build all artifacts (smart contract and gateway) with your Program ID.
-- `solana-validator`: Local Solana test validator.
-- `deploy`: Runs the build, validator, and then the `deployer` service, which deploys the smart contract to the validator (the actual service is named `deployer`).
-- `gateway`: Runs the gRPC gateway (after deployer is finished).
-- `docs`: Serves documentation.
-- `full`: Runs the entire stack.
-
-**How it works:**  
-- The `builder` service builds all artifacts and exits.
-- The `solana-validator` service starts the local validator.
-- The `deployer` service (used in the `deploy` profile) deploys the program after builder and validator are ready.
-- The `gateway` service starts after deployer is finished and uses your Program ID.
-- The `full` profile runs all of the above together.
-
-**Important:**  
-The repository does **not** include any private keys. You must provide your own Solana program keypair (see `PROGRAM_KEYPAIR_PATH` in `.env`). The Program ID is automatically extracted from your keypair and injected into all builds and runtime configs.  
-The `program-id` field in `config.docker.toml` is a placeholder and is overridden at runtime via the `W3B2_CONNECTOR__PROGRAM_ID` environment variable.
-
-This ensures all components (listener, gateway, smart contract) are built and run with your Program ID.
+Your local development environment is now fully operational. You can proceed to the **[Examples](./examples/full-flow.md)** section to see how to interact with the system programmatically.
