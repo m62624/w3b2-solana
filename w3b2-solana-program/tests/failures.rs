@@ -101,10 +101,12 @@ fn test_fail_insufficient_admin_balance() {
         &user_authority,
         admin_pda,
         &admin_authority,
-        1,
-        command_price,
-        timestamp,
-        vec![],
+        user::DispatchCommandArgs {
+            command_id: 1,
+            price: command_price,
+            timestamp,
+            payload: vec![],
+        },
     );
 
     // At this point, the admin's internal balance is `command_price`.
@@ -270,6 +272,7 @@ fn test_fail_invalid_oracle_signer() {
         &mut svm,
         &admin_authority,
         Some(legitimate_oracle.pubkey()),
+        None,
         None,
         None,
     );
@@ -454,4 +457,183 @@ fn test_fail_signature_verification_failed() {
     );
 
     println!("✅ Signature Verification Failed (Price Mismatch) Test Passed!");
+}
+
+/// Tests that a banned user cannot dispatch a command.
+#[test]
+fn test_fail_dispatch_when_banned() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, user_pda) = setup_profiles(&mut svm);
+
+    // Ban the user
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+
+    // === 2. Act ===
+    println!("Banned user attempting to dispatch a command...");
+    let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
+    let message = [
+        0u16.to_le_bytes().as_ref(),
+        0u64.to_le_bytes().as_ref(),
+        timestamp.to_le_bytes().as_ref(),
+    ]
+    .concat();
+    let signature = admin_authority.sign_message(&message);
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction_with_signature(
+        &message,
+        &signature.as_ref().try_into().unwrap(),
+        &admin_authority.pubkey().to_bytes(),
+    );
+    let dispatch_ix =
+        user::ix_dispatch_command(&user_authority, admin_pda, 0, 0, timestamp, vec![]);
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[ed25519_ix, dispatch_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(error_code, to_error_code(BridgeError::UserIsBanned));
+
+    println!("✅ Dispatch When Banned Test Passed!");
+}
+
+/// Tests that an admin cannot ban themselves.
+#[test]
+fn test_fail_admin_ban_self() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+
+    // This keypair will act as both an Admin and a User.
+    let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
+
+    // 1. Create an AdminProfile for this authority.
+    let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
+
+    // 2. Create a UserProfile where the authority is the *same* admin, linked to their own AdminProfile.
+    let user_pda_owned_by_admin = user::create_profile(
+        &mut svm,
+        &admin_authority,
+        create_keypair().pubkey(),
+        admin_pda, // Link to the existing admin profile
+    );
+
+    // === 2. Act ===
+    println!("Admin attempting to ban their own user profile...");
+    let ban_ix = admin::ix_ban_user(&admin_authority, user_pda_owned_by_admin);
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[ban_ix],
+        Some(&admin_authority.pubkey()),
+    );
+    tx.sign(&[&admin_authority], svm.latest_blockhash());
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(error_code, to_error_code(BridgeError::CannotBanSelf));
+
+    println!("✅ Admin Ban Self Test Passed!");
+}
+
+/// Tests that a user cannot request an unban if they are not banned.
+#[test]
+fn test_fail_request_unban_when_not_banned() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (_, admin_pda, user_authority, _) = setup_profiles(&mut svm);
+
+    // === 2. Act ===
+    println!("User (not banned) attempting to request unban...");
+    let request_ix = user::ix_request_unban(&user_authority, admin_pda);
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[request_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(error_code, to_error_code(BridgeError::UserNotBanned));
+
+    println!("✅ Request Unban When Not Banned Test Passed!");
+}
+
+/// Tests that a user cannot request an unban twice.
+#[test]
+fn test_fail_request_unban_twice() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, user_pda) = setup_profiles(&mut svm);
+
+    // Ban the user and have them request an unban once.
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+    user::request_unban(&mut svm, &user_authority, admin_pda);
+
+    // === 2. Act ===
+    println!("User attempting to request unban for a second time...");
+    let request_ix = user::ix_request_unban(&user_authority, admin_pda);
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[request_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(
+        error_code,
+        to_error_code(BridgeError::UnbanAlreadyRequested)
+    );
+
+    println!("✅ Request Unban Twice Test Passed!");
+}
+
+/// Tests that a user cannot request a paid unban with insufficient funds.
+#[test]
+fn test_fail_request_unban_insufficient_funds() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, user_pda) = setup_profiles(&mut svm);
+
+    // Set a fee, but user has 0 deposit balance.
+    let unban_fee = 100_000;
+    admin::set_config(
+        &mut svm,
+        &admin_authority,
+        None,
+        None,
+        None,
+        Some(unban_fee),
+    );
+
+    // Ban the user.
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+
+    // === 2. Act ===
+    println!("User with 0 balance attempting to request paid unban...");
+    let request_ix = user::ix_request_unban(&user_authority, admin_pda);
+    let mut tx = solana_sdk::transaction::Transaction::new_with_payer(
+        &[request_ix],
+        Some(&user_authority.pubkey()),
+    );
+    tx.sign(&[&user_authority], svm.latest_blockhash());
+    let result = svm.send_transaction(tx);
+
+    // === 3. Assert ===
+    assert!(result.is_err(), "Transaction should have failed");
+    let error_code = get_error_code(result).unwrap();
+    assert_eq!(
+        error_code,
+        to_error_code(BridgeError::InsufficientDepositBalance)
+    );
+
+    println!("✅ Request Paid Unban With Insufficient Funds Test Passed!");
 }

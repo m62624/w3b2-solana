@@ -1,4 +1,4 @@
-//! The core on-chain Anchor program that manages user and service 
+//! The core on-chain Anchor program that manages user and service
 //! provider (admin) profiles and handles financial logic
 //!
 //! This crate defines the core instruction interface for creating and managing
@@ -105,6 +105,16 @@ pub mod w3b2_solana_program {
         instructions::admin_dispatch_command(ctx, command_id, payload)
     }
 
+    /// Allows an admin to ban a user, preventing them from using the service.
+    pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
+        instructions::admin_ban_user(ctx)
+    }
+
+    /// Allows an admin to unban a user, restoring their access to the service.
+    pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
+        instructions::admin_unban_user(ctx)
+    }
+
     // --- User Instructions ---
 
     /// Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.
@@ -137,16 +147,6 @@ pub mod w3b2_solana_program {
     /// * `ctx` - The context, containing the user's wallet (`authority`) and the `user_profile` to be closed.
     pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
         instructions::user_close_profile(ctx)
-    }
-
-    /// Allows an admin to ban a user, preventing them from using the service.
-    pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
-        instructions::admin_ban_user(ctx)
-    }
-
-    /// Allows an admin to unban a user, restoring their access to the service.
-    pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
-        instructions::admin_unban_user(ctx)
     }
 
     /// Allows a user to deposit lamports into their `UserProfile` PDA to pre-fund

@@ -547,7 +547,6 @@ where
                 authority,
                 user_profile: user_pda,
                 admin_profile: admin_profile_pda,
-                system_program: solana_sdk::system_program::id(),
             }
             .to_account_metas(None),
             data: instruction::UserRequestUnban {}.data(),

@@ -222,6 +222,7 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
             Some(new_oracle.pubkey()),
             Some(new_validity),
             Some(new_comm_key.pubkey()),
+            Some(100), // New unban fee
         )
         .await?;
     set_config_tx.message.recent_blockhash = context.last_blockhash;
@@ -236,6 +237,7 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
     assert_eq!(admin_profile.oracle_authority, new_oracle.pubkey());
     assert_eq!(admin_profile.timestamp_validity_seconds, new_validity);
     assert_eq!(admin_profile.communication_pubkey, new_comm_key.pubkey());
+    assert_eq!(admin_profile.unban_fee, 100);
 
     println!(
         "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
@@ -382,7 +384,9 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     // A simpler check is just to see it increased.
     assert!(final_admin_wallet_balance > initial_admin_wallet_balance);
 
-    println!("✅ Test passed: Full payment cycle and withdrawal successful. Signature: {signature}");
+    println!(
+        "✅ Test passed: Full payment cycle and withdrawal successful. Signature: {signature}"
+    );
 
     Ok(())
 }

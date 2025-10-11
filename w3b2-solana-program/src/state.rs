@@ -187,8 +187,6 @@ pub struct UserRequestUnban<'info> {
         constraint = user_profile.admin_profile_on_creation == admin_profile.key() @ BridgeError::AdminMismatch
     )]
     pub user_profile: Account<'info, UserProfile>,
-    /// The System Program, required for the underlying lamport transfer for the fee.
-    pub system_program: Program<'info, System>,
 }
 
 /// Defines the accounts for the `admin_close_profile` instruction.

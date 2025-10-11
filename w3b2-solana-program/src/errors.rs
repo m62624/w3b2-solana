@@ -44,19 +44,19 @@ pub enum BridgeError {
     #[msg("Timestamp Too Old: The provided timestamp is outside the acceptable time window.")]
     TimestampTooOld,
 
-    /// Used when a user tries to perform an action while banned.
-    #[msg("User Is Banned: This action cannot be performed because the user is banned.")]
+    /// Used when a user is banned and tries to perform a restricted action.
+    #[msg("User Is Banned: This action cannot be performed while the user is banned.")]
     UserIsBanned,
 
     /// Used when an admin tries to unban a user who is not currently banned.
     #[msg("User Not Banned: This user is not currently banned.")]
     UserNotBanned,
 
-    /// Used when a user who is already banned tries to request an unban again.
-    #[msg("Unban Already Requested: An unban has already been requested for this user.")]
+    /// Used when a user tries to request an unban when a request is already pending.
+    #[msg("Unban Already Requested: An unban request is already pending for this user.")]
     UnbanAlreadyRequested,
 
-    /// Used when an admin tries to ban their own user profile.
-    #[msg("Cannot Ban Self: An admin cannot ban their own user profile.")]
+    /// Used when an admin attempts to ban their own profile.
+    #[msg("Cannot Ban Self: An admin cannot ban their own profile.")]
     CannotBanSelf,
 }

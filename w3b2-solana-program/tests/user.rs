@@ -63,10 +63,8 @@ fn test_user_create_profile_success() {
 
     println!("✅ Create User Profile Test Passed!");
     println!("   -> User Authority: {}", user_profile.authority);
-    println!(
-        "   -> PDA Lamports: {} (matches rent-exempt minimum)",
-        user_account_data.lamports
-    );
+    let lamports = user_account_data.lamports;
+    println!("   -> PDA Lamports: {lamports} (matches rent-exempt minimum)");
 }
 
 /// Tests the successful update of a `UserProfile`'s communication key.
@@ -146,7 +144,9 @@ fn test_user_close_profile_success() {
     assert_eq!(authority_balance_after, expected_balance);
 
     println!("✅ Close User Profile Test Passed!");
-    println!("   -> User authority balance correctly refunded: {authority_balance_before} -> {authority_balance_after}");
+    println!(
+        "   -> User authority balance correctly refunded: {authority_balance_before} -> {authority_balance_after}"
+    );
 }
 
 /// Tests the successful deposit of funds into a `UserProfile`.
@@ -201,8 +201,8 @@ fn test_user_deposit_success() {
         user_profile_after.deposit_balance
     );
     println!(
-        "   -> PDA lamport balance increased from {} to {}",
-        pda_lamports_before, user_account_data_after.lamports
+        "   -> PDA lamport balance increased from {pda_lamports_before} to {}",
+        user_account_data_after.lamports
     );
 }
 
@@ -315,10 +315,12 @@ fn test_user_dispatch_command_success() {
         &user_authority,
         admin_pda,
         &admin_authority, // Oracle signer
-        command_id_to_call,
-        command_price,
-        timestamp,
-        vec![1, 2, 3], // Arbitrary payload
+        user::DispatchCommandArgs {
+            command_id: command_id_to_call,
+            price: command_price,
+            timestamp,
+            payload: vec![1, 2, 3], // Arbitrary payload
+        },
     );
     println!("Command dispatched successfully.");
 
@@ -353,11 +355,102 @@ fn test_user_dispatch_command_success() {
 
     println!("✅ User Dispatch Command Test Passed!");
     println!(
-        "   -> User balance changed: {} -> {}",
-        deposit_amount, user_profile_after.deposit_balance
+        "   -> User balance changed: {deposit_amount} -> {}",
+        user_profile_after.deposit_balance
     );
     println!(
         "   -> Admin balance changed: {} -> {}",
         admin_profile_before.balance, admin_profile_after.balance
     );
+}
+
+/// Tests the user's ability to request an unban, both with and without a fee.
+#[test]
+fn test_user_request_unban_success() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, admin_pda, user_authority, user_pda) = setup_profiles(&mut svm);
+
+    // Ban the user first
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+
+    // --- Scenario 1: Unban request with no fee ---
+    println!("Testing unban request with zero fee...");
+
+    // === 2. Act ===
+    user::request_unban(&mut svm, &user_authority, admin_pda);
+
+    // === 3. Assert ===
+    let user_profile_after_free_req = {
+        let account_data = svm.get_account(&user_pda).unwrap();
+        UserProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+    assert!(
+        user_profile_after_free_req.unban_requested,
+        "unban_requested flag should be true after a free request"
+    );
+    println!("✅ Free unban request successful.");
+
+    // Reset state for the next scenario
+    admin::unban_user(&mut svm, &admin_authority, user_pda);
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+
+    // --- Scenario 2: Unban request with a fee ---
+    println!("Testing unban request with a fee...");
+
+    // === 4. Arrange (continued) ===
+    let unban_fee = 100_000;
+    let deposit_amount = unban_fee + 50_000; // Deposit more than the fee
+
+    // Admin sets the unban fee
+    admin::set_config(
+        &mut svm,
+        &admin_authority,
+        None,
+        None,
+        None,
+        Some(unban_fee),
+    );
+
+    // User deposits funds to pay the fee
+    user::deposit(&mut svm, &user_authority, admin_pda, deposit_amount);
+
+    let user_balance_before = deposit_amount;
+    let admin_balance_before = {
+        let account_data = svm.get_account(&admin_pda).unwrap();
+        AdminProfile::try_deserialize(&mut account_data.data.as_slice())
+            .unwrap()
+            .balance
+    };
+
+    // === 5. Act ===
+    user::request_unban(&mut svm, &user_authority, admin_pda);
+
+    // === 6. Assert ===
+    let user_profile_after_paid_req = {
+        let account_data = svm.get_account(&user_pda).unwrap();
+        UserProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+    let admin_profile_after_paid_req = {
+        let account_data = svm.get_account(&admin_pda).unwrap();
+        AdminProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+
+    assert!(
+        user_profile_after_paid_req.unban_requested,
+        "unban_requested flag should be true after a paid request"
+    );
+    assert_eq!(
+        user_profile_after_paid_req.deposit_balance,
+        user_balance_before - unban_fee,
+        "User balance should be debited by the fee"
+    );
+    assert_eq!(
+        admin_profile_after_paid_req.balance,
+        admin_balance_before + unban_fee,
+        "Admin balance should be credited with the fee"
+    );
+    println!("✅ Paid unban request successful, balances updated correctly.");
+
+    println!("✅ User Request Unban Test Passed!");
 }

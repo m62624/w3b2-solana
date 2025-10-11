@@ -2,7 +2,7 @@ use super::*;
 use crate::instructions::solana_program::program::invoke;
 use anchor_lang::solana_program;
 use solana_program::{
-    example_mocks::solana_sdk::system_instruction,
+    system_instruction,
     sysvar::instructions::{load_current_index_checked, load_instruction_at_checked},
 };
 
@@ -63,6 +63,15 @@ pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
 }
 
 /// Allows an admin to unban a user, restoring their access to the service.
+///
+/// This model is intentionally flexible:
+/// - The admin can unban a user for free if the ban was issued in error.
+/// - The admin can refuse to unban a user even if they have paid the fee
+///   (though this may be a poor decision from a reputation standpoint, it is
+///   technically possible).
+/// - Paying the `unban_fee` is not a purchase of an unban, but a payment for
+///   the review of the request. It is like filing an appeal in court—you pay
+///   the fee, but it does not guarantee a win.
 pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
 
@@ -75,50 +84,6 @@ pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
         admin_authority: ctx.accounts.authority.key(),
         admin_pda: ctx.accounts.admin_profile.key(),
         user_profile_pda: user_profile.key(),
-        ts: Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
-}
-
-/// Allows a banned user to pay a fee to request an unban from the admin.
-pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
-    let user_profile = &mut ctx.accounts.user_profile;
-    let admin_profile = &mut ctx.accounts.admin_profile;
-    let fee = admin_profile.unban_fee;
-
-    // The user must be banned to request an unban.
-    require!(user_profile.banned, BridgeError::UserNotBanned);
-    // The user cannot request an unban if one is already pending.
-    require!(
-        !user_profile.unban_requested,
-        BridgeError::UnbanAlreadyRequested
-    );
-
-    // Process the unban fee payment.
-    if fee > 0 {
-        require!(
-            user_profile.deposit_balance >= fee,
-            BridgeError::InsufficientDepositBalance
-        );
-
-        // Transfer lamports from user PDA to admin PDA
-        **user_profile.to_account_info().try_borrow_mut_lamports()? -= fee;
-        **admin_profile.to_account_info().try_borrow_mut_lamports()? += fee;
-
-        // Update internal balances
-        user_profile.deposit_balance -= fee;
-        admin_profile.balance += fee;
-    }
-
-    // Set the flag indicating an unban has been requested.
-    user_profile.unban_requested = true;
-
-    emit!(UserUnbanRequested {
-        user_authority: user_profile.authority,
-        user_profile_pda: user_profile.key(),
-        admin_pda: admin_profile.key(),
-        fee_paid: fee,
         ts: Clock::get()?.unix_timestamp,
     });
 
@@ -283,7 +248,6 @@ pub fn user_create_profile(
 /// Updates the `communication_pubkey` for an existing `UserProfile`.
 pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
-    require!(!user_profile.banned, BridgeError::UserIsBanned);
     user_profile.communication_pubkey = new_key;
     emit!(UserCommKeyUpdated {
         authority: ctx.accounts.authority.key(),
@@ -300,15 +264,64 @@ pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) ->
 /// held by the `user_profile` PDA (both for rent and from any remaining `deposit_balance`)
 /// are safely returned to the user's `authority` wallet.
 pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
-    let user_profile = &mut ctx.accounts.user_profile;
-    require!(!user_profile.banned, BridgeError::UserIsBanned);
-
     emit!(UserProfileClosed {
         authority: ctx.accounts.authority.key(),
         user_pda: ctx.accounts.user_profile.key(),
         admin_pda: ctx.accounts.admin_profile.key(),
         ts: Clock::get()?.unix_timestamp,
     });
+    Ok(())
+}
+
+/// Allows a banned user to pay a fee to request an unban from the admin.
+pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+    let admin_profile = &mut ctx.accounts.admin_profile;
+    let fee = admin_profile.unban_fee;
+
+    // The user must be banned to request an unban.
+    require!(user_profile.banned, BridgeError::UserNotBanned);
+    // The user cannot request an unban if one is already pending.
+    require!(
+        !user_profile.unban_requested,
+        BridgeError::UnbanAlreadyRequested
+    );
+
+    // Process the unban fee payment.
+    if fee > 0 {
+        require!(
+            user_profile.deposit_balance >= fee,
+            BridgeError::InsufficientDepositBalance
+        );
+
+        // Check if the on-chain lamport balance will remain above the rent-exempt minimum.
+        let rent = Rent::get()?;
+        let rent_exempt_minimum = rent.minimum_balance(user_profile.to_account_info().data_len());
+        require!(
+            user_profile.to_account_info().lamports() - fee >= rent_exempt_minimum,
+            BridgeError::RentExemptViolation
+        );
+
+        // Transfer lamports from user PDA to admin PDA
+        **user_profile.to_account_info().try_borrow_mut_lamports()? -= fee;
+        **admin_profile.to_account_info().try_borrow_mut_lamports()? += fee;
+
+        // Update internal balances
+        user_profile.deposit_balance -= fee;
+        admin_profile.balance += fee;
+    }
+
+    // Set the flag indicating an unban has been requested.
+    user_profile.unban_requested = true;
+
+    emit!(UserUnbanRequested {
+        user_authority: user_profile.authority,
+        user_profile_pda: user_profile.key(),
+        admin_pda: admin_profile.key(),
+        fee_paid: fee,
+        ts: Clock::get()?.unix_timestamp,
+    });
+
     Ok(())
 }
 
@@ -354,8 +367,6 @@ pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
 pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     let destination = &ctx.accounts.destination;
-
-    require!(!user_profile.banned, BridgeError::UserIsBanned);
 
     // Check if the internal deposit balance is sufficient.
     require!(

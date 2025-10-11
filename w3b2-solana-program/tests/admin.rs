@@ -15,6 +15,8 @@ use solana_program::sysvar::rent::Rent;
 use solana_sdk::signature::{Keypair, Signer};
 use w3b2_solana_program::state::{AdminProfile, UserProfile};
 
+use crate::instructions::user::DispatchCommandArgs;
+
 /// Tests the successful creation of an `AdminProfile` PDA.
 /// Verifies that the profile is initialized with correct default values and rent-exempt lamports.
 #[test]
@@ -110,6 +112,7 @@ fn test_admin_set_config_success() {
         Some(new_oracle.pubkey()),
         None, // Do not change validity
         None, // Do not change comm key
+        None,
     );
 
     let admin_profile_mid = {
@@ -144,6 +147,7 @@ fn test_admin_set_config_success() {
         None, // Do not change oracle this time
         Some(new_validity),
         Some(new_comm_key.pubkey()),
+        None,
     );
 
     let admin_account_data = svm.get_account(&admin_pda).unwrap();
@@ -258,6 +262,50 @@ fn test_admin_dispatch_command_success() {
     );
 }
 
+/// Tests the full ban/unban cycle initiated by an admin.
+#[test]
+fn test_admin_ban_and_unban_user_success() {
+    // === 1. Arrange ===
+    let mut svm = setup_svm();
+    let (admin_authority, _, _, user_pda) = setup_profiles(&mut svm);
+
+    // === 2. Act: Ban the user ===
+    println!("Admin banning user...");
+    admin::ban_user(&mut svm, &admin_authority, user_pda);
+
+    // === 3. Assert: Check if user is banned ===
+    let user_profile_banned = {
+        let account_data = svm.get_account(&user_pda).unwrap();
+        UserProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+    assert!(
+        user_profile_banned.banned,
+        "User should be marked as banned"
+    );
+    println!("✅ User successfully banned.");
+
+    // === 4. Act: Unban the user ===
+    println!("Admin unbanning user...");
+    admin::unban_user(&mut svm, &admin_authority, user_pda);
+
+    // === 5. Assert: Check if user is unbanned ===
+    let user_profile_unbanned = {
+        let account_data = svm.get_account(&user_pda).unwrap();
+        UserProfile::try_deserialize(&mut account_data.data.as_slice()).unwrap()
+    };
+    assert!(
+        !user_profile_unbanned.banned,
+        "User should be marked as not banned"
+    );
+    assert!(
+        !user_profile_unbanned.unban_requested,
+        "Unban request flag should be reset"
+    );
+    println!("✅ User successfully unbanned.");
+
+    println!("✅ Admin Ban/Unban Cycle Test Passed!");
+}
+
 /// Tests the successful withdrawal of *earned* funds by an admin.
 /// This is an integration test: a user pays an admin, then the admin withdraws the earnings.
 /// Verifies that the admin's internal `balance` and the PDA's lamport balance decrease
@@ -294,10 +342,12 @@ fn test_admin_withdraw_success() {
         &user_authority,
         admin_pda,
         &admin_authority, // Oracle signer is the admin
-        1,                // command_id
-        command_price,
-        timestamp,
-        vec![1, 2, 3], // payload
+        DispatchCommandArgs {
+            command_id: 1,
+            price: command_price,
+            timestamp,
+            payload: vec![1, 2, 3],
+        },
     );
 
     // Prepare for the withdrawal
