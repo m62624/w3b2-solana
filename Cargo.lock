@@ -9315,6 +9315,7 @@ dependencies = [
  "solana-program-test",
  "solana-rpc-client-api",
  "solana-sdk",
+ "solana-system-interface",
  "solana-transaction-status",
  "tokio",
  "tokio-stream",
@@ -9352,7 +9353,6 @@ dependencies = [
  "tracing",
  "w3b2-solana-connector",
  "w3b2-solana-logger",
- "w3b2-solana-program",
 ]
 
 [[package]]
@@ -9360,13 +9360,7 @@ name = "w3b2-solana-logger"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 2.0.1",
- "chrono",
- "config",
  "serde",
- "solana-sdk",
- "thiserror 2.0.17",
- "tokio",
  "tracing",
  "tracing-subscriber",
 ]

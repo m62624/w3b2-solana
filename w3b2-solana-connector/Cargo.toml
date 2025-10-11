@@ -37,6 +37,7 @@ dirs = "6.0.0"
 solana-program-test = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 sled = { workspace = true }
+solana-system-interface = { version = "1.0.0", features = ["bincode"] }
 
 [features]
 serde = ["dep:serde"]

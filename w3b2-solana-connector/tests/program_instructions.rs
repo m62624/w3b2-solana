@@ -8,13 +8,12 @@ use solana_sdk::{
     native_token::LAMPORTS_PER_SOL,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    system_instruction,
     transaction::Transaction,
 };
+use solana_system_interface::instruction as system_instruction;
 use std::{env, sync::Arc};
-use w3b2_solana_connector::client::{AsyncRpcClient, TransactionBuilder};
+use w3b2_solana_connector::client::{AsyncRpcClient, TransactionBuilder, UserDispatchCommandArgs};
 use w3b2_solana_program::state::AdminProfile;
-
 struct BanksClientWrapper(BanksClient);
 
 #[async_trait]
@@ -227,17 +226,16 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
         .await?;
     set_config_tx.message.recent_blockhash = context.last_blockhash;
     set_config_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&set_config_tx).await?;
+    let signature = transaction_builder
+        .submit_transaction(&set_config_tx)
+        .await?;
 
     let account = context.banks_client.get_account(admin_pda).await?.unwrap();
     let admin_profile = AdminProfile::try_deserialize(&mut account.data.as_slice())?;
 
     assert_eq!(admin_profile.oracle_authority, new_oracle.pubkey());
     assert_eq!(admin_profile.timestamp_validity_seconds, new_validity);
-    assert_eq!(
-        admin_profile.communication_pubkey,
-        new_comm_key.pubkey()
-    );
+    assert_eq!(admin_profile.communication_pubkey, new_comm_key.pubkey());
 
     println!(
         "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
@@ -321,12 +319,14 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .prepare_user_dispatch_command(
             user_authority.pubkey(),
             admin_pda,
-            command_id,
-            command_price,
-            timestamp,
-            vec![1, 2, 3], // Dummy payload
-            admin_authority.pubkey(),
-            signature.as_ref().try_into().unwrap(),
+            UserDispatchCommandArgs {
+                command_id,
+                price: command_price,
+                timestamp,
+                payload: vec![1, 2, 3], // Dummy payload
+                oracle_pubkey: admin_authority.pubkey(),
+                oracle_signature: signature.as_ref().try_into().unwrap(),
+            },
         )
         .await?;
     dispatch_tx.message.recent_blockhash = context.last_blockhash;

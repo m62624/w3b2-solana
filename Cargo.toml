@@ -12,6 +12,7 @@ members = [
 w3b2-solana-program = { path = "w3b2-solana-program" }
 w3b2-solana-connector = { path = "w3b2-solana-connector" }
 w3b2-solana-gateway = { path = "w3b2-solana-gateway" }
+w3b2-solana-logger = { path = "w3b2-solana-logger" }
 
 # external
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
