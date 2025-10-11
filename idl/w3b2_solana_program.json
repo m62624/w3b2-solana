@@ -12,6 +12,66 @@
   ],
   "instructions": [
     {
+      "name": "admin_ban_user",
+      "docs": [
+        "Allows an admin to ban a user, preventing them from using the service."
+      ],
+      "discriminator": [
+        38,
+        174,
+        14,
+        0,
+        122,
+        243,
+        199,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin_profile",
+          "docs": [
+            "The `AdminProfile` of the admin initiating the ban. Constraints verify",
+            "the `authority` and the PDA seeds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_profile",
+          "docs": [
+            "The `UserProfile` to be banned. This account will be mutated.",
+            "A constraint ensures this profile is associated with this specific `admin_profile`."
+          ],
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "admin_close_profile",
       "docs": [
         "Closes an `AdminProfile` account and refunds its rent lamports to the owner.",
@@ -292,8 +352,74 @@
           "type": {
             "option": "pubkey"
           }
+        },
+        {
+          "name": "new_unban_fee",
+          "type": {
+            "option": "u64"
+          }
         }
       ]
+    },
+    {
+      "name": "admin_unban_user",
+      "docs": [
+        "Allows an admin to unban a user, restoring their access to the service."
+      ],
+      "discriminator": [
+        213,
+        103,
+        241,
+        137,
+        68,
+        193,
+        25,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin_profile",
+          "docs": [
+            "The `AdminProfile` of the admin initiating the unban. Constraints verify",
+            "the `authority` and the PDA seeds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_profile",
+          "docs": [
+            "The `UserProfile` to be unbanned. This account will be mutated.",
+            "A constraint ensures this profile is associated with this specific `admin_profile`."
+          ],
+          "writable": true
+        }
+      ],
+      "args": []
     },
     {
       "name": "admin_withdraw",
@@ -824,6 +950,87 @@
       ]
     },
     {
+      "name": "user_request_unban",
+      "docs": [
+        "Allows a banned user to pay a fee to request an unban from the admin."
+      ],
+      "discriminator": [
+        71,
+        168,
+        240,
+        232,
+        214,
+        178,
+        123,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The `Signer` (the user's wallet) who must be the `authority` of the `user_profile`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin_profile",
+          "docs": [
+            "The `AdminProfile` associated with the `user_profile`. It will receive the unban fee."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  109,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "admin_profile.authority",
+                "account": "AdminProfile"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_profile",
+          "docs": [
+            "The `UserProfile` requesting the unban."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "account",
+                "path": "admin_profile"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "user_update_comm_key",
       "docs": [
         "Updates the `communication_pubkey` for an existing `UserProfile`.",
@@ -1066,6 +1273,19 @@
       ]
     },
     {
+      "name": "AdminUnbanFeeUpdated",
+      "discriminator": [
+        187,
+        26,
+        215,
+        2,
+        11,
+        64,
+        123,
+        134
+      ]
+    },
+    {
       "name": "OffChainActionLogged",
       "discriminator": [
         146,
@@ -1076,6 +1296,19 @@
         249,
         229,
         0
+      ]
+    },
+    {
+      "name": "UserBanned",
+      "discriminator": [
+        115,
+        195,
+        2,
+        181,
+        111,
+        76,
+        236,
+        164
       ]
     },
     {
@@ -1155,6 +1388,32 @@
         72,
         125
       ]
+    },
+    {
+      "name": "UserUnbanRequested",
+      "discriminator": [
+        234,
+        199,
+        37,
+        140,
+        230,
+        54,
+        16,
+        31
+      ]
+    },
+    {
+      "name": "UserUnbanned",
+      "discriminator": [
+        128,
+        216,
+        43,
+        19,
+        23,
+        106,
+        239,
+        190
+      ]
     }
   ],
   "errors": [
@@ -1207,6 +1466,26 @@
       "code": 6009,
       "name": "TimestampTooOld",
       "msg": "Timestamp Too Old: The provided timestamp is outside the acceptable time window."
+    },
+    {
+      "code": 6010,
+      "name": "UserIsBanned",
+      "msg": "User Is Banned: This action cannot be performed while the user is banned."
+    },
+    {
+      "code": 6011,
+      "name": "UserNotBanned",
+      "msg": "User Not Banned: This user is not currently banned."
+    },
+    {
+      "code": 6012,
+      "name": "UnbanAlreadyRequested",
+      "msg": "Unban Already Requested: An unban request is already pending for this user."
+    },
+    {
+      "code": 6013,
+      "name": "CannotBanSelf",
+      "msg": "Cannot Ban Self: An admin cannot ban their own profile."
     }
   ],
   "types": [
@@ -1411,6 +1690,14 @@
               "This balance can be withdrawn by the admin via the `admin_withdraw` instruction."
             ],
             "type": "u64"
+          },
+          {
+            "name": "unban_fee",
+            "docs": [
+              "The fee in lamports that a user must pay to request an unban.",
+              "This can be configured by the admin."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -1490,6 +1777,45 @@
       }
     },
     {
+      "name": "AdminUnbanFeeUpdated",
+      "docs": [
+        "Emitted when an admin updates the unban fee for their service."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "The public key of the admin's wallet (`authority`) that authorized this update."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_pda",
+            "docs": [
+              "The public key of the `AdminProfile` PDA that was updated."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "new_unban_fee",
+            "docs": [
+              "The new fee in lamports for requesting an unban."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "docs": [
+              "The Unix timestamp of the update."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "OffChainActionLogged",
       "docs": [
         "A generic event for logging significant off-chain actions for auditing purposes."
@@ -1536,6 +1862,45 @@
             "name": "ts",
             "docs": [
               "The Unix timestamp of the logged action."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserBanned",
+      "docs": [
+        "Emitted when an admin bans a user."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin_authority",
+            "docs": [
+              "The public key of the admin's wallet (`authority`) who initiated the ban."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_pda",
+            "docs": [
+              "The public key of the `AdminProfile` PDA of the admin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "user_profile_pda",
+            "docs": [
+              "The public key of the `UserProfile` PDA that was banned."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "docs": [
+              "The Unix timestamp of the ban."
             ],
             "type": "i64"
           }
@@ -1780,6 +2145,22 @@
               "is debited by the `user_dispatch_command` instruction."
             ],
             "type": "u64"
+          },
+          {
+            "name": "banned",
+            "docs": [
+              "A flag indicating whether the user is banned from using the service.",
+              "If true, most user-initiated actions will be blocked."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "unban_requested",
+            "docs": [
+              "A flag indicating that the user has paid the fee and requested to be unbanned.",
+              "This does not automatically lift the ban."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -1863,6 +2244,91 @@
             "name": "ts",
             "docs": [
               "The Unix timestamp of the profile creation."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserUnbanRequested",
+      "docs": [
+        "Emitted when a user pays the fee to request an unban."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user_authority",
+            "docs": [
+              "The public key of the user's wallet (`authority`) who requested the unban."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "user_profile_pda",
+            "docs": [
+              "The public key of the `UserProfile` PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_pda",
+            "docs": [
+              "The public key of the `AdminProfile` PDA this user is linked to."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_paid",
+            "docs": [
+              "The fee paid by the user in lamports."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "docs": [
+              "The Unix timestamp of the request."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserUnbanned",
+      "docs": [
+        "Emitted when an admin unbans a user."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin_authority",
+            "docs": [
+              "The public key of the admin's wallet (`authority`) who lifted the ban."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_pda",
+            "docs": [
+              "The public key of the `AdminProfile` PDA of the admin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "user_profile_pda",
+            "docs": [
+              "The public key of the `UserProfile` PDA that was unbanned."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "docs": [
+              "The Unix timestamp of the unban."
             ],
             "type": "i64"
           }

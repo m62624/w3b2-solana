@@ -34,6 +34,10 @@ pub enum BridgeEventData {
     UserProfileClosed(OnChainEvent::UserProfileClosed),
     UserCommandDispatched(OnChainEvent::UserCommandDispatched),
     OffChainActionLogged(OnChainEvent::OffChainActionLogged),
+    AdminUnbanFeeUpdated(OnChainEvent::AdminUnbanFeeUpdated),
+    UserBanned(OnChainEvent::UserBanned),
+    UserUnbanned(OnChainEvent::UserUnbanned),
+    UserUnbanRequested(OnChainEvent::UserUnbanRequested),
     Unknown,
 }
 
@@ -124,6 +128,22 @@ pub fn try_parse_log(log: &str) -> Result<BridgeEvent> {
                 try_match::<OnChainEvent::OffChainActionLogged, _>(
                     data,
                     BridgeEventData::OffChainActionLogged,
+                )
+            })
+            .or_else(|| {
+                try_match::<OnChainEvent::AdminUnbanFeeUpdated, _>(
+                    data,
+                    BridgeEventData::AdminUnbanFeeUpdated,
+                )
+            })
+            .or_else(|| try_match::<OnChainEvent::UserBanned, _>(data, BridgeEventData::UserBanned))
+            .or_else(|| {
+                try_match::<OnChainEvent::UserUnbanned, _>(data, BridgeEventData::UserUnbanned)
+            })
+            .or_else(|| {
+                try_match::<OnChainEvent::UserUnbanRequested, _>(
+                    data,
+                    BridgeEventData::UserUnbanRequested,
                 )
             })
             .unwrap_or(BridgeEventData::Unknown);

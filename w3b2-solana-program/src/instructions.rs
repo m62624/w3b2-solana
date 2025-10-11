@@ -2,7 +2,7 @@ use super::*;
 use crate::instructions::solana_program::program::invoke;
 use anchor_lang::solana_program;
 use solana_program::{
-    example_mocks::solana_sdk::system_instruction,
+    system_instruction,
     sysvar::instructions::{load_current_index_checked, load_instruction_at_checked},
 };
 
@@ -28,6 +28,7 @@ pub fn admin_register_profile(
     admin_profile.oracle_authority = ctx.accounts.authority.key();
     admin_profile.timestamp_validity_seconds = MAX_TIMESTAMP_AGE_SECONDS; // Set default value
     admin_profile.balance = 0;
+    admin_profile.unban_fee = 0; // Default unban fee is 0
 
     emit!(AdminProfileRegistered {
         authority: admin_profile.authority,
@@ -38,14 +39,67 @@ pub fn admin_register_profile(
     Ok(())
 }
 
+/// Allows an admin to ban a user, preventing them from using the service.
+pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+
+    // An admin cannot ban themself.
+    require_keys_neq!(
+        user_profile.authority,
+        ctx.accounts.authority.key(),
+        BridgeError::CannotBanSelf
+    );
+
+    user_profile.banned = true;
+
+    emit!(UserBanned {
+        admin_authority: ctx.accounts.authority.key(),
+        admin_pda: ctx.accounts.admin_profile.key(),
+        user_profile_pda: user_profile.key(),
+        ts: Clock::get()?.unix_timestamp,
+    });
+
+    Ok(())
+}
+
+/// Allows an admin to unban a user, restoring their access to the service.
+///
+/// This model is intentionally flexible:
+/// - The admin can unban a user for free if the ban was issued in error.
+/// - The admin can refuse to unban a user even if they have paid the fee
+///   (though this may be a poor decision from a reputation standpoint, it is
+///   technically possible).
+/// - Paying the `unban_fee` is not a purchase of an unban, but a payment for
+///   the review of the request. It is like filing an appeal in court—you pay
+///   the fee, but it does not guarantee a win.
+pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+
+    require!(user_profile.banned, BridgeError::UserNotBanned);
+
+    user_profile.banned = false;
+    user_profile.unban_requested = false; // Reset the request flag
+
+    emit!(UserUnbanned {
+        admin_authority: ctx.accounts.authority.key(),
+        admin_pda: ctx.accounts.admin_profile.key(),
+        user_profile_pda: user_profile.key(),
+        ts: Clock::get()?.unix_timestamp,
+    });
+
+    Ok(())
+}
+
 /// Sets the configuration for an `AdminProfile`, including the oracle authority and timestamp validity.
 pub fn admin_set_config(
     ctx: Context<AdminSetConfig>,
     new_oracle_authority: Option<Pubkey>,
     new_timestamp_validity: Option<i64>,
     new_communication_pubkey: Option<Pubkey>,
+    new_unban_fee: Option<u64>,
 ) -> Result<()> {
     let admin_profile = &mut ctx.accounts.admin_profile;
+    let mut fee_updated = false;
 
     if let Some(new_oracle) = new_oracle_authority {
         admin_profile.oracle_authority = new_oracle;
@@ -56,6 +110,10 @@ pub fn admin_set_config(
     if let Some(new_comm_key) = new_communication_pubkey {
         admin_profile.communication_pubkey = new_comm_key;
     }
+    if let Some(new_fee) = new_unban_fee {
+        admin_profile.unban_fee = new_fee;
+        fee_updated = true;
+    }
 
     emit!(AdminConfigUpdated {
         authority: admin_profile.authority,
@@ -65,6 +123,16 @@ pub fn admin_set_config(
         new_communication_pubkey: admin_profile.communication_pubkey,
         ts: Clock::get()?.unix_timestamp,
     });
+
+    if fee_updated {
+        emit!(AdminUnbanFeeUpdated {
+            authority: admin_profile.authority,
+            admin_pda: admin_profile.key(),
+            new_unban_fee: admin_profile.unban_fee,
+            ts: Clock::get()?.unix_timestamp,
+        });
+    }
+
     Ok(())
 }
 
@@ -164,6 +232,8 @@ pub fn user_create_profile(
     user_profile.deposit_balance = 0;
     user_profile.communication_pubkey = communication_pubkey;
     user_profile.admin_profile_on_creation = target_admin_pda;
+    user_profile.banned = false;
+    user_profile.unban_requested = false;
 
     emit!(UserProfileCreated {
         authority: user_profile.authority,
@@ -177,10 +247,11 @@ pub fn user_create_profile(
 
 /// Updates the `communication_pubkey` for an existing `UserProfile`.
 pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
-    ctx.accounts.user_profile.communication_pubkey = new_key;
+    let user_profile = &mut ctx.accounts.user_profile;
+    user_profile.communication_pubkey = new_key;
     emit!(UserCommKeyUpdated {
         authority: ctx.accounts.authority.key(),
-        user_profile_pda: ctx.accounts.user_profile.key(),
+        user_profile_pda: user_profile.key(),
         new_comm_pubkey: new_key,
         ts: Clock::get()?.unix_timestamp,
     });
@@ -199,6 +270,58 @@ pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
         admin_pda: ctx.accounts.admin_profile.key(),
         ts: Clock::get()?.unix_timestamp,
     });
+    Ok(())
+}
+
+/// Allows a banned user to pay a fee to request an unban from the admin.
+pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+    let admin_profile = &mut ctx.accounts.admin_profile;
+    let fee = admin_profile.unban_fee;
+
+    // The user must be banned to request an unban.
+    require!(user_profile.banned, BridgeError::UserNotBanned);
+    // The user cannot request an unban if one is already pending.
+    require!(
+        !user_profile.unban_requested,
+        BridgeError::UnbanAlreadyRequested
+    );
+
+    // Process the unban fee payment.
+    if fee > 0 {
+        require!(
+            user_profile.deposit_balance >= fee,
+            BridgeError::InsufficientDepositBalance
+        );
+
+        // Check if the on-chain lamport balance will remain above the rent-exempt minimum.
+        let rent = Rent::get()?;
+        let rent_exempt_minimum = rent.minimum_balance(user_profile.to_account_info().data_len());
+        require!(
+            user_profile.to_account_info().lamports() - fee >= rent_exempt_minimum,
+            BridgeError::RentExemptViolation
+        );
+
+        // Transfer lamports from user PDA to admin PDA
+        **user_profile.to_account_info().try_borrow_mut_lamports()? -= fee;
+        **admin_profile.to_account_info().try_borrow_mut_lamports()? += fee;
+
+        // Update internal balances
+        user_profile.deposit_balance -= fee;
+        admin_profile.balance += fee;
+    }
+
+    // Set the flag indicating an unban has been requested.
+    user_profile.unban_requested = true;
+
+    emit!(UserUnbanRequested {
+        user_authority: user_profile.authority,
+        user_profile_pda: user_profile.key(),
+        admin_pda: admin_profile.key(),
+        fee_paid: fee,
+        ts: Clock::get()?.unix_timestamp,
+    });
+
     Ok(())
 }
 
@@ -288,6 +411,9 @@ pub fn user_dispatch_command(
     timestamp: i64,
     payload: Vec<u8>,
 ) -> Result<()> {
+    let user_profile = &mut ctx.accounts.user_profile;
+
+    require!(!user_profile.banned, BridgeError::UserIsBanned);
     require!(
         payload.len() <= MAX_PAYLOAD_SIZE,
         BridgeError::PayloadTooLarge

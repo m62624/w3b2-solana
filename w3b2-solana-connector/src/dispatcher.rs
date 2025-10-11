@@ -53,13 +53,23 @@ pub struct DispatcherHandle {
 
 impl DispatcherHandle {
     pub async fn dispatch(&self, event: BridgeEvent) {
-        if self.command_tx.send(DispatcherCommand::Dispatch(event)).await.is_err() {
+        if self
+            .command_tx
+            .send(DispatcherCommand::Dispatch(event))
+            .await
+            .is_err()
+        {
             tracing::warn!("Failed to dispatch event: dispatcher may be down");
         }
     }
 
     pub async fn stop(&self) {
-        if self.command_tx.send(DispatcherCommand::Shutdown).await.is_err() {
+        if self
+            .command_tx
+            .send(DispatcherCommand::Shutdown)
+            .await
+            .is_err()
+        {
             tracing::warn!("Failed to send shutdown to dispatcher: it may already be down");
         }
     }
@@ -73,7 +83,12 @@ impl Dispatcher {
         command_rx: mpsc::Receiver<DispatcherCommand>,
     ) -> (Self, DispatcherHandle) {
         let (event_tx, event_rx) = mpsc::channel(config.channels.dispatcher_event_buffer);
-        let dispatcher = Self { listeners: HashMap::new(), command_rx, event_tx, event_rx };
+        let dispatcher = Self {
+            listeners: HashMap::new(),
+            command_rx,
+            event_tx,
+            event_rx,
+        };
         let handle = DispatcherHandle { command_tx };
         (dispatcher, handle)
     }
@@ -101,7 +116,8 @@ impl Dispatcher {
     /// Handles an incoming event by dispatching it to all relevant listeners.
     async fn handle_event(&mut self, event: BridgeEvent) {
         let pdas = extract_pdas_from_event(&event.data);
-        let sends = pdas.iter()
+        let sends = pdas
+            .iter()
             .filter_map(|pda| self.listeners.get(pda).map(|channels| (pda, channels)))
             .map(|(pda, channels)| {
                 let target_tx = match event.source {
@@ -111,7 +127,10 @@ impl Dispatcher {
                 let event_clone = event.clone();
                 async move {
                     if target_tx.send(event_clone).await.is_err() {
-                        tracing::warn!("Listener for PDA {} disconnected. It will be removed.", pda);
+                        tracing::warn!(
+                            "Listener for PDA {} disconnected. It will be removed.",
+                            pda
+                        );
                         return Some(*pda);
                     }
                     None
@@ -178,6 +197,16 @@ fn extract_pdas_from_event(event_data: &crate::events::BridgeEventData) -> Vec<P
         }
         crate::events::BridgeEventData::OffChainActionLogged(e) => {
             vec![e.user_profile_pda, e.admin_profile_pda]
+        }
+        crate::events::BridgeEventData::AdminUnbanFeeUpdated(e) => vec![e.admin_pda],
+        crate::events::BridgeEventData::UserBanned(e) => {
+            vec![e.user_profile_pda, e.admin_pda]
+        }
+        crate::events::BridgeEventData::UserUnbanned(e) => {
+            vec![e.user_profile_pda, e.admin_pda]
+        }
+        crate::events::BridgeEventData::UserUnbanRequested(e) => {
+            vec![e.user_profile_pda, e.admin_pda]
         }
         crate::events::BridgeEventData::Unknown => vec![],
     }

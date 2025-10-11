@@ -56,3 +56,33 @@ The user's client (e.g., a web browser) uses the gateway or connector to prepare
 2.  The client submits the now-signed transaction to the Solana network (typically via the gateway's `SubmitTransaction` endpoint).
 
 The on-chain program executes the transaction only if both the oracle's signature and the user's signature are valid. This separation of concerns ensures that the developer retains full control over their business logic (via the oracle) while the user retains full control over their funds. The absence of signature creation methods in the connector and gateway is a deliberate security feature of this architecture.
+
+## 3. User Management: Banning and Unbanning
+
+The on-chain program provides a mechanism for service providers (Admins) to manage user access by banning and unbanning them. This functionality is intended for moderation and to prevent abuse of the service.
+
+### Banning a User
+
+An Admin can ban any user who has created a `UserProfile` for their service. The `admin_ban_user` instruction sets a `banned` flag in the user's on-chain profile. When this flag is `true`, the user is blocked from performing most actions, including:
+
+*   Dispatching commands (`user_dispatch_command`)
+*   Withdrawing funds (`user_withdraw`)
+*   Updating their communication key (`user_update_comm_key`)
+*   Closing their profile (`user_close_profile`)
+
+The ban is enforced by the on-chain program, ensuring that a banned user cannot interact with the service's core functions.
+
+### Unbanning a User
+
+An Admin can lift a ban at any time using the `admin_unban_user` instruction. This resets the `banned` flag to `false`, restoring the user's access.
+
+### Requesting an Unban (User-Initiated)
+
+A banned user has one available action: to request an unban. This is a paid operation, designed to create a hurdle for spam or abuse while providing a path for legitimate users to appeal.
+
+1.  **Configurable Fee**: The Admin can set an "unban fee" using the `admin_set_config` instruction. This fee is stored in the `AdminProfile`.
+2.  **User Request**: The user calls the `user_request_unban` instruction. This action verifies that the user has sufficient funds in their `UserProfile` deposit balance to pay the fee.
+3.  **Fee Transfer**: The on-chain program transfers the `unban_fee` amount from the user's deposit balance to the admin's internal balance.
+4.  **Flag Set**: The instruction sets the `unban_requested` flag in the user's profile to `true`.
+
+This process does **not** automatically unban the user. It serves as a formal, on-chain request that the Admin can review. The Admin must still manually call `admin_unban_user` to restore the user's access. This two-step process ensures the Admin retains final control over access to their service.

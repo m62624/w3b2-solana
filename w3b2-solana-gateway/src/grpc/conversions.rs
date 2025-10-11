@@ -131,6 +131,39 @@ impl From<ConnectorEvents::BridgeEvent> for gateway::EventStreamItem {
                     ts: e.ts,
                 }),
             ),
+            ConnectorEvents::BridgeEventData::AdminUnbanFeeUpdated(e) => Some(
+                gateway::bridge_event::Event::AdminUnbanFeeUpdated(gateway::AdminUnbanFeeUpdated {
+                    authority: e.authority.to_string(),
+                    admin_pda: e.admin_pda.to_string(),
+                    new_unban_fee: e.new_unban_fee,
+                    ts: e.ts,
+                }),
+            ),
+            ConnectorEvents::BridgeEventData::UserBanned(e) => Some(
+                gateway::bridge_event::Event::UserBanned(gateway::UserBanned {
+                    admin_authority: e.admin_authority.to_string(),
+                    admin_pda: e.admin_pda.to_string(),
+                    user_profile_pda: e.user_profile_pda.to_string(),
+                    ts: e.ts,
+                }),
+            ),
+            ConnectorEvents::BridgeEventData::UserUnbanned(e) => Some(
+                gateway::bridge_event::Event::UserUnbanned(gateway::UserUnbanned {
+                    admin_authority: e.admin_authority.to_string(),
+                    admin_pda: e.admin_pda.to_string(),
+                    user_profile_pda: e.user_profile_pda.to_string(),
+                    ts: e.ts,
+                }),
+            ),
+            ConnectorEvents::BridgeEventData::UserUnbanRequested(e) => Some(
+                gateway::bridge_event::Event::UserUnbanRequested(gateway::UserUnbanRequested {
+                    user_authority: e.user_authority.to_string(),
+                    user_profile_pda: e.user_profile_pda.to_string(),
+                    admin_pda: e.admin_pda.to_string(),
+                    fee_paid: e.fee_paid,
+                    ts: e.ts,
+                }),
+            ),
             ConnectorEvents::BridgeEventData::Unknown => None,
         };
 

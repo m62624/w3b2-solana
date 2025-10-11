@@ -19,8 +19,15 @@ pub fn set_config(
     new_oracle: Option<Pubkey>,
     new_validity: Option<i64>,
     new_comm_key: Option<Pubkey>,
+    new_unban_fee: Option<u64>,
 ) {
-    let set_config_ix = ix_set_config(authority, new_oracle, new_validity, new_comm_key);
+    let set_config_ix = ix_set_config(
+        authority,
+        new_oracle,
+        new_validity,
+        new_comm_key,
+        new_unban_fee,
+    );
     build_and_send_tx(svm, vec![set_config_ix], authority, vec![]);
 }
 
@@ -38,6 +45,16 @@ pub fn dispatch_command(
 ) {
     let dispatch_ix = ix_dispatch_command(authority, user_profile_pda, command_id, payload);
     build_and_send_tx(svm, vec![dispatch_ix], authority, vec![]);
+}
+
+pub fn ban_user(svm: &mut LiteSVM, authority: &Keypair, user_profile_pda: Pubkey) {
+    let ban_ix = ix_ban_user(authority, user_profile_pda);
+    build_and_send_tx(svm, vec![ban_ix], authority, vec![]);
+}
+
+pub fn unban_user(svm: &mut LiteSVM, authority: &Keypair, user_profile_pda: Pubkey) {
+    let unban_ix = ix_unban_user(authority, user_profile_pda);
+    build_and_send_tx(svm, vec![unban_ix], authority, vec![]);
 }
 
 fn ix_create_profile(authority: &Keypair, communication_pubkey: Pubkey) -> (Instruction, Pubkey) {
@@ -72,6 +89,7 @@ pub fn ix_set_config(
     new_oracle_authority: Option<Pubkey>,
     new_timestamp_validity: Option<i64>,
     new_communication_pubkey: Option<Pubkey>,
+    new_unban_fee: Option<u64>,
 ) -> Instruction {
     let (admin_pda, _) = Pubkey::find_program_address(
         &[b"admin", authority.pubkey().as_ref()],
@@ -82,12 +100,57 @@ pub fn ix_set_config(
         new_oracle_authority,
         new_timestamp_validity,
         new_communication_pubkey,
+        new_unban_fee,
     }
     .data();
 
     let accounts = w3b2_accounts::AdminSetConfig {
         authority: authority.pubkey(),
         admin_profile: admin_pda,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: w3b2_solana_program::ID,
+        accounts,
+        data,
+    }
+}
+
+pub fn ix_ban_user(authority: &Keypair, user_profile_pda: Pubkey) -> Instruction {
+    let (admin_pda, _) = Pubkey::find_program_address(
+        &[b"admin", authority.pubkey().as_ref()],
+        &w3b2_solana_program::ID,
+    );
+
+    let data = w3b2_instruction::AdminBanUser {}.data();
+
+    let accounts = w3b2_accounts::AdminBanUser {
+        authority: authority.pubkey(),
+        admin_profile: admin_pda,
+        user_profile: user_profile_pda,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: w3b2_solana_program::ID,
+        accounts,
+        data,
+    }
+}
+
+pub fn ix_unban_user(authority: &Keypair, user_profile_pda: Pubkey) -> Instruction {
+    let (admin_pda, _) = Pubkey::find_program_address(
+        &[b"admin", authority.pubkey().as_ref()],
+        &w3b2_solana_program::ID,
+    );
+
+    let data = w3b2_instruction::AdminUnbanUser {}.data();
+
+    let accounts = w3b2_accounts::AdminUnbanUser {
+        authority: authority.pubkey(),
+        admin_profile: admin_pda,
+        user_profile: user_profile_pda,
     }
     .to_account_metas(None);
 

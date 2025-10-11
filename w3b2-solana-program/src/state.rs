@@ -25,6 +25,9 @@ pub struct AdminProfile {
     /// The internal balance in lamports where fees from paid user commands are collected.
     /// This balance can be withdrawn by the admin via the `admin_withdraw` instruction.
     pub balance: u64,
+    /// The fee in lamports that a user must pay to request an unban.
+    /// This can be configured by the admin.
+    pub unban_fee: u64,
 }
 
 /// Represents a user's on-chain profile for a *specific* Admin service.
@@ -44,6 +47,12 @@ pub struct UserProfile {
     /// The user's prepaid balance in lamports for this specific service. This balance
     /// is debited by the `user_dispatch_command` instruction.
     pub deposit_balance: u64,
+    /// A flag indicating whether the user is banned from using the service.
+    /// If true, most user-initiated actions will be blocked.
+    pub banned: bool,
+    /// A flag indicating that the user has paid the fee and requested to be unbanned.
+    /// This does not automatically lift the ban.
+    pub unban_requested: bool,
 }
 
 // --- Instruction Accounts Structs ---
@@ -108,6 +117,76 @@ pub struct AdminSetConfig<'info> {
         constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
     )]
     pub admin_profile: Account<'info, AdminProfile>,
+}
+
+/// Defines the accounts for the `admin_ban_user` instruction.
+#[derive(Accounts)]
+pub struct AdminBanUser<'info> {
+    /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// The `AdminProfile` of the admin initiating the ban. Constraints verify
+    /// the `authority` and the PDA seeds.
+    #[account(
+        seeds = [b"admin", authority.key().as_ref()],
+        bump,
+        constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
+    )]
+    pub admin_profile: Account<'info, AdminProfile>,
+    /// The `UserProfile` to be banned. This account will be mutated.
+    /// A constraint ensures this profile is associated with this specific `admin_profile`.
+    #[account(
+        mut,
+        constraint = user_profile.admin_profile_on_creation == admin_profile.key() @ BridgeError::AdminMismatch
+    )]
+    pub user_profile: Account<'info, UserProfile>,
+}
+
+/// Defines the accounts for the `admin_unban_user` instruction.
+#[derive(Accounts)]
+pub struct AdminUnbanUser<'info> {
+    /// The `Signer` (the admin's wallet) who must be the `authority` of the `admin_profile`.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// The `AdminProfile` of the admin initiating the unban. Constraints verify
+    /// the `authority` and the PDA seeds.
+    #[account(
+        seeds = [b"admin", authority.key().as_ref()],
+        bump,
+        constraint = admin_profile.authority == authority.key() @ BridgeError::SignerUnauthorized
+    )]
+    pub admin_profile: Account<'info, AdminProfile>,
+    /// The `UserProfile` to be unbanned. This account will be mutated.
+    /// A constraint ensures this profile is associated with this specific `admin_profile`.
+    #[account(
+        mut,
+        constraint = user_profile.admin_profile_on_creation == admin_profile.key() @ BridgeError::AdminMismatch
+    )]
+    pub user_profile: Account<'info, UserProfile>,
+}
+
+/// Defines the accounts for the `user_request_unban` instruction.
+#[derive(Accounts)]
+pub struct UserRequestUnban<'info> {
+    /// The `Signer` (the user's wallet) who must be the `authority` of the `user_profile`.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// The `AdminProfile` associated with the `user_profile`. It will receive the unban fee.
+    #[account(
+        mut,
+        seeds = [b"admin", admin_profile.authority.as_ref()],
+        bump
+    )]
+    pub admin_profile: Account<'info, AdminProfile>,
+    /// The `UserProfile` requesting the unban.
+    #[account(
+        mut,
+        seeds = [b"user", authority.key().as_ref(), admin_profile.key().as_ref()],
+        bump,
+        constraint = user_profile.authority == authority.key() @ BridgeError::SignerUnauthorized,
+        constraint = user_profile.admin_profile_on_creation == admin_profile.key() @ BridgeError::AdminMismatch
+    )]
+    pub user_profile: Account<'info, UserProfile>,
 }
 
 /// Defines the accounts for the `admin_close_profile` instruction.
