@@ -2,101 +2,86 @@
 
 W3B2 is a toolset for building services on the Solana blockchain that need to interact with traditional Web2 applications. It provides an on-chain smart contract for managing state and financial logic, a Rust library for backend integration, and a gRPC gateway for broader API access.
 
-## Core Components
+It is designed for developers who want to leverage the security and transparency of Solana for specific tasks without moving their entire application on-chain.
 
-*   **`w3b2-solana-program`**: The core on-chain Anchor program that manages user and service provider (admin) profiles and handles financial logic.
-*   **`w3b2-solana-connector`**: A Rust library for building backend services that interact with the on-chain program. It provides helpers for transaction building and event synchronization.
-*   **`w3b2-solana-gateway`**: A ready-to-use gRPC service that exposes the on-chain program's functionality to clients written in any language.
-*   **`proto/`**: Protobuf definitions that define the API contract for the gateway and its clients.
+> **Note**: This `README.md` provides a high-level overview. For detailed guides, API references, and architecture diagrams, please see the **[Full Documentation Site](docs/index.md)**, which you can run locally using the `docs` Docker profile.
 
-## Docker-Based Development Environment
+## What Can You Do With This Toolset?
 
-This project provides a full Docker Compose pipeline for building, testing, and deploying all components. The stack is managed via `docker compose` using multiple profiles, allowing you to run only the services you need or the entire stack.
+This project provides the foundation for a variety of hybrid Web2/Web3 use cases:
 
-> **Note:** The repository does **not** include any private keys. You must provide your own Solana program keypair (see below). All builds and deployments will use your Program ID, and all components (including the gateway and smart contract) will be built with this ID.
+-   **Non-Custodial Paid APIs**: Charge users in SOL for API calls. Your backend oracle signs the price, and the user approves the payment with their wallet. The on-chain program guarantees the fund transfer.
+-   **Verifiable Audit Trails**: Log critical off-chain actions (e.g., "User A deleted file B") to the Solana blockchain as an immutable, permanent record.
+-   **User-Managed Deposits**: Allow users to pre-fund an account for your service. All funds remain under the user's control and can only be spent with their explicit, signed approval for a specific action.
+-   **On-Chain User Management**: Implement on-chain banning/moderation systems that are transparent and enforced by the smart contract.
+
+## High-Level Architecture
+
+The system is composed of four main parts: the **Client**, the **gRPC Gateway**, the **Solana Connector**, and the **On-Chain Program**. The backend components (Gateway, Connector, and your custom Oracle) are managed by the service provider, while the client interacts with the user's wallet.
+
+```mermaid
+graph TD
+    subgraph "User's Device"
+        A[Client Browser/App]
+    end
+
+    subgraph "Service Provider's Backend"
+        B[gRPC Gateway]
+        C[Solana Connector]
+        D[Your Oracle Service]
+    end
+
+    subgraph "Solana Network"
+        E[On-Chain Program]
+        F[Solana RPC Node]
+    end
+
+    A -- "1. Prepare Tx (gRPC)" --> B
+    B -- "2. Build Unsigned Tx" --> C
+    C -- "3. Return Unsigned Tx" --> B
+    B -- "4. Return Unsigned Tx (gRPC)" --> A
+    A -- "5. Sign Tx w/ Wallet" --> A
+    A -- "6. Submit Signed Tx (gRPC)" --> B
+    B -- "7. Submit to Network" --> C
+    C -- "8. Send to RPC" --> F
+    F -- "9. Processed by" --> E
+
+    D -- "Signs Price Data" --> A
+
+    C -- "Listens for Events" --> F
+    B -- "Receives Events" --> C
+
+    style D fill:#f9f,stroke:#333,stroke-width:2px
+```
+
+## Local Development with Docker
+
+This project provides a full Docker Compose pipeline for building, testing, and deploying all components. This is the recommended way to get started.
+
+> **Note:** The repository does **not** include any private keys. You must provide your own Solana program keypair. All builds and deployments will use your Program ID, and all components will be built with this ID.
 
 ### Prerequisites
 
-*   Docker
-*   Docker Compose
+*   Docker & Docker Compose
 
-### Key Concepts
+### Quickstart
 
-*   **Profiles**: Services are grouped into profiles (`builder`, `solana-validator`, `deployer`, `gateway`, `docs`, `full`) so you can run only the parts of the stack you need.
-*   **Program Keypair**: The build and deploy process requires a Solana keypair for the on-chain program. The scripts will generate one for you if it's not found at the path specified by the `PROGRAM_KEYPAIR_PATH` environment variable (default: `./keys/program-keypair.json`). You should create and manage this file yourself; do **not** commit it to version control.
-*   **Program ID Propagation**: During Docker builds, the Program ID is extracted from your keypair and injected into all build artifacts and configuration. The smart contract and gateway are always built and run with your Program ID.
-*   **Shared Artifacts**: The `artifacts/` and `target/` directories are mounted into containers so build artifacts (like `.so` and `.json` files) are accessible on your host.
+1.  **Generate a Program Keypair**: The build process requires a keypair for the on-chain program. Use the `builder` service to generate one.
+    ```bash
+    # This creates ./keys/program-keypair.json on your host
+    docker compose run --rm builder solana-keygen new --outfile /keys/program-keypair.json
+    ```
 
+2.  **Run the Full Stack**: Use the `full` profile to build, deploy, and run all services.
+    ```bash
+    docker compose --profile full up --build
+    ```
 
-### Usage Examples
+This command will:
+-   Build the on-chain program and gateway.
+-   Start a local Solana validator.
+-   Deploy the program to the validator.
+-   Run the gRPC gateway.
+-   Serve the full documentation site.
 
-**1. Build Artifacts Only**
-
-This command runs only the `builder` service. It compiles the Anchor program and gateway, then places the final artifacts (`w3b2_solana_program.so` and `w3b2_solana_program.json`) into the `./artifacts` directory on your host.
-
-```bash
-docker compose --profile builder up --build --force-recreate
-```
-
-**2. Run the Validator**
-
-This will start a local Solana test validator with a persistent ledger.
-
-```bash
-docker compose --profile validator up --build
-```
-
-**3. Build, Deploy, and Run the Gateway**
-
-To build all artifacts, start the validator, deploy the program, and run the gateway:
-
-```bash
-# Optional: Define the keypair path
-export PROGRAM_KEYPAIR_PATH=./keys/program-keypair.json
-
-# Run the deploy profile (builder, validator, deployer)
-docker compose --profile deploy up --build
-```
-
-Then, to run the gateway (after deployer has finished):
-
-```bash
-docker compose --profile gateway up --build
-```
-
-Or, to run the full stack (all services):
-
-```bash
-docker compose --profile full up --build
-```
-
-**4. View the Documentation**
-
-This command starts a local web server to serve the project documentation.
-
-```bash
-docker compose --profile docs up --build
-```
-Once started, you can access the documentation at **http://localhost:8000**.
-
-## Docker Profiles
-
-The Docker Compose setup supports these profiles:
-
-- **`builder`**: Compiles the Anchor program and gateway with your Program ID, then exits.
-- **`solana-validator`**: Runs a local Solana test validator with a persistent ledger.
-- **`deploy`**: Runs the build, validator, and then the `deployer` service, which deploys the on-chain program to the validator using your keypair and Program ID (the actual service is named `deployer`).
-- **`gateway`**: Runs the gRPC gateway, connecting to the validator and deployed program (runs after deployer).
-- **`docs`**: Serves the MkDocs documentation.
-- **`full`**: Runs the entire stack (validator, builder, deployer, gateway, docs).
-
-All components are built and run with your Program ID. You must provide your own keypair file (see above). No private keys are included in the repository.
-
-### Service Overview
-
-- **`builder`**: Builds all artifacts and exits.
-- **`solana-validator`**: Local Solana test validator.
-- **`deployer`**: Deploys the program after builder and validator are ready (used in the `deploy` profile).
-- **`gateway`**: Runs the gRPC gateway after deployer is finished.
-- **`docs`**: Serves documentation.
-- **`full`**: Runs all of the above together.
+Once started, you can access the **[Full Documentation Site](http://localhost:8000)** to continue.
