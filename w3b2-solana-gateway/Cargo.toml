@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # --- Internal Workspace Crates ---
+w3b2-solana-logger.workspace = true
 w3b2-solana-connector = { workspace = true, features = ["serde"] }
-w3b2-solana-program.workspace = true
 
 # --- Solana and Anchor ---
 solana-client.workspace = true
@@ -14,9 +14,9 @@ solana-sdk.workspace = true
 
 # --- Async and Concurrency ---
 tokio.workspace = true
-tokio-stream = { workspace = true }
-async-trait = { workspace = true }
-dashmap = { workspace = true }
+tokio-stream.workspace = true
+async-trait.workspace = true
+dashmap.workspace = true
 
 # --- Serialization and Data Handling ---
 bincode = { workspace = true, features = ["serde"] }
@@ -24,19 +24,18 @@ serde.workspace = true
 sled.workspace = true
 
 # --- gRPC and Networking ---
-prost = { workspace = true }
-tonic = { workspace = true }
+prost.workspace = true
+tonic.workspace = true
 
 # --- Logging and Tracing ---
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3.20", features = ["json"] }
+tracing.workspace = true
 
 # --- Configuration ---
-config = { workspace = true }
+config.workspace = true
 
 # --- Error Handling ---
-anyhow = { workspace = true }
-thiserror = { workspace = true }
+anyhow.workspace = true
+thiserror.workspace = true
 
 # --- CLI and Utilities ---
 clap = { version = "4.5.48", features = ["derive"] }
@@ -45,13 +44,13 @@ clap = { version = "4.5.48", features = ["derive"] }
 tonic-build = "0.11"
 
 [dev-dependencies]
-chrono = { workspace = true }
+chrono.workspace = true
 portpicker = "0.1.1"
 tempfile = "3.23.0"
-solana-transaction-status = { workspace = true }
+solana-transaction-status.workspace = true
 anchor-lang.workspace = true
-solana-program-test = { workspace = true }
-solana-ed25519-program = { workspace = true }
+solana-program-test.workspace = true
+solana-ed25519-program.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["prost"]

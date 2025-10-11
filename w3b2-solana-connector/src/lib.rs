@@ -6,15 +6,12 @@
 //!
 //! # Key Components
 //!
-//! *   [`client::TransactionBuilder`]: A non-custodial helper for constructing
-//!     unsigned transactions for all program instructions.
-/// *   [`workers::EventManager`]: The main entry point for the event system. It runs
-///     background services to synchronize with the blockchain and dispatch events.
-/// *   [`listener`]: High-level event listeners (`UserListener`, `AdminListener`) that
-///     subscribe to a specific on-chain PDA and provide separate streams for historical
-///     (`catchup`) and real-time (`live`) events.
-
-/// Contains the `TransactionBuilder` for preparing on-chain transactions.
+//! *   [`client`]: A non-custodial helper for constructing unsigned transactions for all program instructions.
+//! *   [`workers::EventManager`]: The main entry point for the event system. It runs
+//!     background services to synchronize with the blockchain and dispatch events.
+//! *   [`listener`]: High-level event listeners (`UserListener`, `AdminListener`) that
+//!     subscribe to a specific on-chain PDA and provide separate streams for historical
+//!     (`catchup`) and real-time (`live`) events.
 pub mod client;
 /// Defines configuration structures for the connector.
 pub mod config;

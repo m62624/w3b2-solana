@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use w3b2_solana_logger::logging::LogConfig;
 use w3b2_solana_connector::config::ConnectorConfig;
 
 /// The top-level configuration for the W3B2 Gateway application.
@@ -32,35 +33,6 @@ pub struct GrpcConfig {
     pub port: u16,
 }
 
-/// Logging configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct LogConfig {
-    /// Log level, e.g., "info", "debug", "trace".
-    pub level: String,
-    /// Log output format.
-    pub format: LogFormat,
-    /// Log output destination.
-    pub output: LogOutput,
-    /// Path to the log file, required if output is "file".
-    pub file_path: Option<String>,
-}
-
-/// Defines the format for log messages.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum LogFormat {
-    Plain,
-    Json,
-}
-
-/// Defines the destination for log output.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum LogOutput {
-    Stdout,
-    File,
-}
 
 impl Default for GatewaySpecificConfig {
     fn default() -> Self {
@@ -81,16 +53,6 @@ impl Default for GrpcConfig {
     }
 }
 
-impl Default for LogConfig {
-    fn default() -> Self {
-        Self {
-            level: "info".to_string(),
-            format: LogFormat::Plain,
-            output: LogOutput::Stdout,
-            file_path: None,
-        }
-    }
-}
 
 /// Loads the gateway configuration from a specified TOML file.
 ///
@@ -103,7 +65,7 @@ pub fn load_config(path: &str) -> Result<GatewayConfig> {
 
     let settings: GatewayConfig = builder
         .build()
-        .context(format!("Failed to build configuration from '{}'", path))?
+        .context(format!("Failed to build configuration from '{path}'"))?
         .try_deserialize()
         .context("Failed to deserialize configuration")?;
 

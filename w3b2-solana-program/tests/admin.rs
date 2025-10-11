@@ -28,7 +28,7 @@ fn test_admin_create_profile_success() {
     // === 2. Act (Execution) ===
     println!("Attempting to create admin profile...");
     let admin_pda = admin::create_profile(&mut svm, &authority, comm_key.pubkey());
-    println!("Admin profile created successfully at: {}", admin_pda);
+    println!("Admin profile created successfully at: {admin_pda}");
 
     // === 3. Assert (Verification) ===
     let admin_account_data = svm.get_account(&admin_pda).unwrap();
@@ -84,10 +84,7 @@ fn test_admin_close_profile_success() {
     assert_eq!(authority_balance_after, expected_balance);
 
     println!("✅ Close Profile Test Passed!");
-    println!(
-        "   -> Authority balance correctly refunded: {} -> {}",
-        authority_balance_before, authority_balance_after
-    );
+    println!("   -> Authority balance correctly refunded: {authority_balance_before} -> {authority_balance_after}");
 }
 
 /// Tests the successful update of an `AdminProfile`'s configuration.
@@ -291,7 +288,7 @@ fn test_admin_withdraw_success() {
     let command_price = LAMPORTS_PER_SOL;
     // Get the clock from SVM, don't use Clock::get() in tests
     let timestamp = svm.get_sysvar::<Clock>().unix_timestamp;
-    println!("User pays admin {} lamports...", command_price);
+    println!("User pays admin {command_price} lamports...");
     user::dispatch_command(
         &mut svm,
         &user_authority,
@@ -317,7 +314,7 @@ fn test_admin_withdraw_success() {
     assert_eq!(admin_profile_before.balance, command_price);
 
     // === 2. Act ===
-    println!("Admin withdrawing {} lamports...", withdraw_amount);
+    println!("Admin withdrawing {withdraw_amount} lamports...");
     admin::withdraw(
         &mut svm,
         &admin_authority,
@@ -350,8 +347,5 @@ fn test_admin_withdraw_success() {
         "   -> PDA internal balance is now: {}",
         admin_profile_after.balance
     );
-    println!(
-        "   -> Destination wallet received: {} lamports",
-        destination_balance_after
-    );
+    println!("   -> Destination wallet received: {destination_balance_after} lamports");
 }

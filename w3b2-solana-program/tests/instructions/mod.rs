@@ -134,7 +134,7 @@ pub fn get_error_code(
             _ => None,
         },
         _ => {
-            println!("Unexpected transaction result: {:?}", result);
+            println!("Unexpected transaction result: {result:?}");
             None
         }
     }

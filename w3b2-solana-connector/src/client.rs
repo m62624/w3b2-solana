@@ -42,6 +42,16 @@ impl AsyncRpcClient for RpcClient {
 /// The server-side component (like a gRPC gateway) uses this builder to create
 /// a transaction, sends it to the client for signing, and then receives the
 /// signed transaction back for submission.
+/// Arguments for the `prepare_user_dispatch_command` method.
+pub struct UserDispatchCommandArgs {
+    pub command_id: u16,
+    pub price: u64,
+    pub timestamp: i64,
+    pub payload: Vec<u8>,
+    pub oracle_pubkey: Pubkey,
+    pub oracle_signature: [u8; 64],
+}
+
 #[derive(Clone)]
 pub struct TransactionBuilder<C: AsyncRpcClient + ?Sized> {
     /// A shared, thread-safe reference to the Solana JSON RPC client.
@@ -423,26 +433,21 @@ where
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
-        command_id: u16,
-        price: u64,
-        timestamp: i64,
-        payload: Vec<u8>,
-        oracle_pubkey: Pubkey,
-        oracle_signature: [u8; 64],
+        args: UserDispatchCommandArgs,
     ) -> Result<Transaction, ClientError> {
         // 1. Reconstruct the message that the oracle signed.
         let message = [
-            command_id.to_le_bytes().as_ref(),
-            price.to_le_bytes().as_ref(),
-            timestamp.to_le_bytes().as_ref(),
+            args.command_id.to_le_bytes().as_ref(),
+            args.price.to_le_bytes().as_ref(),
+            args.timestamp.to_le_bytes().as_ref(),
         ]
         .concat();
 
         // 2. Create the Ed25519 signature verification instruction.
         let ed25519_ix = new_ed25519_instruction_with_signature(
             &message,
-            &oracle_signature,
-            &oracle_pubkey.to_bytes(),
+            &args.oracle_signature,
+            &args.oracle_pubkey.to_bytes(),
         );
 
         // 3. Create the main `user_dispatch_command` instruction.
@@ -461,10 +466,10 @@ where
             }
             .to_account_metas(None),
             data: instruction::UserDispatchCommand {
-                command_id,
-                price,
-                timestamp,
-                payload,
+                command_id: args.command_id,
+                price: args.price,
+                timestamp: args.timestamp,
+                payload: args.payload,
             }
             .data(),
         };

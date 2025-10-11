@@ -42,7 +42,7 @@ fn test_user_create_profile_success() {
         admin_pda, // <-- Link to the specific admin
     );
 
-    println!("User profile created successfully at: {}", user_pda);
+    println!("User profile created successfully at: {user_pda}");
 
     // === 3. Assert ===
     let user_account_data = svm.get_account(&user_pda).unwrap();
@@ -146,10 +146,7 @@ fn test_user_close_profile_success() {
     assert_eq!(authority_balance_after, expected_balance);
 
     println!("✅ Close User Profile Test Passed!");
-    println!(
-        "   -> User authority balance correctly refunded: {} -> {}",
-        authority_balance_before, authority_balance_after
-    );
+    println!("   -> User authority balance correctly refunded: {authority_balance_before} -> {authority_balance_after}");
 }
 
 /// Tests the successful deposit of funds into a `UserProfile`.
@@ -178,7 +175,7 @@ fn test_user_deposit_success() {
     let deposit_amount = 2 * LAMPORTS_PER_SOL;
 
     // === 2. Act ===
-    println!("User depositing {} lamports...", deposit_amount);
+    println!("User depositing {deposit_amount} lamports...");
     user::deposit(&mut svm, &user_authority, admin_pda, deposit_amount);
     println!("Deposit successful.");
 
@@ -239,7 +236,7 @@ fn test_user_withdraw_success() {
     let withdraw_amount = LAMPORTS_PER_SOL;
 
     // === 2. Act ===
-    println!("User withdrawing {} lamports...", withdraw_amount);
+    println!("User withdrawing {withdraw_amount} lamports...");
     user::withdraw(
         &mut svm,
         &user_authority,
@@ -273,10 +270,7 @@ fn test_user_withdraw_success() {
         "   -> PDA internal balance is now: {}",
         user_profile_after.deposit_balance
     );
-    println!(
-        "   -> Destination wallet received: {} lamports",
-        destination_balance_after
-    );
+    println!("   -> Destination wallet received: {destination_balance_after} lamports");
 }
 
 /// Tests the successful execution of a paid command from a user to an admin.

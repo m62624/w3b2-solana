@@ -59,7 +59,7 @@ impl Storage for SledStorage {
                 tx.insert("sync::last_sig", sig.as_bytes())?;
                 Ok(())
             },
-        ).map_err(|e| anyhow!("Sled transaction for sync state failed: {:?}", e))?;
+        ).map_err(|e| anyhow!("Sled transaction for sync state failed: {e:?}"))?;
 
         self.db.flush_async().await?;
 

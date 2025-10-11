@@ -1,9 +1,9 @@
 use super::*;
 use crate::instructions::solana_program::program::invoke;
-use crate::instructions::solana_program::system_instruction;
 use anchor_lang::solana_program;
-use solana_program::sysvar::instructions::{
-    load_current_index_checked, load_instruction_at_checked,
+use solana_program::{
+    example_mocks::solana_sdk::system_instruction,
+    sysvar::instructions::{load_current_index_checked, load_instruction_at_checked},
 };
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
