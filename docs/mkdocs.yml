@@ -21,12 +21,13 @@ theme:
 
 nav:
   - 'Home': 'index.md'
-  - 'Core Concepts': 'concepts.md'
-  - 'End-to-End Tutorial': 'end-to-end-workflow.md'
-  - 'Code Examples':
-    - '1. Initial Setup & Wallet': 'examples/01-initial-setup.md'
-    - '2. The Ed25519 Instruction': 'examples/02-constructing-the-ed25519-instruction.md'
-  - 'API Reference':
-    - 'Solana Program': 'reference/solana-program.md'
-    - 'Gateway API': 'reference/gateway-api.md'
-    - 'TypeScript Client': 'reference/ts-client.md'
+  - 'Getting Started': 'getting-started.md'
+  - 'Architecture':
+    - 'Core Concepts': 'concepts.md'
+    - 'High-Level Diagram': 'architecture-diagram.md'
+  - 'Components':
+    - '1. On-Chain Program': 'reference/solana-program.md'
+    - '2. Connector Library': 'reference/connector.md'
+    - '3. gRPC Gateway': 'reference/gateway-api.md'
+  - 'Tutorials':
+    - 'Full Workflow Example': 'end-to-end-workflow.md'

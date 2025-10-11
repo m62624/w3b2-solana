@@ -4,7 +4,7 @@ W3B2 is a toolset for building services on the Solana blockchain that need to in
 
 It is designed for developers who want to leverage the security and transparency of Solana for specific tasks without moving their entire application on-chain.
 
-> **Note**: This `README.md` provides a high-level overview. For detailed guides, API references, and architecture diagrams, please see the **[Full Documentation Site](docs/index.md)**, which you can run locally using the `docs` Docker profile.
+> **Note**: This `README.md` provides a high-level overview. For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**, which you can run locally using the `docs` Docker profile.
 
 ## What Can You Do With This Toolset?
 
@@ -84,4 +84,4 @@ This command will:
 -   Run the gRPC gateway.
 -   Serve the full documentation site.
 
-Once started, you can access the **[Full Documentation Site](http://localhost:8000)** to continue.
+Once started, you can access the **Full Documentation Site** to continue.

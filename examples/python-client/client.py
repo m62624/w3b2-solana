@@ -65,14 +65,14 @@ def wait_for_gateway(stub):
 
 def sign_and_submit_tx(stub, unsigned_tx_bytes: bytes, signer: Keypair) -> str:
     """Signs and submits a transaction, returning the signature."""
-    unsigned_tx = Transaction.from_bytes(unsigned_tx_bytes)
-    message_to_sign = Message.from_bytes(unsigned_tx.message.to_bytes())
+    # Deserialize the unsigned transaction sent from the gateway
+    message = Message.from_bytes(unsigned_tx_bytes)
 
     # Sign the transaction with the appropriate keypair
     signed_tx = Transaction.new_signed_with_payer(
-        [message_to_sign],
         [signer],
-        unsigned_tx.message.recent_blockhash,
+        message,
+        message.recent_blockhash,
     )
 
     # Submit the signed transaction
@@ -94,14 +94,16 @@ def run_client():
     # 1. Generate local keypairs
     print_step("1. Generating Local Keypairs")
     program_id = get_program_id()
-    admin_authority = Keypair()
-    user_authority = Keypair()
+    admin_authority = Keypair() # The service provider
+    user_a_authority = Keypair() # First user, Alice
+    user_b_authority = Keypair() # Second user, Bob
     # In this example, the admin also acts as the oracle
     oracle_authority = admin_authority
 
     print(f"Program ID:           {program_id}")
     print(f"Admin Authority:      {admin_authority.pubkey()}")
-    print(f"User Authority:       {user_authority.pubkey()}")
+    print(f"User A (Alice):       {user_a_authority.pubkey()}")
+    print(f"User B (Bob):         {user_b_authority.pubkey()}")
     print(f"Oracle Authority:     {oracle_authority.pubkey()}")
 
 
@@ -120,54 +122,93 @@ def run_client():
 
 
     # 3. Register User Profile
-    print_step("3. Registering User Profile")
-    user_pda = pda_from_seeds([b"user", bytes(user_authority.pubkey()), bytes(admin_pda)], program_id)
-    print(f"Derived User PDA:     {user_pda}")
+    print_step("3. Registering User Profiles (Alice and Bob)")
+    user_a_pda = pda_from_seeds([b"user", bytes(user_a_authority.pubkey()), bytes(admin_pda)], program_id)
+    user_b_pda = pda_from_seeds([b"user", bytes(user_b_authority.pubkey()), bytes(admin_pda)], program_id)
+    print(f"Derived User A PDA:   {user_a_pda}")
+    print(f"Derived User B PDA:   {user_b_pda}")
 
+    # Register User A (Alice)
     prep_req = types_pb2.PrepareUserCreateProfileRequest(
-        authority_pubkey=str(user_authority.pubkey()),
+        authority_pubkey=str(user_a_authority.pubkey()),
         target_admin_pda=str(admin_pda),
-        communication_pubkey=str(user_authority.pubkey()), # Using same key for simplicity
+        communication_pubkey=str(user_a_authority.pubkey()),
     )
     prep_res = stub.PrepareUserCreateProfile(prep_req)
-    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_authority)
-    print(f"User registration successful. Signature: {signature}")
+    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_a_authority)
+    print(f"User A registration successful. Signature: {signature}")
+
+    # Register User B (Bob)
+    prep_req = types_pb2.PrepareUserCreateProfileRequest(
+        authority_pubkey=str(user_b_authority.pubkey()),
+        target_admin_pda=str(admin_pda),
+        communication_pubkey=str(user_b_authority.pubkey()),
+    )
+    prep_res = stub.PrepareUserCreateProfile(prep_req)
+    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_b_authority)
+    print(f"User B registration successful. Signature: {signature}")
 
 
     # 4. User Deposits Funds
-    print_step("4. User Depositing Funds (0.1 SOL)")
+    print_step("4. Users Depositing Funds (0.1 SOL each)")
     deposit_amount_lamports = 100_000_000 # 0.1 SOL
 
+    # User A deposits
     prep_req = types_pb2.PrepareUserDepositRequest(
-        authority_pubkey=str(user_authority.pubkey()),
+        authority_pubkey=str(user_a_authority.pubkey()),
         admin_profile_pda=str(admin_pda),
         amount=deposit_amount_lamports,
     )
     prep_res = stub.PrepareUserDeposit(prep_req)
-    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_authority)
-    print(f"User deposit successful. Signature: {signature}")
+    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_a_authority)
+    print(f"User A deposit successful. Signature: {signature}")
 
+    # User B deposits
+    prep_req = types_pb2.PrepareUserDepositRequest(
+        authority_pubkey=str(user_b_authority.pubkey()),
+        admin_profile_pda=str(admin_pda),
+        amount=deposit_amount_lamports,
+    )
+    prep_res = stub.PrepareUserDeposit(prep_req)
+    signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_b_authority)
+    print(f"User B deposit successful. Signature: {signature}")
 
-    # 5. Dispatch a Paid Command
-    print_step("5. Dispatching a Paid Command")
-    command_id = 101
-    price = 50_000_000 # 0.05 SOL
+    # 5. Start communication loop
+    print_step("5. Starting Communication Loop")
+    command_counter = 0
+    while True:
+        try:
+            # Alice sends a message
+            command_counter += 1
+            print(f"\n--- Turn {command_counter}: Alice sends a command ---")
+            dispatch_command(stub, user_a_authority, admin_pda, oracle_authority, command_counter)
+            time.sleep(5)
+
+            # Bob sends a message
+            command_counter += 1
+            print(f"\n--- Turn {command_counter}: Bob sends a command ---")
+            dispatch_command(stub, user_b_authority, admin_pda, oracle_authority, command_counter)
+            time.sleep(5)
+
+        except grpc.RpcError as e:
+            print(f"❌ An RPC error occurred: {e.code()} - {e.details()}")
+        except Exception as e:
+            print(f"❌ An unexpected error occurred: {e}")
+
+def dispatch_command(stub, user_authority, admin_pda, oracle_authority, command_num):
+    """Helper function to dispatch a single paid command."""
+    command_id = 100 + command_num
+    price = 1_000_000 # 0.001 SOL
     timestamp = int(time.time())
-    payload = b"example_payload_data"
+    payload = f"payload_for_command_{command_num}".encode('utf-8')
 
-    # a. Oracle signs the message
-    # The message format must match what the on-chain program expects:
-    # [timestamp (8 bytes, little-endian), price (8 bytes, little-endian), payload (variable)]
     message_to_sign = (
-        struct.pack("<q", timestamp) +
+        struct.pack("<H", command_id) +
         struct.pack("<Q", price) +
-        payload
+        struct.pack("<q", timestamp)
     )
     oracle_signature = oracle_authority.sign(message_to_sign).to_bytes()
 
-    print(f"Oracle signed message with signature: {base64.b64encode(oracle_signature).decode()}")
-
-    # b. User prepares and submits the command transaction
     prep_req = types_pb2.PrepareUserDispatchCommandRequest(
         authority_pubkey=str(user_authority.pubkey()),
         target_admin_pda=str(admin_pda),
@@ -179,13 +220,8 @@ def run_client():
         oracle_signature=oracle_signature,
     )
     prep_res = stub.PrepareUserDispatchCommand(prep_req)
-
-    # c. The user's wallet signs the final transaction
     signature = sign_and_submit_tx(stub, prep_res.unsigned_tx, user_authority)
-    print(f"Paid command dispatched successfully. Signature: {signature}")
-    print("\n" + "="*60)
-    print(" Client workflow completed successfully!")
-    print("="*60)
+    print(f"Command #{command_num} dispatched successfully. Signature: {signature}")
 
 
 if __name__ == "__main__":

@@ -1,64 +1,43 @@
-# Tutorial: End-to-End Workflow with the Example Client
+# Tutorial: Full Workflow Example
 
-This tutorial demonstrates the project's primary end-to-end workflow using the provided `example-client`.
+This tutorial walks through a complete, realistic lifecycle of interactions within the W3B2 system. It covers registration, payments, moderation, and cleanup.
 
-The previous version of this document showed a complex, multi-step process involving manual transaction creation and interaction with a separate gateway. This was a conceptual guide, not a practical example.
+While the project includes an automated Python client that performs these actions, this guide explains the steps conceptually, referencing the gRPC calls a client application would make.
 
-We have replaced that with a fully functional, automated Python client that demonstrates the entire lifecycle of an interaction with the w3b2 toolset. This provides a realistic, hands-on example for developers.
+## The Scenario
 
-### The Flow at a Glance
+We will follow the journey of an **Admin** (service provider) and a **User** (Alice).
 
-The `example-client` service automates the following sequence of on-chain actions through the gRPC gateway:
+1.  **Admin Registration**
+    - **Action**: The Admin calls the `PrepareAdminRegisterProfile` gRPC method.
+    - **Result**: The Admin signs and submits the transaction, creating their `AdminProfile` PDA on-chain.
 
-1.  **Wait for Gateway**: The client waits until the `gateway` service is running and responsive.
-2.  **Generate Keypairs**: It creates two in-memory keypairs: one for the `admin_authority` (which also acts as the oracle) and one for the `user_authority`.
-3.  **Register Admin**: It calls `PrepareAdminRegisterProfile` and submits the transaction to create a new Admin PDA.
-4.  **Register User**: It calls `PrepareUserCreateProfile`, linking the user to the newly created Admin PDA.
-5.  **Deposit Funds**: The user calls `PrepareUserDeposit` to add funds to their on-chain profile.
-6.  **Dispatch Paid Command**: This is the key step.
-    *   The client locally creates a command message (price, timestamp, payload).
-    *   It signs this message with the oracle key (`admin_authority`).
-    *   It calls `PrepareUserDispatchCommand`, passing the command data and the oracle's signature to the gateway.
-    *   The gateway prepares a transaction which the user signs and submits.
-7.  **Log Everything**: Throughout this process, the client prints public keys, PDAs, and transaction signatures to the console, providing a clear, real-time log of the entire on-chain interaction.
+2.  **User Registration**
+    - **Action**: Alice calls `PrepareUserCreateProfile`, targeting the Admin's PDA.
+    - **Result**: Alice signs and submits, creating her `UserProfile` PDA, which is permanently linked to the Admin's service.
 
-### How to Run the Example
+3.  **User Deposit**
+    - **Action**: Alice calls `PrepareUserDeposit` with an amount of `0.1 SOL`.
+    - **Result**: Alice signs and submits, transferring `0.1 SOL` from her wallet to her `UserProfile` PDA. Her internal `deposit_balance` is now `0.1 SOL`.
 
-The best part is that you don't need to run any code manually. The entire demonstration is integrated into the Docker Compose `full` profile.
+4.  **Paid Command Execution**
+    - **Action**: Alice wants to perform an action that costs `0.01 SOL`. Her client requests a signature from the Admin's oracle for this price. The oracle returns a signature. Alice then calls `PrepareUserDispatchCommand` with the command details and the oracle's signature.
+    - **Result**: Alice signs and submits. The on-chain program verifies the oracle signature, then atomically transfers `0.01 SOL` from Alice's `UserProfile` PDA to the Admin's `AdminProfile` PDA.
 
-1.  **Start the Full Stack:**
-    From the root of the project, run the following command:
-    ```bash
-    docker compose --profile full up
-    ```
+5.  **Admin Bans User**
+    - **Action**: The Admin decides to ban Alice and calls `PrepareAdminBanUser`, targeting Alice's `UserProfile` PDA.
+    - **Result**: The Admin signs and submits. The `banned` flag in Alice's `UserProfile` is set to `true`.
 
-2.  **Observe the Logs:**
-    Docker Compose will build and start all the necessary services: the builder, the validator, the deployer, the gateway, and finally, the `example-client`.
+6.  **User Requests Unban**
+    - **Action**: The Admin has set an `unban_fee` of `0.005 SOL`. Alice calls `PrepareUserRequestUnban`.
+    - **Result**: Alice signs and submits. The program verifies she is banned and has sufficient funds. It transfers `0.005 SOL` from her deposit to the Admin's balance and sets her `unban_requested` flag to `true`.
 
-    You will see the logs from all services interleaved. Look for the output from the `example-client-1` container. It will look like this, showing the real-time progress of the on-chain workflow:
+7.  **Admin Unbans User**
+    - **Action**: The Admin's backend service sees the `UserUnbanRequested` event. After review, the Admin calls `PrepareAdminUnbanUser`.
+    - **Result**: The Admin signs and submits. The `banned` and `unban_requested` flags in Alice's profile are set to `false`.
 
-    ```
-    example-client-1  |
-    example-client-1  | ============================================================
-    example-client-1  |  1. Generating Local Keypairs
-    example-client-1  | ============================================================
-    example-client-1  | Program ID:           [Program ID]
-    example-client-1  | Admin Authority:      [Admin Pubkey]
-    example-client-1  | User Authority:       [User Pubkey]
-    example-client-1  | Oracle Authority:     [Oracle Pubkey]
-    example-client-1  |
-    example-client-1  | ============================================================
-    example-client-1  |  2. Registering Admin Profile
-    example-client-1  | ============================================================
-    example-client-1  | Derived Admin PDA:    [Admin PDA]
-    example-client-1  | Admin registration successful. Signature: [Transaction Signature]
-    example-client-1  |
-    example-client-1  | ============================================================
-    example-client-1  |  3. Registering User Profile
-    example-client-1  | ============================================================
-    example-client-1  | Derived User PDA:     [User PDA]
-    example-client-1  | User registration successful. Signature: [Transaction Signature]
-    ...and so on.
-    ```
+8.  **Cleanup**
+    - **Action**: Alice decides to leave the service and calls `PrepareUserCloseProfile`.
+    - **Result**: The `UserProfile` account is closed, and all remaining lamports (rent + deposit balance) are refunded to her wallet.
 
-This automated client serves as a much more powerful and realistic example than the previous conceptual guide. It provides developers with a clear, working model of how to integrate with the `w3b2-gateway` from a client application.
+This entire flow is executed automatically by the Python example client when you run the project with Docker.

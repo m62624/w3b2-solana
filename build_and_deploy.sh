@@ -73,8 +73,9 @@ if [[ "$MODE" == "--deploy" ]]; then
 
 elif [[ "$MODE" == "--build-only" ]]; then
     # --- BUILD LOGIC ---
+
+    # Create artifacts directory if it doesn't exist
     mkdir -p "$ARTIFACTS_DIR"
-    sudo chown -R "$(id -u):$(id -g)" "$ARTIFACTS_DIR"
 
     if [ ! -f "$PROGRAM_KEYPAIR_PATH" ]; then
         echo "Program keypair not found at $PROGRAM_KEYPAIR_PATH. Creating a new one..."
@@ -100,8 +101,18 @@ elif [[ "$MODE" == "--build-only" ]]; then
     echo "🔄 Finalizing artifacts..."
     jq ".metadata.address = \"$PROGRAM_ID\"" "$IDL_PATH_TEMPLATE" > "$ARTIFACTS_DIR/w3b2_solana_program.json"
     cp "$DEPLOY_SO_PATH" "$ARTIFACTS_DIR/"
+
     echo "✅ Artifacts created in $ARTIFACTS_DIR/"
     echo "✅ Build complete."
+
+    # --- Final Permission Fix ---
+    # After all files are created by the root user inside the container,
+    # change their ownership to the host user's UID/GID.
+    # HOST_UID and HOST_GID are passed from the docker-compose command.
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+        echo "Changing ownership of generated files to $HOST_UID:$HOST_GID..."
+        chown -R "$HOST_UID:$HOST_GID" "$ARTIFACTS_DIR" "target" "$(dirname "$PROGRAM_KEYPAIR_PATH")"
+    fi
 fi
 
 echo "Program ID: $PROGRAM_ID"

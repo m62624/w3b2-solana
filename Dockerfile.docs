@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./docs ./docs
 
 # Copy mkdocs.yml
-COPY mkdocs.yml .
+COPY ./docs/mkdocs.yml .
 
 EXPOSE 8000
 
