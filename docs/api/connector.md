@@ -1,81 +1,104 @@
 # API Reference: Connector Library
 
-The `w3b2-solana-connector` is a high-level, asynchronous Rust library for building custom backend services that interact with the on-chain program. It is the foundational layer upon which the Gateway is built and is intended for Rust-native services that require more direct control than the gRPC Gateway provides.
+The `w3b2-solana-connector` is a high-level, asynchronous Rust library for building backend services that interact with the `w3b2-solana-program`. It is the ideal tool for building custom Rust backends (e.g., a gRPC gateway) that require direct, low-level interaction with the on-chain program.
 
-## Key Components
+## Key Features
 
-The library provides two primary structs:
-
-1.  **`client::TransactionBuilder`**: Constructs unsigned Solana transactions for the on-chain program's instructions.
-2.  **`events::EventManager`**: Listens for on-chain events, manages state synchronization, and handles RPC/WebSocket connection issues.
+-   **Non-Custodial by Design**: The `TransactionBuilder` only creates unsigned transactions. It never handles private keys, making it suitable for secure backend services where the signing is delegated to a client.
+-   **Asynchronous API**: Built on Tokio, the entire crate is `async` and fits naturally into modern Rust applications.
+-   **Robust Event Handling**: The event listening system automatically handles historical event catch-up and real-time event streaming, providing two separate, ordered channels to ensure your application has a complete and consistent view of on-chain state.
+-   **Test-Friendly**: The `TransactionBuilder` is generic over an `AsyncRpcClient` trait, allowing for easy mocking with `solana-program-test`'s `BanksClient` in your integration tests.
 
 ---
 
-## 1. `client::TransactionBuilder`
+## `TransactionBuilder`
 
-The `TransactionBuilder` is the entry point for creating unsigned transactions. A backend service uses it to prepare a transaction, which is then sent to a client (e.g., a browser wallet) for signing. The connector itself does not handle private keys.
+The `TransactionBuilder` is used to prepare an unsigned transaction for any instruction in the on-chain program. A backend service uses it to construct the transaction, which is then sent to a client for signing.
 
-### Example Flow
+### Example Usage
 
-```rust
-// 1. The backend service prepares the transaction.
-let unsigned_tx = transaction_builder
-    .prepare_user_deposit(user_pda, user_authority, amount)
-    .await?;
+```rust,ignore
+use w3b2_solana_connector::client::{TransactionBuilder, UserDispatchCommandArgs};
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::pubkey::Pubkey;
+use std::sync::Arc;
 
-// 2. The service sends the serialized, unsigned transaction
-//    to the user's client.
-let tx_bytes = bincode::serialize(&unsigned_tx)?;
-// ... send bytes to client ...
+// 1. Initialize the RPC Client and Builder
+let rpc_client = Arc::new(RpcClient::new("https://api.mainnet-beta.solana.com".to_string()));
+let tx_builder = TransactionBuilder::new(rpc_client);
 
-// 3. The user's client signs the transaction and sends it
-//    back to the service.
-// ... receive signed bytes from client ...
-let signed_tx_bytes = ...;
+// 2. Define transaction parameters
+let user_wallet = Pubkey::new_unique();
+let admin_pda = Pubkey::new_unique();
+let oracle_key = Pubkey::new_unique();
+let oracle_signature = [0u8; 64]; // The real signature from the oracle
 
-// 4. The service submits the signed transaction.
-let final_tx: solana_sdk::Transaction = bincode::deserialize(&signed_tx_bytes)?;
-let signature = transaction_builder.submit_transaction(&final_tx).await?;
+// 3. Prepare the unsigned transaction
+let unsigned_tx = tx_builder.prepare_user_dispatch_command(
+    user_wallet,
+    admin_pda,
+    UserDispatchCommandArgs {
+        command_id: 1,
+        price: 1000,
+        timestamp: 1672531200,
+        payload: vec![1, 2, 3],
+        oracle_pubkey: oracle_key,
+        oracle_signature,
+    },
+).await?;
+
+// 4. The `unsigned_tx` can now be serialized and sent to the user's wallet for signing.
+//    Once signed, it can be submitted to the network via `tx_builder.submit_transaction()`.
 ```
 
 ---
 
-## 2. `events::EventManager` and Listeners
+## Event Listeners
 
-The `EventManager` is used to synchronize an application's state with the blockchain.
-
-### Architecture
-
-The event system consists of three main components:
-
--   **`EventManager`**: A long-running background task that manages workers for fetching historical events ("catch-up") and streaming live events via WebSockets. One instance is typically run for the lifetime of an application.
--   **`EventManagerHandle`**: A cloneable handle to the `EventManager`, used to create new event listeners.
--   **`UserListener` / `AdminListener`**: High-level abstractions that subscribe to events for a single PDA. They provide separate, ordered channels for `catch-up` and `live` events.
+The `UserListener` and `AdminListener` provide a powerful way to monitor on-chain activity for a specific PDA. They are created via the `EventManager`, which is the central service that runs in the background to poll the blockchain.
 
 ### Consumption Pattern
 
-The listeners are designed for state synchronization. The recommended usage pattern is:
+The listeners are designed for robust state synchronization. The recommended usage pattern is:
 
-1.  **Create a listener** for the PDA to be monitored.
-2.  **Process the `catch-up` stream**. This stream contains all historical events for the PDA and closes automatically once the sync is complete. Draining this stream first brings the local application state up to the present.
-3.  **Process the `live` stream**. This stream provides all new events as they are emitted on-chain.
+1.  **Initialize the `EventManager`**: This is typically done once per application lifetime. It spawns the necessary background workers.
+2.  **Create a Listener**: Use the `EventManagerHandle` to create a `UserListener` or `AdminListener` for a specific PDA.
+3.  **Process Catch-up Events**: Drain the `catch-up` stream first. This stream contains all historical events for the PDA and will close automatically once the sync is complete. This ensures your local state is consistent with the blockchain's history.
+4.  **Process Live Events**: After the catch-up is complete, listen on the `live` stream for new events as they happen in real-time.
 
-```rust
-// Get a handle to the running EventManager
-let event_manager_handle = ...;
+### Example Usage
 
-// Create a listener for a specific user profile
-let mut user_listener = event_manager_handle.listen_as_user(user_profile_pda);
+```rust,ignore
+use w3b2_solana_connector::workers::EventManager;
+use w3b2_solana_connector::listener::UserListener;
+use solana_sdk::pubkey::Pubkey;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use std::sync::Arc;
 
-// 1. Process all historical events first.
-while let Some(event) = user_listener.next_catchup_event().await {
-    // Update local database with this past event
-}
+// 1. Initialize the EventManager
+let rpc_client = Arc::new(RpcClient::new("...".to_string()));
+let (runner, handle) = EventManager::new(rpc_client.clone(), "sqlite::memory:".to_string()).await?;
 
-// 2. Now, process live events indefinitely.
-while let Some(event) = user_listener.next_live_event().await {
-    // Update state or push a notification for this new event
-}
+// Run the event manager in the background
+tokio::spawn(runner.run());
+
+// 2. Create a listener for a specific UserProfile PDA
+let user_pda = Pubkey::new_unique();
+let mut user_listener = handle.listen_as_user(user_pda, 100);
+
+// 3. Spawn a task to process events for this listener
+tokio::spawn(async move {
+    // First, process all historical events
+    while let Some(event) = user_listener.next_catchup_event().await {
+        println!("Caught up on historical event: {:?}", event);
+    }
+    println!("State for {} is fully synchronized.", user_pda);
+
+    // Then, process new events as they arrive in real-time
+    while let Some(event) = user_listener.next_live_event().await {
+        println!("Received live event: {:?}", event);
+    }
+});
+
+// The listener will automatically unsubscribe from the EventManager when it is dropped.
 ```
-
-This two-phase approach ensures that no events are missed and allows an application to reliably rebuild its state.

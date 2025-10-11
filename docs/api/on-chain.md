@@ -1,69 +1,70 @@
 # API Reference: On-Chain Program
 
-The `w3b2-solana-program` is an Anchor-based program that serves as the on-chain source of truth for all user and admin state.
+The `w3b2-solana-program` is the core smart contract that enforces all rules and manages all state for the toolset. This document provides a reference for its data structures and instructions.
 
-This document provides a reference for its primary data structures (Accounts) and functions (Instructions).
+For a conceptual overview of how this fits into the larger system, see the **[Architecture](../architecture.md)** guide.
 
-## Core Accounts (PDAs)
+## On-Chain State Accounts
 
-The program uses two main types of Program Derived Addresses (PDAs) to store state on-chain.
+The program uses two primary Program Derived Address (PDA) accounts to store state.
 
-### 1. `AdminProfile`
+### `AdminProfile`
 
-Represents a service provider. It stores the service's configuration and its earned balance.
+This PDA represents a service provider ("Admin"). Its address is deterministically derived from the admin's wallet key, ensuring one profile per admin.
 
--   **PDA Seeds**: `[b"admin", admin_authority.key().as_ref()]`
+-   **PDA Seeds**: `[b"admin", authority.key().as_ref()]`
 -   **Key Fields**:
-    -   `authority: Pubkey`: The wallet that has permission to manage the profile.
-    -   `communication_pubkey: Pubkey`: A public key used for off-chain communication or identification.
-    -   `prices: Vec<PriceEntry>`: A list of services offered and their costs.
-    -   `balance: u64`: The balance of funds earned by the service.
-
-### 2. `UserProfile`
-
-Represents a user's relationship with a single admin service. It holds the user's deposit for that specific service.
-
--   **PDA Seeds**: `[b"user", user_authority.key().as_ref(), admin_profile_pda.key().as_ref()]`
--   **Key Fields**:
-    -   `authority: Pubkey`: The user's wallet that controls this profile.
-    -   `admin_on_creation: Pubkey`: The `AdminProfile` PDA this profile is linked to.
+    -   `authority: Pubkey`: The admin's wallet, with sole authority to manage the profile.
+    -   `oracle_authority: Pubkey`: The key trusted to sign price information for paid commands.
     -   `communication_pubkey: Pubkey`: A public key for off-chain communication.
-    -   `deposit_balance: u64`: The amount of lamports the user has deposited for this service.
+    -   `balance: u64`: The internal treasury where collected fees accumulate.
+    -   `unban_fee: u64`: A configurable fee a user must pay to request an unban review.
+    -   `timestamp_validity_seconds: i64`: The window (in seconds) for which an oracle signature is valid.
 
-## Instructions
+### `UserProfile`
 
-All instructions are authenticated via a signature from the appropriate `authority` wallet.
+This PDA represents a user's relationship with a specific admin service. Its address is derived from both the user's wallet and the admin's profile key, creating a unique link for each user-service pair.
+
+-   **PDA Seeds**: `[b"user", authority.key().as_ref(), admin_profile.key().as_ref()]`
+-   **Key Fields**:
+    -   `authority: Pubkey`: The user's wallet, with sole authority to manage the profile.
+    -   `admin_profile_on_creation: Pubkey`: An immutable link to the `AdminProfile` PDA this profile is associated with.
+    -   `deposit_balance: u64`: The user's prepaid balance for this service.
+    -   `banned: bool`: A flag indicating if the user is banned by the admin.
+    -   `unban_requested: bool`: A flag indicating the user has paid the fee and requested an unban review.
+
+## Instruction Set
+
+The program exposes a set of instructions for managing profiles and dispatching commands. All instructions are authenticated via a signature from the appropriate `authority` wallet.
 
 ### Admin Instructions
 
-| Instruction              | Signer Authority | Description                                                               |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------- |
-| `admin_register_profile` | Admin Wallet     | Creates the `AdminProfile` PDA for a new service.                         |
-| `admin_update_comm_key`  | Admin Wallet     | Updates the `communication_pubkey` on the `AdminProfile`.                 |
-| `admin_update_prices`    | Admin Wallet     | Overwrites the service price list, reallocating account space if needed.  |
-| `admin_withdraw`         | Admin Wallet     | Withdraws earned funds from the `AdminProfile`'s internal `balance`.      |
-| `admin_close_profile`    | Admin Wallet     | Closes the `AdminProfile` and refunds the rent lamports to the authority. |
+| Instruction                | Description                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `admin_register_profile`   | Initializes a new `AdminProfile` PDA for a service provider.                                            |
+| `admin_set_config`         | Updates configuration, such as the `oracle_authority`, `unban_fee`, or `timestamp_validity_seconds`.    |
+| `admin_withdraw`           | Withdraws earned funds from the `AdminProfile`'s internal `balance`.                                    |
+| `admin_ban_user`           | Bans a user, preventing them from using the service.                                                    |
+| `admin_unban_user`         | Unbans a user, restoring their access. See the "Request for Review" model in the Architecture guide.    |
+| `admin_dispatch_command`   | Sends a non-financial command or notification to a user, emitting an on-chain event.                    |
+| `admin_close_profile`      | Closes the `AdminProfile` account and refunds the rent lamports to the admin.                           |
 
 ### User Instructions
 
-| Instruction            | Signer Authority | Description                                                                               |
-| ---------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| `user_create_profile`  | User Wallet      | Creates a `UserProfile` PDA, linking the user to a specific admin service.                |
-| `user_update_comm_key` | User Wallet      | Updates the `communication_pubkey` for a specific `UserProfile`.                          |
-| `user_deposit`         | User Wallet      | Deposits lamports from the user's wallet into the `UserProfile` PDA's `deposit_balance`.  |
-| `user_withdraw`        | User Wallet      | Withdraws unspent funds from the `UserProfile`'s `deposit_balance` back to the wallet.    |
-| `user_close_profile`   | User Wallet      | Closes the `UserProfile` and refunds the entire balance (deposit + rent) to the user.     |
+| Instruction                | Description                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `user_create_profile`      | Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.                       |
+| `user_deposit`             | Deposits lamports into the `UserProfile`'s `deposit_balance` to pre-fund future payments.               |
+| `user_withdraw`            | Withdraws unspent funds from the `deposit_balance`.                                                     |
+| `user_update_comm_key`     | Updates the `communication_pubkey` for the user's profile.                                              |
+| `user_request_unban`       | Allows a banned user to pay the `unban_fee` and request an unban review from the admin.                 |
+| `user_close_profile`       | Closes the `UserProfile` and refunds all remaining lamports (rent and deposit balance) to the user.     |
 
 ### Operational Instructions
 
-These instructions facilitate the interaction loop between users and services.
+| Instruction                | Description                                                                                             |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `user_dispatch_command`    | **Primary operational instruction.** A user calls a service's command, verifying a signed price from the admin's oracle and transferring payment if applicable. |
+| `log_action`               | A generic instruction to log a significant off-chain action to the blockchain for an audit trail.       |
 
-| Instruction              | Signer Authority | Description                                                                                                                                                                                                                                                                                         |
-| ------------------------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_dispatch_command`  | User Wallet      | The primary instruction for service usage. The user signs a transaction to call a specific `command_id`. If the command has a price (defined in the `AdminProfile`), the corresponding amount is transferred from the `UserProfile` deposit to the `AdminProfile` balance. Emits a `UserCommandDispatched` event. |
-| `admin_dispatch_command` | Admin Wallet     | Allows an admin to send a command or notification to a user. This is a non-financial transaction used to emit an `AdminCommandDispatched` event, creating a verifiable on-chain record of the communication.                                                                                                |
-| `log_action`             | User or Admin    | A generic instruction to log an off-chain action to the blockchain for auditing purposes. Emits an `ActionLogged` event.                                                                                                                         |
-
-### The `payload` Field
-
-Both `dispatch_command` instructions include an opaque `payload: Vec<u8>` field. This data is not interpreted by the on-chain program. It is passed through to the corresponding event, allowing off-chain applications to use the blockchain as a message bus for their own data structures.
+For the most detailed information on each instruction's arguments, required accounts, and emitted events, please refer to the Rustdoc comments in the `w3b2-solana-program` source code.

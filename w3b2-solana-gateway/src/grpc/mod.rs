@@ -1,3 +1,38 @@
+//! # gRPC Service Implementation
+//!
+//! This module defines the gRPC server and its implementation of the `BridgeGatewayService`.
+//!
+//! ## Core Components
+//!
+//! - **[`GatewayServer`]**: The main struct that implements the `BridgeGatewayService` tonic trait.
+//!   It holds the application's shared state, [`AppState`].
+//!
+//! - **[`AppState`]**: A container for shared, thread-safe components needed by the gRPC
+//!   service methods, such as the Solana `RpcClient`, a handle to the `EventManager`,
+//!   and the gateway's configuration.
+//!
+//! - **[`start`]**: The main entry point for initializing and running the gateway. It sets up
+//!   the database, spawns the `EventManager` for background event processing, and starts
+//!   the tonic gRPC server.
+//!
+//! ## RPC Method Groups
+//!
+//! The `BridgeGatewayService` implementation is organized into three main categories:
+//!
+//! 1.  **Transaction Preparation (`prepare_*`)**: A suite of methods that map one-to-one
+//!     with the instructions in the on-chain program. Each method takes high-level inputs,
+//!     uses the `w3b2-solana-connector`'s `TransactionBuilder` to construct an unsigned
+//!     transaction, and returns it to the client as a serialized byte array. This enables
+//!     a non-custodial workflow where the gateway never handles private keys.
+//!
+//! 2.  **Transaction Submission (`submit_transaction`)**: A single method that accepts a
+//!     signed transaction from a client, deserializes it, and submits it to the Solana network.
+//!
+//! 3.  **Event Streaming (`listen_as_user`, `listen_as_admin`, `unsubscribe`)**: Methods that
+//!     allow clients to open a persistent, server-side stream of on-chain events for a
+//!     specific `UserProfile` or `AdminProfile` PDA. The server leverages the `EventManager`
+//!     to provide both historical (catch-up) and real-time events.
+
 mod conversions;
 
 use anyhow::Result;
@@ -32,6 +67,7 @@ use crate::{
     storage::SledStorage,
 };
 
+/// Generated protobuf code.
 pub mod proto {
     pub mod w3b2 {
         pub mod protocol {
@@ -42,28 +78,37 @@ pub mod proto {
     }
 }
 
+/// A container for the application's shared, thread-safe state.
+///
+/// An `Arc` of this struct is cloned for each gRPC service instance,
+/// allowing all RPC handlers to access the same underlying components.
 #[derive(Clone)]
 pub struct AppState {
+    /// A shared Solana RPC client.
     pub rpc_client: Arc<RpcClient>,
+    /// A handle to the central `EventManager` for creating event listeners.
     pub event_manager: EventManagerHandle,
+    /// The gateway's configuration.
     pub config: Arc<GatewayConfig>,
-    /// Stores senders to signal termination for active subscriptions.
+    /// A map storing `watch` channel senders to signal termination for active event subscriptions.
+    /// The key is the subscribed PDA's `Pubkey`.
     pub active_subscriptions: Arc<DashMap<Pubkey, watch::Sender<()>>>,
 }
 
-/// gRPC server implementation.
+/// The gRPC server implementation for the `BridgeGatewayService`.
 pub struct GatewayServer {
+    /// The shared application state.
     state: AppState,
 }
 
 impl GatewayServer {
-    /// Create a new GatewayServer instance.
+    /// Creates a new `GatewayServer` instance.
     pub fn new(state: AppState) -> Self {
         Self { state }
     }
 }
 
-/// The main entry point to start the gRPC server and all background services.
+/// The main entry point to initialize and start the gRPC server and all background services.
 pub async fn start(config: &GatewayConfig) -> Result<EventManagerHandle> {
     // --- 1. Initialize dependencies ---
     let db = sled::open(&config.gateway.db_path)?;
@@ -72,38 +117,30 @@ pub async fn start(config: &GatewayConfig) -> Result<EventManagerHandle> {
     let rpc_client = Arc::new(RpcClient::new(config.connector.solana.rpc_url.clone()));
 
     // --- 2. Create and spawn the EventManager service ---
-
-    // `EventManager::new` now returns the runner and its handle.
     let (event_manager_runner, event_manager_handle) = EventManager::new(
         Arc::new(config.connector.clone()),
         rpc_client.clone(),
         storage,
     );
-
     tokio::spawn(event_manager_runner.run());
 
     // --- 3. Set up the gRPC server state ---
-
-    // Clone the handle for the gRPC server state. The original will be returned.
     let handle_for_server = event_manager_handle.clone();
-
-    // Create the shared state, storing the lightweight `handle` for the RPCs to use.
     let app_state = AppState {
         rpc_client,
-        event_manager: handle_for_server, // Store the cloned handle
+        event_manager: handle_for_server,
         config: Arc::new(config.clone()),
         active_subscriptions: Arc::new(DashMap::new()),
     };
 
     let gateway_server = GatewayServer::new(app_state);
+    let grpc_server =
+        Server::builder().add_service(BridgeGatewayServiceServer::new(gateway_server));
 
     tracing::info!(
         "Non-Custodial gRPC Gateway with Event Streaming listening on {}",
         addr
     );
-
-    let grpc_server =
-        Server::builder().add_service(BridgeGatewayServiceServer::new(gateway_server));
 
     tokio::spawn(async move {
         if let Err(e) = grpc_server.serve(addr).await {
@@ -111,10 +148,11 @@ pub async fn start(config: &GatewayConfig) -> Result<EventManagerHandle> {
         }
     });
 
+    // Return the handle so the caller can gracefully shut down the event manager.
     Ok(event_manager_handle)
 }
 
-// helper: parse a Pubkey returning GatewayError
+/// A helper function to parse a string into a `Pubkey`, returning a `GatewayError` on failure.
 fn parse_pubkey(s: &str) -> Result<Pubkey, GatewayError> {
     Pubkey::from_str(s).map_err(GatewayError::from)
 }
@@ -123,6 +161,10 @@ fn parse_pubkey(s: &str) -> Result<Pubkey, GatewayError> {
 impl BridgeGatewayService for GatewayServer {
     type ListenAsUserStream = ReceiverStream<Result<EventStreamItem, Status>>;
 
+    /// Opens a server-side stream of on-chain events for a specific `UserProfile` PDA.
+    ///
+    /// The stream first delivers all historical events for the PDA ("catch-up" phase),
+    /// and then sends new events in real-time as they occur ("live" phase).
     async fn listen_as_user(
         &self,
         request: Request<ListenRequest>,
@@ -135,7 +177,7 @@ impl BridgeGatewayService for GatewayServer {
         let mut listener = self.state.event_manager.listen_as_user(pda);
         let (tx, rx) = mpsc::channel(self.state.config.connector.channels.listener_event_buffer);
 
-        // Create a watch channel to signal termination.
+        // Create a watch channel to signal termination for this specific stream.
         let (stop_tx, mut stop_rx) = watch::channel(());
         if self
             .state
@@ -152,8 +194,7 @@ impl BridgeGatewayService for GatewayServer {
         let active_subscriptions_clone = self.state.active_subscriptions.clone();
 
         tokio::spawn(async move {
-            // Phase 1: Drain all catchup events. This loop will naturally end when the
-            // catchup worker has sent all historical events and closes its side of the channel.
+            // Phase 1: Drain all catchup events.
             while let Some(event) = listener.next_catchup_event().await {
                 let item = gateway::EventStreamItem::from(event);
                 if tx_clone.send(Ok(item)).await.is_err() {
@@ -167,13 +208,12 @@ impl BridgeGatewayService for GatewayServer {
             // Phase 2: Listen for live events and the stop signal.
             loop {
                 tokio::select! {
-                    // Always listen for the stop signal.
+                    // Stop if an unsubscribe signal is received.
                     _ = stop_rx.changed() => {
                         tracing::info!("Unsubscribe signal received for user PDA {}. Closing stream.", pda);
                         break;
                     }
-
-                    // Listen for live events.
+                    // Forward live events.
                     Some(event) = listener.next_live_event() => {
                         let item = gateway::EventStreamItem::from(event);
                         if tx_clone.send(Ok(item)).await.is_err() {
@@ -181,11 +221,8 @@ impl BridgeGatewayService for GatewayServer {
                             break;
                         }
                     }
-
-                    else => {
-                        // Live channel closed, which means the system is shutting down.
-                        break;
-                    }
+                    // Stop if the event manager shuts down.
+                    else => break,
                 }
             }
 
@@ -198,6 +235,10 @@ impl BridgeGatewayService for GatewayServer {
 
     type ListenAsAdminStream = ReceiverStream<Result<EventStreamItem, Status>>;
 
+    /// Opens a server-side stream of on-chain events for a specific `AdminProfile` PDA.
+    ///
+    /// The stream first delivers all historical events for the PDA ("catch-up" phase),
+    /// and then sends new events in real-time as they occur ("live" phase).
     async fn listen_as_admin(
         &self,
         request: Request<ListenRequest>,
@@ -253,10 +294,7 @@ impl BridgeGatewayService for GatewayServer {
                         }
                     }
 
-                    else => {
-                        // Live channel closed, system is shutting down.
-                        break;
-                    }
+                    else => break,
                 }
             }
 
@@ -267,6 +305,7 @@ impl BridgeGatewayService for GatewayServer {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    /// Manually closes an active event stream subscription.
     async fn unsubscribe(
         &self,
         request: Request<UnsubscribeRequest>,
@@ -276,11 +315,8 @@ impl BridgeGatewayService for GatewayServer {
             let pda_to_stop = parse_pubkey(&req.pda)?;
             tracing::info!("Received Unsubscribe request for PDA: {}", pda_to_stop);
 
-            // Find the subscription and send a stop signal.
-            // The `remove` also drops the sender, ensuring the watch channel closes.
+            // Find the subscription and send a stop signal by dropping the sender.
             if let Some((_, stop_tx)) = self.state.active_subscriptions.remove(&pda_to_stop) {
-                // The `send` will notify the receiver. It might return an error if the
-                // receiver is already gone, which is fine.
                 let _ = stop_tx.send(());
                 tracing::info!("Successfully signaled termination for PDA: {}", pda_to_stop);
             } else {
@@ -297,6 +333,9 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    // --- Transaction Preparation ---
+
+    /// Prepares an unsigned `user_request_unban` transaction.
     async fn prepare_user_request_unban(
         &self,
         request: Request<proto::w3b2::protocol::gateway::PrepareUserRequestUnbanRequest>,
@@ -331,6 +370,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_ban_user` transaction.
     async fn prepare_admin_ban_user(
         &self,
         request: Request<proto::w3b2::protocol::gateway::PrepareAdminBanUserRequest>,
@@ -363,6 +403,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_unban_user` transaction.
     async fn prepare_admin_unban_user(
         &self,
         request: Request<proto::w3b2::protocol::gateway::PrepareAdminUnbanUserRequest>,
@@ -395,6 +436,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_register_profile` transaction.
     async fn prepare_admin_register_profile(
         &self,
         request: Request<PrepareAdminRegisterProfileRequest>,
@@ -430,6 +472,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_set_config` transaction.
     async fn prepare_admin_set_config(
         &self,
         request: Request<PrepareAdminSetConfigRequest>,
@@ -475,6 +518,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_withdraw` transaction.
     async fn prepare_admin_withdraw(
         &self,
         request: Request<PrepareAdminWithdrawRequest>,
@@ -507,6 +551,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_close_profile` transaction.
     async fn prepare_admin_close_profile(
         &self,
         request: Request<PrepareAdminCloseProfileRequest>,
@@ -541,6 +586,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `admin_dispatch_command` transaction.
     async fn prepare_admin_dispatch_command(
         &self,
         request: Request<PrepareAdminDispatchCommandRequest>,
@@ -581,6 +627,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_create_profile` transaction.
     async fn prepare_user_create_profile(
         &self,
         request: Request<PrepareUserCreateProfileRequest>,
@@ -616,6 +663,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_update_comm_key` transaction.
     async fn prepare_user_update_comm_key(
         &self,
         request: Request<PrepareUserUpdateCommKeyRequest>,
@@ -651,6 +699,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_deposit` transaction.
     async fn prepare_user_deposit(
         &self,
         request: Request<PrepareUserDepositRequest>,
@@ -682,6 +731,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_withdraw` transaction.
     async fn prepare_user_withdraw(
         &self,
         request: Request<PrepareUserWithdrawRequest>,
@@ -714,6 +764,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_close_profile` transaction.
     async fn prepare_user_close_profile(
         &self,
         request: Request<PrepareUserCloseProfileRequest>,
@@ -745,6 +796,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `user_dispatch_command` transaction.
     async fn prepare_user_dispatch_command(
         &self,
         request: Request<PrepareUserDispatchCommandRequest>,
@@ -796,6 +848,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Prepares an unsigned `log_action` transaction.
     async fn prepare_log_action(
         &self,
         request: Request<PrepareLogActionRequest>,
@@ -831,6 +884,7 @@ impl BridgeGatewayService for GatewayServer {
         result.map_err(Status::from)
     }
 
+    /// Submits a signed transaction to the network.
     async fn submit_transaction(
         &self,
         request: Request<SubmitTransactionRequest>,

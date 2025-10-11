@@ -1,3 +1,17 @@
+//! # Instruction Logic
+//!
+//! This module contains the business logic for each on-chain instruction.
+//!
+//! Each function in this module corresponds to an instruction defined in `lib.rs` and
+//! is responsible for:
+//! 1.  Validating inputs and state.
+//! 2.  Mutating on-chain accounts (`AdminProfile`, `UserProfile`).
+//! 3.  Performing Cross-Program Invocations (CPIs), such as lamport transfers.
+//! 4.  Emitting events to be consumed by off-chain clients.
+//!
+//! The logic is intentionally kept separate from the `lib.rs` program module to
+//! improve code organization and readability.
+
 use super::*;
 use crate::instructions::solana_program::program::invoke;
 use anchor_lang::solana_program;
@@ -8,15 +22,25 @@ use solana_program::{
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
 pub const MAX_PAYLOAD_SIZE: usize = 1000;
-/// The maximum age of a signed timestamp in seconds before it is considered expired.
+/// The default maximum age of a signed timestamp in seconds before it is considered expired.
 pub const MAX_TIMESTAMP_AGE_SECONDS: i64 = 60;
 
 // --- Admin Instructions ---
 
-/// Initializes a new `AdminProfile` PDA for a service provider (an "Admin").
-/// This instruction creates the on-chain representation of a service, setting its
-/// owner (`authority`), its off-chain communication key, and initializing its
-/// internal balance. The oracle authority is set to the admin's own key by default.
+/// Initializes a new `AdminProfile` for a service provider.
+///
+/// This creates the on-chain representation of a service, setting its owner (`authority`),
+/// its off-chain communication key, and initializing its internal balance. The oracle
+/// authority is set to the admin's own key by default but can be changed later.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminRegisterProfile`] accounts.
+/// * `communication_pubkey` - The public key the admin will use for off-chain communication.
+///
+/// # Events
+///
+/// * [`AdminProfileRegistered`] - On successful creation of the profile.
 pub fn admin_register_profile(
     ctx: Context<AdminRegisterProfile>,
     communication_pubkey: Pubkey,
@@ -39,11 +63,25 @@ pub fn admin_register_profile(
     Ok(())
 }
 
-/// Allows an admin to ban a user, preventing them from using the service.
+/// Bans a user, preventing them from using the service.
+///
+/// Sets the `banned` flag on the specified `UserProfile` to `true`.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminBanUser`] accounts.
+///
+/// # Errors
+///
+/// * `CannotBanSelf` - If the admin attempts to ban their own user profile.
+///
+/// # Events
+///
+/// * [`UserBanned`] - On successful ban.
 pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
 
-    // An admin cannot ban themself.
+    // An admin cannot ban a user profile associated with their own authority key.
     require_keys_neq!(
         user_profile.authority,
         ctx.accounts.authority.key(),
@@ -62,16 +100,46 @@ pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
     Ok(())
 }
 
-/// Allows an admin to unban a user, restoring their access to the service.
+/// Unbans a user, restoring their access to the service.
 ///
-/// This model is intentionally flexible:
-/// - The admin can unban a user for free if the ban was issued in error.
-/// - The admin can refuse to unban a user even if they have paid the fee
-///   (though this may be a poor decision from a reputation standpoint, it is
-///   technically possible).
-/// - Paying the `unban_fee` is not a purchase of an unban, but a payment for
-///   the review of the request. It is like filing an appeal in court—you pay
-///   the fee, but it does not guarantee a win.
+/// Sets the `banned` flag to `false` and resets the `unban_requested` flag. This action
+/// is at the admin's discretion, regardless of whether the user has paid an `unban_fee`.
+///
+/// # Design Philosophy: The "Request for Review" Model
+///
+/// The unban process is intentionally asynchronous and requires admin intervention.
+/// This might seem unusual compared to a fully atomic "pay-to-unban" model, but it's a
+/// deliberate design choice that reflects real-world business needs and protects the service provider.
+///
+/// 1.  **Admin Sovereignty**: A ban is a disciplinary measure. If a user could automatically
+///     unban themselves simply by paying a fee, the ban would lose its meaning as a deterrent
+///     for malicious behavior (e.g., spam). It would become a mere "tax on bad behavior."
+///     The service administrator must have the final say.
+///
+/// 2.  **Flexibility**: The current model allows the admin to handle various scenarios:
+///     - Unban a user for free if the ban was issued in error.
+///     - Refuse an unban request even if the fee was paid, if the user's behavior warrants it.
+///
+/// 3.  **"Fee for Review" not "Payment for Unban"**: The `unban_fee` is not a purchase of an
+///     unban. It is a payment for the admin's time to review the appeal. This is analogous
+///     to a court filing fee, which does not guarantee a favorable verdict.
+///
+/// The smart contract's role is to act as an incorruptible source of truth and financial arbiter.
+/// It verifiably records the facts: "Yes, the user paid the fee. Yes, they have requested a review."
+/// The business decision remains off-chain, with the admin's backend infrastructure (listeners,
+/// databases, dashboards) responsible for reliably processing this queue of requests.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminUnbanUser`] accounts.
+///
+/// # Errors
+///
+/// * `UserNotBanned` - If the user is not currently banned.
+///
+/// # Events
+///
+/// * [`UserUnbanned`] - On successful unban.
 pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
 
@@ -90,7 +158,23 @@ pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
     Ok(())
 }
 
-/// Sets the configuration for an `AdminProfile`, including the oracle authority and timestamp validity.
+/// Sets the configuration for an `AdminProfile`.
+///
+/// Allows the admin to update the `oracle_authority`, `timestamp_validity_seconds`,
+/// `communication_pubkey`, and `unban_fee`. Any field passed as `None` will be ignored.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminSetConfig`] accounts.
+/// * `new_oracle_authority` - An optional new `Pubkey` for the oracle.
+/// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
+/// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
+/// * `new_unban_fee` - An optional new fee in lamports for unban requests.
+///
+/// # Events
+///
+/// * [`AdminConfigUpdated`] - Always emitted on successful execution.
+/// * [`AdminUnbanFeeUpdated`] - Emitted only if the `unban_fee` was changed.
 pub fn admin_set_config(
     ctx: Context<AdminSetConfig>,
     new_oracle_authority: Option<Pubkey>,
@@ -137,10 +221,17 @@ pub fn admin_set_config(
 }
 
 /// Closes an `AdminProfile` account and refunds its rent lamports to the owner.
-/// This effectively unregisters a service from the protocol.
 ///
 /// **Note:** This instruction only returns the lamports required for rent. Any funds
 /// in the internal `balance` must be withdrawn via `admin_withdraw` *before* closing.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminCloseProfile`] accounts.
+///
+/// # Events
+///
+/// * [`AdminProfileClosed`] - On successful closure.
 pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
     emit!(AdminProfileClosed {
         authority: ctx.accounts.authority.key(),
@@ -150,11 +241,24 @@ pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
     Ok(())
 }
 
-/// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance.
+/// Withdraws earned funds from an `AdminProfile`'s internal balance.
 ///
-/// This instruction performs a direct lamport transfer from the `AdminProfile` PDA to a
-/// specified `destination` account. It performs critical safety checks to ensure the
-/// withdrawal is authorized, the internal balance is sufficient, and the PDA remains rent-exempt.
+/// Performs a direct lamport transfer from the `AdminProfile` PDA to a specified
+/// `destination` account.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminWithdraw`] accounts.
+/// * `amount` - The number of lamports to withdraw.
+///
+/// # Errors
+///
+/// * `InsufficientAdminBalance` - If the `amount` exceeds the profile's internal `balance`.
+/// * `RentExemptViolation` - If the withdrawal would leave the PDA's lamport balance below the rent-exempt minimum.
+///
+/// # Events
+///
+/// * [`AdminFundsWithdrawn`] - On successful withdrawal.
 pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
     let admin_profile = &mut ctx.accounts.admin_profile;
     let destination = &ctx.accounts.destination;
@@ -190,10 +294,24 @@ pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
     Ok(())
 }
 
-/// Allows an admin to send a command or notification to a user.
+/// Dispatches a command or notification from an admin to a user.
 ///
 /// This is a non-financial transaction. Its primary purpose is to emit an
-/// `AdminCommandDispatched` event that an off-chain user `connector` can listen and react to.
+/// [`AdminCommandDispatched`] event that an off-chain user `connector` can listen to.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`AdminDispatchCommand`] accounts.
+/// * `command_id` - A `u64` identifier for the admin's command.
+/// * `payload` - An opaque `Vec<u8>` for application-specific data.
+///
+/// # Errors
+///
+/// * `PayloadTooLarge` - If the `payload` exceeds `MAX_PAYLOAD_SIZE`.
+///
+/// # Events
+///
+/// * [`AdminCommandDispatched`] - On successful dispatch.
 pub fn admin_dispatch_command(
     ctx: Context<AdminDispatchCommand>,
     command_id: u64,
@@ -218,10 +336,20 @@ pub fn admin_dispatch_command(
 
 // --- User Instructions ---
 
-/// Creates a `UserProfile` PDA, linking a user's wallet (`authority`) to a specific admin service.
+/// Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.
 ///
 /// The `admin_profile_on_creation` field is set to the `AdminProfile` PDA's key, creating
 /// a permanent, verifiable link between the user and the service.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserCreateProfile`] accounts.
+/// * `target_admin_pda` - The public key of the `AdminProfile` PDA this user is registering with.
+/// * `communication_pubkey` - The user's public key for off-chain communication.
+///
+/// # Events
+///
+/// * [`UserProfileCreated`] - On successful creation.
 pub fn user_create_profile(
     ctx: Context<UserCreateProfile>,
     target_admin_pda: Pubkey,
@@ -246,6 +374,15 @@ pub fn user_create_profile(
 }
 
 /// Updates the `communication_pubkey` for an existing `UserProfile`.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserUpdateCommKey`] accounts.
+/// * `new_key` - The new `Pubkey` to set as the communication key.
+///
+/// # Events
+///
+/// * [`UserCommKeyUpdated`] - On successful update.
 pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     user_profile.communication_pubkey = new_key;
@@ -263,6 +400,14 @@ pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) ->
 /// The `close` directive in the `UserCloseProfile` account context ensures all lamports
 /// held by the `user_profile` PDA (both for rent and from any remaining `deposit_balance`)
 /// are safely returned to the user's `authority` wallet.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserCloseProfile`] accounts.
+///
+/// # Events
+///
+/// * [`UserProfileClosed`] - On successful closure.
 pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
     emit!(UserProfileClosed {
         authority: ctx.accounts.authority.key(),
@@ -274,6 +419,25 @@ pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
 }
 
 /// Allows a banned user to pay a fee to request an unban from the admin.
+///
+/// If the `unban_fee` is greater than zero, this instruction transfers the fee amount
+/// from the user's `deposit_balance` to the admin's `balance`. It then sets the
+/// `unban_requested` flag to `true`.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserRequestUnban`] accounts.
+///
+/// # Errors
+///
+/// * `UserNotBanned` - If the user is not currently banned.
+/// * `UnbanAlreadyRequested` - If an unban has already been requested and is pending review.
+/// * `InsufficientDepositBalance` - If the user's balance is less than the `unban_fee`.
+/// * `RentExemptViolation` - If the fee transfer would leave the user's PDA below the rent-exempt minimum.
+///
+/// # Events
+///
+/// * [`UserUnbanRequested`] - On successful request.
 pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     let admin_profile = &mut ctx.accounts.admin_profile;
@@ -325,8 +489,19 @@ pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
     Ok(())
 }
 
-/// Allows a user to deposit lamports into their `UserProfile` PDA.
-/// This pre-funds their account to pay for future service calls to the linked admin.
+/// Deposits lamports into a `UserProfile` PDA.
+///
+/// This pre-funds a user's account to pay for future service calls to the linked admin.
+/// It performs a CPI to the System Program to transfer lamports.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserDeposit`] accounts.
+/// * `amount` - The number of lamports to deposit.
+///
+/// # Events
+///
+/// * [`UserFundsDeposited`] - On successful deposit.
 pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
 
@@ -358,12 +533,24 @@ pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
     Ok(())
 }
 
-/// Allows a user to withdraw unspent funds from their `UserProfile` deposit balance.
+/// Withdraws unspent funds from a `UserProfile`'s deposit balance.
 ///
 /// This instruction performs a direct lamport transfer from the `UserProfile` PDA to a
-/// specified `destination` account. It performs critical safety checks to ensure the
-/// withdrawal is authorized, the internal `deposit_balance` is sufficient, and the PDA
-/// remains rent-exempt.
+/// specified `destination` account.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserWithdraw`] accounts.
+/// * `amount` - The number of lamports to withdraw.
+///
+/// # Errors
+///
+/// * `InsufficientDepositBalance` - If the `amount` exceeds the profile's `deposit_balance`.
+/// * `RentExemptViolation` - If the withdrawal would leave the PDA's lamport balance below the rent-exempt minimum.
+///
+/// # Events
+///
+/// * [`UserFundsWithdrawn`] - On successful withdrawal.
 pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
     let user_profile = &mut ctx.accounts.user_profile;
     let destination = &ctx.accounts.destination;
@@ -402,8 +589,40 @@ pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
 
 // --- Operational Instructions ---
 
-/// The primary instruction for a user to call a service's API. It verifies a price
-/// signature from the admin's oracle and, if valid, transfers payment.
+/// Dispatches a command from a user to a service, potentially with payment.
+///
+/// This is the primary instruction for user-service interaction. It verifies a price
+/// signature from the admin's designated oracle and, if valid and the price is non-zero,
+/// transfers payment from the user's profile to the admin's profile.
+///
+/// # Pre-requisites
+///
+/// This instruction **must** be preceded by an `ed25519_dalek` signature verification
+/// instruction in the same transaction. The program inspects this preceding instruction
+/// to authenticate the `price`, `command_id`, and `timestamp`.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`UserDispatchCommand`] accounts.
+/// * `command_id` - The `u16` identifier of the service's command.
+/// * `price` - The price in lamports, as signed by the oracle.
+/// * `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.
+/// * `payload` - An opaque `Vec<u8>` for application-specific data.
+///
+/// # Errors
+///
+/// * `UserIsBanned` - If the user's profile is marked as banned.
+/// * `PayloadTooLarge` - If the `payload` exceeds `MAX_PAYLOAD_SIZE`.
+/// * `InstructionMismatch` - If the preceding instruction is not a valid Ed25519 signature verification.
+/// * `InvalidOracleSigner` - If the signature was not from the admin's designated `oracle_authority`.
+/// * `TimestampTooOld` - If the signed timestamp has expired.
+/// * `SignatureVerificationFailed` - If the signed message content does not match the provided arguments.
+/// * `InsufficientDepositBalance` - If the user's balance is less than the `price`.
+/// * `RentExemptViolation` - If the payment would leave the user's PDA below the rent-exempt minimum.
+///
+/// # Events
+///
+/// * [`UserCommandDispatched`] - On successful dispatch and payment.
 pub fn user_dispatch_command(
     ctx: Context<UserDispatchCommand>,
     command_id: u16,
@@ -522,9 +741,21 @@ pub fn user_dispatch_command(
     Ok(())
 }
 
-/// A generic instruction to log a significant off-chain action to the blockchain.
+/// Logs a significant off-chain action to the blockchain.
+///
 /// This creates an immutable, auditable record of events that happen outside the
-/// on-chain protocol, such as a successful HTTP request in a Web2 service.
+/// on-chain protocol, such as a successful HTTP request in a Web2 service. The signer
+/// can be either the user or the admin associated with the profiles.
+///
+/// # Arguments
+///
+/// * `ctx` - The context, containing the [`LogAction`] accounts.
+/// * `session_id` - A `u64` identifier to correlate this action with a session.
+/// * `action_code` - A `u16` code representing the specific off-chain action.
+///
+/// # Events
+///
+/// * [`OffChainActionLogged`] - On successful logging.
 pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {
     let actor = ctx.accounts.authority.key();
 

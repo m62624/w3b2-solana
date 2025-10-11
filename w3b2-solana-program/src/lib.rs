@@ -1,10 +1,41 @@
-//! The core on-chain Anchor program that manages user and service
-//! provider (admin) profiles and handles financial logic
+//! # W3B2 Solana Program
 //!
-//! This crate defines the core instruction interface for creating and managing
-//! service provider (`Admin`) and client (`User`) profiles, handling financial
-//! interactions like deposits and withdrawals, and facilitating a secure,
-//! bidirectional command dispatch system between off-chain parties.
+//! The core on-chain smart contract for the W3B2 toolset.
+//!
+//! This Anchor program provides a secure and verifiable framework for Web2 services to
+//! interact with the Solana blockchain. It enables services to manage user profiles,
+//! handle payments, and dispatch commands in a non-custodial manner, where users
+//! always retain control of their funds and sign all transactions with their own wallets.
+//!
+//! ## Key Concepts
+//!
+//! - **Admin & User Profiles:** The program establishes two primary PDA account types:
+//!   - [`AdminProfile`]: Represents the service provider (the "Admin"). It holds configuration
+//!     like the oracle key and serves as a treasury for collected fees.
+//!   - [`UserProfile`]: Represents an end-user's relationship with a specific service. It
+//!     holds the user's pre-paid deposit balance for that service.
+//!
+//! - **Non-Custodial Payments:** Users deposit funds into their own `UserProfile` PDA, which
+//!   is controlled by the program. Payments for services are transferred from the user's
+//!   profile to the admin's profile only upon the user's explicit, signed approval via
+//!   the `user_dispatch_command` instruction.
+//!
+//! - **Off-Chain Oracle:** For dynamic pricing, the program uses an off-chain oracle pattern.
+//!   The service's backend signs payment details (price, command, timestamp), and the on-chain
+//!   program verifies this signature before processing a payment. This keeps business logic
+//!   flexible and off-chain, while keeping value transfer secure and on-chain.
+//!
+//! - **Event-Driven Architecture:** The program emits detailed events for every significant
+//!   action (e.g., [`UserProfileCreated`], [`UserCommandDispatched`]). Off-chain clients, like the
+//!   `w3b2-solana-connector`, can listen for these events to synchronize state and trigger
+//!   backend processes.
+//!
+//! ## Modules
+//!
+//! - [`instructions`]: Contains the business logic for each on-chain instruction.
+//! - [`state`]: Defines the data structures for all on-chain accounts (PDAs).
+//! - [`events`]: Declares all on-chain events emitted by the program.
+//! - [`errors`]: Defines custom errors for clear and specific failure modes.
 
 #![allow(deprecated)]
 #![allow(unexpected_cfgs)]
@@ -23,21 +54,18 @@ use state::*;
 
 declare_id!("HykRMCadVCe49q4GVrXKTwLG3fqCEgd5W5qQqN3AFAEY");
 
-/// Defines the primary instruction interface for the W3B2 Bridge program.
+/// # W3B2 Program Instruction Interface
+///
 /// Each public function in this module corresponds to a callable on-chain instruction.
+/// The detailed logic for each instruction is implemented in the [`instructions`] module.
 #[program]
 pub mod w3b2_solana_program {
     use super::*;
 
     // --- Admin Instructions ---
 
-    /// Initializes a new `AdminProfile` PDA for a service provider. This instruction
-    /// creates the on-chain representation of a service, setting its owner (`authority`)
-    /// and initial configuration.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `communication_pubkey` - The public key the admin will use for off-chain communication.
+    /// Initializes a new `AdminProfile` PDA for a service provider.
+    /// See [`instructions::admin_register_profile`] for details.
     pub fn admin_register_profile(
         ctx: Context<AdminRegisterProfile>,
         communication_pubkey: Pubkey,
@@ -46,23 +74,13 @@ pub mod w3b2_solana_program {
     }
 
     /// Closes an `AdminProfile` account and refunds its rent lamports to the owner.
-    /// This effectively unregisters a service from the protocol.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet (`authority`) and the `admin_profile` to be closed.
+    /// See [`instructions::admin_close_profile`] for details.
     pub fn admin_close_profile(ctx: Context<AdminCloseProfile>) -> Result<()> {
         instructions::admin_close_profile(ctx)
     }
 
     /// Sets or updates the configuration for an existing `AdminProfile`.
-    /// This allows changing the `oracle_authority`, `timestamp_validity_seconds`,
-    /// and `communication_pubkey`. Any field passed as `None` will be ignored.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet as a `Signer`.
-    /// * `new_oracle_authority` - An optional new `Pubkey` for the oracle.
-    /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
-    /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
+    /// See [`instructions::admin_set_config`] for details.
     pub fn admin_set_config(
         ctx: Context<AdminSetConfig>,
         new_oracle_authority: Option<Pubkey>,
@@ -79,24 +97,14 @@ pub mod w3b2_solana_program {
         )
     }
 
-    /// Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance
-    /// to a specified destination wallet.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the admin's wallet as a `Signer` and the destination account.
-    /// * `amount` - The number of lamports to withdraw.
+    /// Withdraws earned funds from an `AdminProfile`'s internal balance.
+    /// See [`instructions::admin_withdraw`] for details.
     pub fn admin_withdraw(ctx: Context<AdminWithdraw>, amount: u64) -> Result<()> {
         instructions::admin_withdraw(ctx, amount)
     }
 
-    /// Allows an admin to send a command or notification to a user. This is a non-financial
-    /// transaction; its primary purpose is to emit an `AdminCommandDispatched` event that
-    /// an off-chain user `connector` can listen and react to.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, including the admin's wallet (`admin_authority`), their `admin_profile`, and the target `user_profile`.
-    /// * `command_id` - The `u64` identifier of the admin's command.
-    /// * `payload` - An opaque `Vec<u8>` for application-specific data.
+    /// Dispatches a non-financial command from an admin to a user.
+    /// See [`instructions::admin_dispatch_command`] for details.
     pub fn admin_dispatch_command(
         ctx: Context<AdminDispatchCommand>,
         command_id: u64,
@@ -105,12 +113,14 @@ pub mod w3b2_solana_program {
         instructions::admin_dispatch_command(ctx, command_id, payload)
     }
 
-    /// Allows an admin to ban a user, preventing them from using the service.
+    /// Bans a user, preventing them from interacting with the service.
+    /// See [`instructions::admin_ban_user`] for details.
     pub fn admin_ban_user(ctx: Context<AdminBanUser>) -> Result<()> {
         instructions::admin_ban_user(ctx)
     }
 
-    /// Allows an admin to unban a user, restoring their access to the service.
+    /// Unbans a user, restoring their access to the service.
+    /// See [`instructions::admin_unban_user`] for details.
     pub fn admin_unban_user(ctx: Context<AdminUnbanUser>) -> Result<()> {
         instructions::admin_unban_user(ctx)
     }
@@ -118,11 +128,7 @@ pub mod w3b2_solana_program {
     // --- User Instructions ---
 
     /// Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the user's wallet as a `Signer` and the target `admin_profile`.
-    /// * `target_admin_pda` - The public key of the `AdminProfile` **PDA** this user is registering with.
-    /// * `communication_pubkey` - The user's public key for off-chain communication.
+    /// See [`instructions::user_create_profile`] for details.
     pub fn user_create_profile(
         ctx: Context<UserCreateProfile>,
         target_admin_pda: Pubkey,
@@ -132,53 +138,39 @@ pub mod w3b2_solana_program {
     }
 
     /// Updates the `communication_pubkey` for an existing `UserProfile`.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the user's wallet as a `Signer`.
-    /// * `new_key` - The new `Pubkey` to set as the communication key.
+    /// See [`instructions::user_update_comm_key`] for details.
     pub fn user_update_comm_key(ctx: Context<UserUpdateCommKey>, new_key: Pubkey) -> Result<()> {
         instructions::user_update_comm_key(ctx, new_key)
     }
 
-    /// Closes a `UserProfile` account. All remaining lamports (both from the deposit
-    /// balance and for rent) are automatically returned to the user's `authority`.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the user's wallet (`authority`) and the `user_profile` to be closed.
+    /// Closes a `UserProfile` account and refunds all lamports to the user.
+    /// See [`instructions::user_close_profile`] for details.
     pub fn user_close_profile(ctx: Context<UserCloseProfile>) -> Result<()> {
         instructions::user_close_profile(ctx)
     }
 
-    /// Allows a user to deposit lamports into their `UserProfile` PDA to pre-fund
-    /// future payments for a service.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the user's wallet as a `Signer`.
-    /// * `amount` - The number of lamports to deposit.
+    /// Deposits lamports into a `UserProfile` PDA to pre-fund future payments.
+    /// See [`instructions::user_deposit`] for details.
     pub fn user_deposit(ctx: Context<UserDeposit>, amount: u64) -> Result<()> {
         instructions::user_deposit(ctx, amount)
     }
 
-    /// Allows a user to withdraw unspent funds from their `UserProfile`'s deposit balance.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the user's wallet as a `Signer` and the destination account.
-    /// * `amount` - The number of lamports to withdraw.
+    /// Withdraws unspent funds from a `UserProfile`'s deposit balance.
+    /// See [`instructions::user_withdraw`] for details.
     pub fn user_withdraw(ctx: Context<UserWithdraw>, amount: u64) -> Result<()> {
         instructions::user_withdraw(ctx, amount)
     }
 
+    /// Allows a banned user to pay a fee to request an unban from the admin.
+    /// See [`instructions::user_request_unban`] for details.
+    pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
+        instructions::user_request_unban(ctx)
+    }
+
     // --- Operational Instructions ---
 
-    /// The primary instruction for a user to call a service's API. It verifies a price
-    /// signature from the admin's oracle and, if valid, transfers payment.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, including the user's wallet, their profile, and the target admin profile.
-    /// * `command_id` - The `u16` identifier of the service's command.
-    /// * `price` - The price in lamports, as signed by the oracle.
-    /// * `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.
-    /// * `payload` - An opaque `Vec<u8>` for application-specific data.
+    /// Dispatches a command from a user to a service, verifying a signed price from an oracle.
+    /// See [`instructions::user_dispatch_command`] for details.
     pub fn user_dispatch_command(
         ctx: Context<UserDispatchCommand>,
         command_id: u16,
@@ -189,19 +181,9 @@ pub mod w3b2_solana_program {
         instructions::user_dispatch_command(ctx, command_id, price, timestamp, payload)
     }
 
-    /// A generic instruction to log a significant off-chain action to the blockchain,
-    /// creating an immutable, auditable record.
-    ///
-    /// # Arguments
-    /// * `ctx` - The context, containing the `Signer` (user or admin wallet) and the associated profiles.
-    /// * `session_id` - A `u64` identifier to correlate this action with a session.
-    /// * `action_code` - A `u16` code representing the specific off-chain action.
+    /// Logs a significant off-chain action to the blockchain for an audit trail.
+    /// See [`instructions::log_action`] for details.
     pub fn log_action(ctx: Context<LogAction>, session_id: u64, action_code: u16) -> Result<()> {
         instructions::log_action(ctx, session_id, action_code)
-    }
-
-    /// Allows a banned user to pay a fee to request an unban from the admin.
-    pub fn user_request_unban(ctx: Context<UserRequestUnban>) -> Result<()> {
-        instructions::user_request_unban(ctx)
     }
 }
