@@ -8,7 +8,7 @@ use solana_sdk::commitment_config::CommitmentLevel;
 /// This struct aggregates all necessary settings, including Solana network endpoints
 /// and synchronizer behavior. It is typically deserialized from a configuration file
 /// and passed to the `EventManager` upon initialization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub struct ConnectorConfig {
@@ -57,15 +57,6 @@ pub struct ChannelConfig {
     pub listener_event_buffer: usize,
 }
 
-impl Default for ConnectorConfig {
-    fn default() -> Self {
-        Self {
-            solana: Solana::default(),
-            synchronizer: Synchronizer::default(),
-            channels: ChannelConfig::default(),
-        }
-    }
-}
 
 impl Default for Solana {
     fn default() -> Self {

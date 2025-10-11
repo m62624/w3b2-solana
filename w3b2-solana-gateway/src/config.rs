@@ -65,7 +65,7 @@ pub fn load_config(path: &str) -> Result<GatewayConfig> {
 
     let settings: GatewayConfig = builder
         .build()
-        .context(format!("Failed to build configuration from '{}'", path))?
+        .context(format!("Failed to build configuration from '{path}'"))?
         .try_deserialize()
         .context("Failed to deserialize configuration")?;
 

@@ -10,7 +10,7 @@ pub enum GatewayError {
     InvalidArgument(String),
 
     #[error("Internal connector error: {0}")]
-    Connector(#[from] ClientError),
+    Connector(#[from] Box<ClientError>),
 
     #[error("Serialization failed: {0}")]
     Serialization(#[from] bincode::error::EncodeError),
@@ -25,14 +25,12 @@ impl From<GatewayError> for Status {
     fn from(err: GatewayError) -> Self {
         match err {
             GatewayError::InvalidArgument(reason) => Status::invalid_argument(reason),
-            GatewayError::Connector(e) => {
-                Status::internal(format!("Blockchain client error: {}", e))
-            }
+            GatewayError::Connector(e) => Status::internal(format!("Blockchain client error: {e}")),
             GatewayError::Serialization(e) => {
-                Status::internal(format!("Data serialization error: {}", e))
+                Status::internal(format!("Data serialization error: {e}"))
             }
             GatewayError::Deserialization(e) => {
-                Status::invalid_argument(format!("Invalid data format for deserialization: {}", e))
+                Status::invalid_argument(format!("Invalid data format for deserialization: {e}"))
             }
         }
     }
@@ -41,6 +39,6 @@ impl From<GatewayError> for Status {
 /// Helper implementation to convert Pubkey parsing errors into our custom error type.
 impl From<ParsePubkeyError> for GatewayError {
     fn from(err: ParsePubkeyError) -> Self {
-        GatewayError::InvalidArgument(format!("Invalid public key format: {}", err))
+        GatewayError::InvalidArgument(format!("Invalid public key format: {err}"))
     }
 }

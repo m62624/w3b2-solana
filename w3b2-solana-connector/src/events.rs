@@ -48,7 +48,7 @@ pub fn try_parse_log(log: &str) -> Result<BridgeEvent> {
                 F: FnOnce(E) -> BridgeEventData,
             {
                 let disc = E::DISCRIMINATOR;
-                if data.starts_with(&disc) {
+                if data.starts_with(disc) {
                     if let Ok(e) = E::try_from_slice(&data[disc.len()..]) {
                         return Some(map(e));
                     }

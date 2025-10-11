@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 use w3b2_solana_connector::{
-    client::TransactionBuilder,
+    client::{TransactionBuilder, UserDispatchCommandArgs},
     workers::{EventManager, EventManagerHandle},
 };
 
@@ -144,8 +144,7 @@ impl BridgeGatewayService for GatewayServer {
             .is_some()
         {
             return Err(Status::already_exists(format!(
-                "A listener for PDA {} is already active",
-                pda
+                "A listener for PDA {pda} is already active"
             )));
         }
 
@@ -219,8 +218,7 @@ impl BridgeGatewayService for GatewayServer {
             .is_some()
         {
             return Err(Status::already_exists(format!(
-                "A listener for PDA {} is already active",
-                pda
+                "A listener for PDA {pda} is already active"
             )));
         }
 
@@ -317,7 +315,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_admin_register_profile(authority, communication_pubkey)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -364,7 +362,7 @@ impl BridgeGatewayService for GatewayServer {
                     new_communication_pubkey,
                 )
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -396,7 +394,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_admin_withdraw(authority, req.amount, destination)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -427,7 +425,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_admin_close_profile(authority)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -467,7 +465,7 @@ impl BridgeGatewayService for GatewayServer {
                     req.payload,
                 )
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -503,7 +501,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_user_create_profile(authority, target_admin_pda, communication_pubkey)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -538,7 +536,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_user_update_comm_key(authority, admin_profile_pda, new_key)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -572,7 +570,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_user_deposit(authority, admin_profile_pda, req.amount)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -604,7 +602,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_user_withdraw(authority, admin_profile_pda, req.amount, destination)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -635,7 +633,7 @@ impl BridgeGatewayService for GatewayServer {
             let transaction = builder
                 .prepare_user_close_profile(authority, admin_profile_pda)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -673,15 +671,17 @@ impl BridgeGatewayService for GatewayServer {
                 .prepare_user_dispatch_command(
                     authority,
                     target_admin_pda,
-                    req.command_id as u16,
-                    req.price,
-                    req.timestamp,
-                    req.payload,
-                    oracle_pubkey,
-                    oracle_signature,
+                    UserDispatchCommandArgs {
+                        command_id: req.command_id as u16,
+                        price: req.price,
+                        timestamp: req.timestamp,
+                        payload: req.payload,
+                        oracle_pubkey,
+                        oracle_signature,
+                    },
                 )
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -719,7 +719,7 @@ impl BridgeGatewayService for GatewayServer {
                     req.action_code as u16,
                 )
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
 
             let unsigned_tx =
                 bincode::serde::encode_to_vec(&transaction, bincode::config::standard())
@@ -757,7 +757,7 @@ impl BridgeGatewayService for GatewayServer {
             let signature = builder
                 .submit_transaction(&transaction)
                 .await
-                .map_err(GatewayError::Connector)?;
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
             tracing::info!("Submitted transaction, signature: {}", signature);
 
             Ok(Response::new(TransactionResponse {

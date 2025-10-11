@@ -89,7 +89,7 @@ impl EventManager {
 
         let handle = EventManagerHandle {
             dispatcher: dispatcher_handle,
-            config: config,
+            config,
         };
 
         (runner, handle)
