@@ -7,14 +7,17 @@
     "description": "Created with Anchor"
   },
   "docs": [
-    "Defines the primary instruction interface for the W3B2 Bridge program.",
-    "Each public function in this module corresponds to a callable on-chain instruction."
+    "# W3B2 Program Instruction Interface",
+    "",
+    "Each public function in this module corresponds to a callable on-chain instruction.",
+    "The detailed logic for each instruction is implemented in the [`instructions`] module."
   ],
   "instructions": [
     {
       "name": "admin_ban_user",
       "docs": [
-        "Allows an admin to ban a user, preventing them from using the service."
+        "Bans a user, preventing them from interacting with the service.",
+        "See [`instructions::admin_ban_user`] for details."
       ],
       "discriminator": [
         38,
@@ -63,8 +66,8 @@
         {
           "name": "user_profile",
           "docs": [
-            "The `UserProfile` to be banned. This account will be mutated.",
-            "A constraint ensures this profile is associated with this specific `admin_profile`."
+            "The `UserProfile` to be banned. This account will be mutated to set `banned = true`.",
+            "A constraint ensures this user profile is associated with this specific `admin_profile`."
           ],
           "writable": true
         }
@@ -75,10 +78,7 @@
       "name": "admin_close_profile",
       "docs": [
         "Closes an `AdminProfile` account and refunds its rent lamports to the owner.",
-        "This effectively unregisters a service from the protocol.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the admin's wallet (`authority`) and the `admin_profile` to be closed."
+        "See [`instructions::admin_close_profile`] for details."
       ],
       "discriminator": [
         205,
@@ -133,14 +133,8 @@
     {
       "name": "admin_dispatch_command",
       "docs": [
-        "Allows an admin to send a command or notification to a user. This is a non-financial",
-        "transaction; its primary purpose is to emit an `AdminCommandDispatched` event that",
-        "an off-chain user `connector` can listen and react to.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, including the admin's wallet (`admin_authority`), their `admin_profile`, and the target `user_profile`.",
-        "* `command_id` - The `u64` identifier of the admin's command.",
-        "* `payload` - An opaque `Vec<u8>` for application-specific data."
+        "Dispatches a non-financial command from an admin to a user.",
+        "See [`instructions::admin_dispatch_command`] for details."
       ],
       "discriminator": [
         114,
@@ -207,13 +201,8 @@
     {
       "name": "admin_register_profile",
       "docs": [
-        "Initializes a new `AdminProfile` PDA for a service provider. This instruction",
-        "creates the on-chain representation of a service, setting its owner (`authority`)",
-        "and initial configuration.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the admin's wallet as a `Signer`.",
-        "* `communication_pubkey` - The public key the admin will use for off-chain communication."
+        "Initializes a new `AdminProfile` PDA for a service provider.",
+        "See [`instructions::admin_register_profile`] for details."
       ],
       "discriminator": [
         101,
@@ -229,7 +218,8 @@
         {
           "name": "authority",
           "docs": [
-            "The `Signer` (the admin's wallet) who will become the owner of the new `AdminProfile`."
+            "The `Signer` (the admin's wallet) who will become the owner of the new `AdminProfile`.",
+            "This account pays for the creation of the `admin_profile` PDA."
           ],
           "writable": true,
           "signer": true
@@ -238,7 +228,7 @@
           "name": "admin_profile",
           "docs": [
             "The new `AdminProfile` account to be initialized. Its address is a PDA",
-            "derived from the `authority`'s key."
+            "derived from the `authority`'s key, ensuring one profile per admin."
           ],
           "writable": true,
           "pda": {
@@ -279,14 +269,7 @@
       "name": "admin_set_config",
       "docs": [
         "Sets or updates the configuration for an existing `AdminProfile`.",
-        "This allows changing the `oracle_authority`, `timestamp_validity_seconds`,",
-        "and `communication_pubkey`. Any field passed as `None` will be ignored.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the admin's wallet as a `Signer`.",
-        "* `new_oracle_authority` - An optional new `Pubkey` for the oracle.",
-        "* `new_timestamp_validity` - An optional new duration in seconds for signature validity.",
-        "* `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication."
+        "See [`instructions::admin_set_config`] for details."
       ],
       "discriminator": [
         35,
@@ -364,7 +347,8 @@
     {
       "name": "admin_unban_user",
       "docs": [
-        "Allows an admin to unban a user, restoring their access to the service."
+        "Unbans a user, restoring their access to the service.",
+        "See [`instructions::admin_unban_user`] for details."
       ],
       "discriminator": [
         213,
@@ -413,8 +397,8 @@
         {
           "name": "user_profile",
           "docs": [
-            "The `UserProfile` to be unbanned. This account will be mutated.",
-            "A constraint ensures this profile is associated with this specific `admin_profile`."
+            "The `UserProfile` to be unbanned. This account will be mutated to set `banned = false`.",
+            "A constraint ensures this user profile is associated with this specific `admin_profile`."
           ],
           "writable": true
         }
@@ -424,12 +408,8 @@
     {
       "name": "admin_withdraw",
       "docs": [
-        "Allows an admin to withdraw earned funds from their `AdminProfile`'s internal balance",
-        "to a specified destination wallet.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the admin's wallet as a `Signer` and the destination account.",
-        "* `amount` - The number of lamports to withdraw."
+        "Withdraws earned funds from an `AdminProfile`'s internal balance.",
+        "See [`instructions::admin_withdraw`] for details."
       ],
       "discriminator": [
         160,
@@ -454,7 +434,7 @@
           "name": "admin_profile",
           "docs": [
             "The `AdminProfile` from which funds will be withdrawn. Constraints",
-            "verify the `authority` and the PDA seeds."
+            "verify that the `authority` is the legitimate owner and the PDA seeds are correct."
           ],
           "writable": true,
           "pda": {
@@ -481,7 +461,10 @@
           "docs": [
             "The account that will receive the withdrawn lamports. It is marked as `mut`",
             "because its lamport balance will be increased.",
-            "from a program-controlled PDA, and does not require data deserialization."
+            "",
+            "**Security:** `CHECK:` is used here because this account is only a destination for a",
+            "lamport transfer from a program-controlled PDA. No data is read from or written to it,",
+            "so deserialization into a typed account is unnecessary and inefficient."
           ],
           "writable": true
         }
@@ -496,13 +479,8 @@
     {
       "name": "log_action",
       "docs": [
-        "A generic instruction to log a significant off-chain action to the blockchain,",
-        "creating an immutable, auditable record.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the `Signer` (user or admin wallet) and the associated profiles.",
-        "* `session_id` - A `u64` identifier to correlate this action with a session.",
-        "* `action_code` - A `u16` code representing the specific off-chain action."
+        "Logs a significant off-chain action to the blockchain for an audit trail.",
+        "See [`instructions::log_action`] for details."
       ],
       "discriminator": [
         123,
@@ -517,13 +495,17 @@
       "accounts": [
         {
           "name": "authority",
+          "docs": [
+            "The `Signer` of the transaction, who can be either the user or the admin associated",
+            "with the profiles."
+          ],
           "writable": true,
           "signer": true
         },
         {
           "name": "user_profile",
           "docs": [
-            "The user's profile PDA."
+            "The `UserProfile` associated with the action being logged."
           ],
           "writable": true,
           "pda": {
@@ -551,6 +533,9 @@
         },
         {
           "name": "admin_profile",
+          "docs": [
+            "The `AdminProfile` associated with the action being logged."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -587,11 +572,8 @@
     {
       "name": "user_close_profile",
       "docs": [
-        "Closes a `UserProfile` account. All remaining lamports (both from the deposit",
-        "balance and for rent) are automatically returned to the user's `authority`.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the user's wallet (`authority`) and the `user_profile` to be closed."
+        "Closes a `UserProfile` account and refunds all lamports to the user.",
+        "See [`instructions::user_close_profile`] for details."
       ],
       "discriminator": [
         201,
@@ -608,7 +590,7 @@
           "name": "authority",
           "docs": [
             "The `Signer` (the user's wallet) who must be the `authority` of the `user_profile`.",
-            "This account will receive the refunded lamports."
+            "This account will receive all lamports from the closed account."
           ],
           "writable": true,
           "signer": true
@@ -616,14 +598,14 @@
         {
           "name": "admin_profile",
           "docs": [
-            "The `AdminProfile` associated with the `user_profile`."
+            "The `AdminProfile` associated with the `user_profile`, required to derive the user PDA."
           ]
         },
         {
           "name": "user_profile",
           "docs": [
             "The `UserProfile` account to be closed. The `close` directive will transfer",
-            "all its lamports to the `authority`."
+            "all its lamports (rent and deposit balance) to the `authority`."
           ],
           "writable": true,
           "pda": {
@@ -655,11 +637,7 @@
       "name": "user_create_profile",
       "docs": [
         "Creates a `UserProfile` PDA, linking a user's wallet to a specific admin service.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the user's wallet as a `Signer` and the target `admin_profile`.",
-        "* `target_admin_pda` - The public key of the `AdminProfile` **PDA** this user is registering with.",
-        "* `communication_pubkey` - The user's public key for off-chain communication."
+        "See [`instructions::user_create_profile`] for details."
       ],
       "discriminator": [
         177,
@@ -675,7 +653,8 @@
         {
           "name": "authority",
           "docs": [
-            "The `Signer` (the user's wallet) who will become the owner of the new `UserProfile`."
+            "The `Signer` (the user's wallet) who will become the owner of the new `UserProfile`.",
+            "This account pays for the creation of the `user_profile` PDA."
           ],
           "writable": true,
           "signer": true
@@ -684,7 +663,7 @@
           "name": "admin_profile",
           "docs": [
             "The `AdminProfile` PDA that this new user profile will be linked to.",
-            "This account is not mutated, but it is read to ensure it exists and is a valid profile."
+            "This account is read-only but its existence and PDA derivation are verified."
           ],
           "pda": {
             "seeds": [
@@ -710,8 +689,8 @@
           "name": "user_profile",
           "docs": [
             "The new `UserProfile` account to be initialized. Its address is a PDA",
-            "derived from the user's `authority` key and the `admin_profile`'s PDA key.",
-            "The `target_admin_pda` from the instruction must match `admin_profile.key()`."
+            "derived from the user's `authority` key and the `admin_profile`'s PDA key,",
+            "ensuring a unique profile for each user-service pair."
           ],
           "writable": true,
           "pda": {
@@ -758,12 +737,8 @@
     {
       "name": "user_deposit",
       "docs": [
-        "Allows a user to deposit lamports into their `UserProfile` PDA to pre-fund",
-        "future payments for a service.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the user's wallet as a `Signer`.",
-        "* `amount` - The number of lamports to deposit."
+        "Deposits lamports into a `UserProfile` PDA to pre-fund future payments.",
+        "See [`instructions::user_deposit`] for details."
       ],
       "discriminator": [
         186,
@@ -779,7 +754,8 @@
         {
           "name": "authority",
           "docs": [
-            "The `Signer` (the user's wallet) who must be the `authority` of the `user_profile`."
+            "The `Signer` (the user's wallet) who must be the `authority` of the `user_profile`.",
+            "This account is the source of the deposited funds."
           ],
           "writable": true,
           "signer": true
@@ -788,7 +764,7 @@
           "name": "admin_profile",
           "docs": [
             "The `AdminProfile` associated with the `user_profile`. This is required",
-            "to derive and verify the `user_profile` **PDA** address."
+            "to correctly derive and verify the `user_profile` PDA address."
           ]
         },
         {
@@ -823,7 +799,8 @@
         {
           "name": "system_program",
           "docs": [
-            "The System Program, required for the underlying lamport transfer."
+            "The System Program, required to perform the lamport transfer from the user's",
+            "wallet to their profile PDA."
           ],
           "address": "11111111111111111111111111111111"
         }
@@ -838,15 +815,8 @@
     {
       "name": "user_dispatch_command",
       "docs": [
-        "The primary instruction for a user to call a service's API. It verifies a price",
-        "signature from the admin's oracle and, if valid, transfers payment.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, including the user's wallet, their profile, and the target admin profile.",
-        "* `command_id` - The `u16` identifier of the service's command.",
-        "* `price` - The price in lamports, as signed by the oracle.",
-        "* `timestamp` - The Unix timestamp from the signed message, to prevent replay attacks.",
-        "* `payload` - An opaque `Vec<u8>` for application-specific data."
+        "Dispatches a command from a user to a service, verifying a signed price from an oracle.",
+        "See [`instructions::user_dispatch_command`] for details."
       ],
       "discriminator": [
         13,
@@ -869,8 +839,8 @@
         {
           "name": "user_profile",
           "docs": [
-            "The user's profile PDA. Constraints ensure the `authority` is the owner",
-            "and that this profile is linked to the provided `admin_profile` via its seeds."
+            "The user's profile PDA. It is debited for the command `price`. Constraints ensure",
+            "the `authority` is the owner and the profile is linked to the correct `admin_profile`."
           ],
           "writable": true,
           "pda": {
@@ -898,8 +868,8 @@
         {
           "name": "admin_profile",
           "docs": [
-            "The target `AdminProfile` of the service being called. Its seeds are",
-            "checked to ensure it's a valid profile created by this program."
+            "The target `AdminProfile` of the service being called. It is credited with the",
+            "command `price`. Its seeds are checked to ensure it's a valid profile."
           ],
           "writable": true,
           "pda": {
@@ -925,7 +895,11 @@
         {
           "name": "instructions",
           "docs": [
-            "The Instructions sysvar, used to verify the preceding instruction."
+            "The Instructions sysvar (`ixs`), used to verify the preceding `Ed25519Program`",
+            "instruction for oracle signature authentication.",
+            "",
+            "**Security:** `CHECK:` is used as we are only reading instruction data from this",
+            "sysvar account, not deserializing its data."
           ],
           "address": "Sysvar1nstructions1111111111111111111111111"
         }
@@ -952,7 +926,8 @@
     {
       "name": "user_request_unban",
       "docs": [
-        "Allows a banned user to pay a fee to request an unban from the admin."
+        "Allows a banned user to pay a fee to request an unban from the admin.",
+        "See [`instructions::user_request_unban`] for details."
       ],
       "discriminator": [
         71,
@@ -976,7 +951,8 @@
         {
           "name": "admin_profile",
           "docs": [
-            "The `AdminProfile` associated with the `user_profile`. It will receive the unban fee."
+            "The `AdminProfile` associated with the `user_profile`. Its internal balance",
+            "will be credited with the `unban_fee`."
           ],
           "writable": true,
           "pda": {
@@ -1002,7 +978,8 @@
         {
           "name": "user_profile",
           "docs": [
-            "The `UserProfile` requesting the unban."
+            "The `UserProfile` requesting the unban. Its `deposit_balance` will be debited",
+            "for the fee, and `unban_requested` flag will be set to `true`."
           ],
           "writable": true,
           "pda": {
@@ -1034,10 +1011,7 @@
       "name": "user_update_comm_key",
       "docs": [
         "Updates the `communication_pubkey` for an existing `UserProfile`.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the user's wallet as a `Signer`.",
-        "* `new_key` - The new `Pubkey` to set as the communication key."
+        "See [`instructions::user_update_comm_key`] for details."
       ],
       "discriminator": [
         17,
@@ -1061,13 +1035,13 @@
         {
           "name": "admin_profile",
           "docs": [
-            "The `AdminProfile` associated with the `user_profile`."
+            "The `AdminProfile` associated with the `user_profile`, required to derive the user PDA."
           ]
         },
         {
           "name": "user_profile",
           "docs": [
-            "The `UserProfile` account to be updated."
+            "The `UserProfile` account whose `communication_pubkey` will be updated."
           ],
           "writable": true,
           "pda": {
@@ -1103,11 +1077,8 @@
     {
       "name": "user_withdraw",
       "docs": [
-        "Allows a user to withdraw unspent funds from their `UserProfile`'s deposit balance.",
-        "",
-        "# Arguments",
-        "* `ctx` - The context, containing the user's wallet as a `Signer` and the destination account.",
-        "* `amount` - The number of lamports to withdraw."
+        "Withdraws unspent funds from a `UserProfile`'s deposit balance.",
+        "See [`instructions::user_withdraw`] for details."
       ],
       "discriminator": [
         53,
@@ -1131,7 +1102,7 @@
         {
           "name": "admin_profile",
           "docs": [
-            "The `AdminProfile` associated with the `user_profile`."
+            "The `AdminProfile` associated with the `user_profile`, required to derive the user PDA."
           ]
         },
         {
@@ -1165,7 +1136,10 @@
         {
           "name": "destination",
           "docs": [
-            "The account that will receive the withdrawn lamports."
+            "The account that will receive the withdrawn lamports.",
+            "",
+            "**Security:** `CHECK:` is used here because this account is only a destination for a",
+            "lamport transfer. No data is read from or written to it."
           ],
           "writable": true
         }
@@ -1644,9 +1618,15 @@
     {
       "name": "AdminProfile",
       "docs": [
+        "# Admin Profile",
+        "",
         "Represents the on-chain profile for a Service Provider (an \"Admin\").",
-        "This PDA holds the service's configuration, and serves as a treasury for",
-        "collected fees. Its address is derived from the admin's wallet key."
+        "",
+        "This PDA holds the service's configuration and serves as a treasury for collected fees.",
+        "Its address is deterministically derived from the admin's wallet key, ensuring that",
+        "each admin can only have one profile.",
+        "",
+        "- **PDA Seeds:** `[b\"admin\", authority.key().as_ref()]`"
       ],
       "type": {
         "kind": "struct",
@@ -1654,8 +1634,8 @@
           {
             "name": "authority",
             "docs": [
-              "The public key of the admin's wallet, which is the sole `authority`",
-              "allowed to manage this profile (e.g., withdraw funds)."
+              "The public key of the admin's wallet. This key is the sole `authority`",
+              "allowed to manage this profile (e.g., withdraw funds, change configuration)."
             ],
             "type": "pubkey"
           },
@@ -1671,7 +1651,8 @@
             "name": "oracle_authority",
             "docs": [
               "The public key of the off-chain oracle responsible for signing price data.",
-              "The program will only accept price information signed by this authority."
+              "The program will only accept price information signed by this authority.",
+              "By default, this is set to the `authority` key."
             ],
             "type": "pubkey"
           },
@@ -1694,7 +1675,7 @@
           {
             "name": "unban_fee",
             "docs": [
-              "The fee in lamports that a user must pay to request an unban.",
+              "The fee in lamports that a banned user must pay to request an unban.",
               "This can be configured by the admin."
             ],
             "type": "u64"
@@ -2108,9 +2089,15 @@
     {
       "name": "UserProfile",
       "docs": [
+        "# User Profile",
+        "",
         "Represents a user's on-chain profile for a *specific* Admin service.",
-        "A single user wallet (`authority`) can have multiple `UserProfile` PDAs, one for each",
-        "service they interact with. This PDA holds the user's prepaid balance for that service."
+        "",
+        "A single user wallet (`authority`) can have multiple `UserProfile` PDAs—one for each",
+        "service they interact with. This PDA holds the user's prepaid balance for that service",
+        "and tracks their status (e.g., `banned`).",
+        "",
+        "- **PDA Seeds:** `[b\"user\", authority.key().as_ref(), admin_profile.key().as_ref()]`"
       ],
       "type": {
         "kind": "struct",
@@ -2118,7 +2105,7 @@
           {
             "name": "authority",
             "docs": [
-              "The public key of the user's wallet, which is the sole `authority`",
+              "The public key of the user's wallet. This key is the sole `authority`",
               "allowed to manage this profile (e.g., deposit/withdraw funds, close profile)."
             ],
             "type": "pubkey"
@@ -2134,7 +2121,7 @@
             "name": "admin_profile_on_creation",
             "docs": [
               "The public key of the `AdminProfile` **PDA** this user profile was created for.",
-              "This field permanently links the user's profile to a specific service."
+              "This field permanently and verifiably links the user's profile to a specific service."
             ],
             "type": "pubkey"
           },
@@ -2142,7 +2129,7 @@
             "name": "deposit_balance",
             "docs": [
               "The user's prepaid balance in lamports for this specific service. This balance",
-              "is debited by the `user_dispatch_command` instruction."
+              "is debited by the `user_dispatch_command` instruction to pay for services."
             ],
             "type": "u64"
           },
@@ -2150,15 +2137,15 @@
             "name": "banned",
             "docs": [
               "A flag indicating whether the user is banned from using the service.",
-              "If true, most user-initiated actions will be blocked."
+              "If `true`, most user-initiated actions will be blocked by the program."
             ],
             "type": "bool"
           },
           {
             "name": "unban_requested",
             "docs": [
-              "A flag indicating that the user has paid the fee and requested to be unbanned.",
-              "This does not automatically lift the ban."
+              "A flag indicating that the user has paid the `unban_fee` and requested to be unbanned.",
+              "This does not automatically lift the ban; it only signals the request to the admin."
             ],
             "type": "bool"
           }
