@@ -273,10 +273,7 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
     // In this test, a successful transaction is sufficient verification.
     assert!(!signature.to_string().is_empty());
 
-    println!(
-        "✅ Test passed: Admin dispatched command {} to user profile {}. Signature: {}",
-        command_id, user_pda, signature
-    );
+    println!("✅ Test passed: Admin dispatched command {command_id} to user profile {user_pda}. Signature: {signature}");
 
     Ok(())
 }
@@ -347,10 +344,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     let admin_profile = AdminProfile::try_deserialize(&mut admin_account.data.as_slice())?;
     assert_eq!(admin_profile.balance, command_price);
 
-    println!(
-        "✅ Dispatch successful: User balance decreased, admin balance increased by {}",
-        command_price
-    );
+    println!("✅ Dispatch successful: User balance decreased, admin balance increased by {command_price}");
 
     // === 5. Act: Admin withdraws the earned funds ===
     let initial_admin_wallet_balance = context
@@ -388,10 +382,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     // A simpler check is just to see it increased.
     assert!(final_admin_wallet_balance > initial_admin_wallet_balance);
 
-    println!(
-        "✅ Test passed: Full payment cycle and withdrawal successful. Signature: {}",
-        signature
-    );
+    println!("✅ Test passed: Full payment cycle and withdrawal successful. Signature: {signature}");
 
     Ok(())
 }

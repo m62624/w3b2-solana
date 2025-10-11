@@ -8,6 +8,7 @@
 
 #![allow(deprecated)]
 #![allow(unexpected_cfgs)]
+#![allow(elided_lifetimes_in_paths)]
 
 pub mod errors;
 pub mod events;

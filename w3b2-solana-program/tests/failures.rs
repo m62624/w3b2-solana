@@ -70,10 +70,7 @@ fn test_fail_unauthorized_signer() {
     assert_eq!(error_code, to_error_code(BridgeError::SignerUnauthorized));
 
     println!("✅ Unauthorized Signer Test Passed!");
-    println!(
-        "   -> Correctly failed with error: SignerUnauthorized ({})",
-        error_code
-    );
+    println!("   -> Correctly failed with error: SignerUnauthorized ({error_code})");
 }
 
 /// Tests that an admin cannot withdraw more funds than are in their internal `balance`.
@@ -85,7 +82,7 @@ fn test_fail_insufficient_admin_balance() {
     // Create Admin and set a price
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
-    let command_price = 1 * LAMPORTS_PER_SOL;
+    let command_price = LAMPORTS_PER_SOL;
 
     // Create User, deposit funds, and pay the admin
     let user_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
@@ -115,10 +112,7 @@ fn test_fail_insufficient_admin_balance() {
     let withdraw_amount = command_price + 1;
 
     // === 2. Act ===
-    println!(
-        "Admin with balance {} attempting to withdraw {}...",
-        command_price, withdraw_amount
-    );
+    println!("Admin with balance {command_price} attempting to withdraw {withdraw_amount}...");
 
     // For failure tests, we build and send the transaction manually to capture the `Result`.
     let withdraw_ix =
@@ -146,10 +140,7 @@ fn test_fail_insufficient_admin_balance() {
     );
 
     println!("✅ Insufficient Admin Balance Test Passed!");
-    println!(
-        "   -> Correctly failed with error: InsufficientAdminBalance ({})",
-        error_code
-    );
+    println!("   -> Correctly failed with error: InsufficientAdminBalance ({error_code})");
 }
 
 /// Tests that a command fails if its payload is larger than `MAX_PAYLOAD_SIZE`.
@@ -183,10 +174,7 @@ fn test_fail_payload_too_large() {
     assert_eq!(error_code, to_error_code(BridgeError::PayloadTooLarge));
 
     println!("✅ Payload Too Large Test Passed!");
-    println!(
-        "   -> Correctly failed with error: PayloadTooLarge ({})",
-        error_code
-    );
+    println!("   -> Correctly failed with error: PayloadTooLarge ({error_code})");
 }
 
 /// Tests that a user cannot execute a paid command if their `deposit_balance` is insufficient.
@@ -198,7 +186,7 @@ fn test_fail_insufficient_deposit_balance() {
     // Create an admin and set a price for a command.
     let admin_authority = create_funded_keypair(&mut svm, 10 * LAMPORTS_PER_SOL);
     let admin_pda = admin::create_profile(&mut svm, &admin_authority, create_keypair().pubkey());
-    let command_price = 1 * LAMPORTS_PER_SOL;
+    let command_price = LAMPORTS_PER_SOL;
 
     // Create a user linked to the admin, but DO NOT deposit any funds.
     // The user profile will have `deposit_balance = 0`.
@@ -264,10 +252,7 @@ fn test_fail_insufficient_deposit_balance() {
     );
 
     println!("✅ Insufficient Deposit Balance Test Passed!");
-    println!(
-        "   -> Correctly failed with error: InsufficientDepositBalance ({})",
-        error_code
-    );
+    println!("   -> Correctly failed with error: InsufficientDepositBalance ({error_code})");
 }
 
 /// Tests that `user_dispatch_command` fails with `InvalidOracleSigner` if the

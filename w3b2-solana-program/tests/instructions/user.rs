@@ -49,6 +49,7 @@ use solana_program::sysvar::instructions;
 use solana_sdk::signer::Signer;
 use std::convert::TryInto;
 
+#[allow(clippy::too_many_arguments)]
 pub fn dispatch_command(
     svm: &mut LiteSVM,
     authority: &Keypair,
