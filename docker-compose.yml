@@ -32,13 +32,14 @@ services:
       - .env
     profiles: ["validator", "deploy", "full"]
     ports:
-      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899"
-      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900"
-      - "8901:8901"
+      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899" # RPC
+      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900" # Websocket
+      - "8901:8901" # Faucet
     volumes:
       - solana-ledger:/ledger
     command: >
       bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
+
 
   deployer:
     build:
@@ -87,7 +88,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./artifacts:/project/artifacts
+      - ./artifacts:/project/artifacts 
       - ./target:/project/target
       - ./keys:/keys
       - ./config.docker.toml:/project/config.docker.toml
@@ -95,9 +96,11 @@ services:
     working_dir: /project
     command: >
       bash -c "
+        # The PROGRAM_ID might be empty on the first run, so we read it from the IDL.
         if [ -z \"$${PROGRAM_ID}\" ]; then
           export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         fi;
+        # Update the connector's PROGRAM_ID in the environment for the gateway process
         export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
         echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
         /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
@@ -111,8 +114,8 @@ services:
     ports:
       - "${DOCS_PORT}:8000"
     volumes:
-      - ./docs:/project/docs
-      - ./docs/mkdocs.yml:/project/mkdocs.yml
+      - ./docs:/project/docs # Mount the entire docs directory
+      - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
 
   example-client:
     image: w3b2-hybrid-social-network-client
@@ -120,34 +123,32 @@ services:
       context: .
       dockerfile: Dockerfile.example-client
     pull_policy: never
-    profiles: ["full"]
+    profiles: ["full", "client"]
     ports:
       - "8501:8501"
-    depends_on:
-      gateway:
-        condition: service_started
     volumes:
-      - ./artifacts:/project/artifacts
+      - ./artifacts:/app/artifacts
     environment:
-      - GATEWAY_HOST=gateway
+      - GATEWAY_HOST=gateway # Service name inside Docker network
       - GATEWAY_PORT=${GATEWAY_PORT}
       - SOLANA_RPC_URL=http://solana-validator:${SOLANA_VALIDATOR_RPC_PORT:-8899}
       - STREAMLIT_SERVER_ENABLE_CORS=false
       - STREAMLIT_CLIENT_VERIFY_SSL=false
-      - PYTHONUNBUFFERED=1
+      - PYTHONUNBUFFERED=1 # Force python to output logs without buffering
     command: >
       bash -c "
+        # Wait for the gRPC gateway to be ready before starting the client.
         while ! nc -z gateway ${GATEWAY_PORT}; do
           echo 'Waiting for gRPC gateway to be available...';
           sleep 2;
         done;
-        while [ ! -f /project/artifacts/w3b2_solana_program.json ]; do
+        while [ ! -f /app/artifacts/w3b2_solana_program.json ]; do
           echo 'Waiting for program artifacts...';
           sleep 2;
         done;
-        export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
+        export PROGRAM_ID=$$(cat /app/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         echo 'Starting client with PROGRAM_ID='$$PROGRAM_ID;
-        streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+        node solana/app.js
       "
 
 volumes:

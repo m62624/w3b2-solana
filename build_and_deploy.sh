@@ -92,7 +92,8 @@ elif [[ "$MODE" == "--build-only" ]]; then
     sed -i -E 's/(w3b2_solana_program\s*=\s*\").*(\")/\1'"$PROGRAM_ID"'\2/' "$ANCHOR_TOML_PATH"
     echo "✅ Source files patched."
 
-    echo "🚀 Building Anchor workspace..."
+    echo "🚀 Building Anchor workspace...BUILD IN PROGRESS — PLEASE WAIT FOR NEW LOGS FROM builder-1.
+This may take some time. Other containers such as solana-validator-1 and docs-1 may already be running."
     anchor build
     echo "🚀 Building gateway binary..."
     cargo build --release --bin w3b2-solana-gateway

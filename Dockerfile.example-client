@@ -1,15 +1,20 @@
-FROM python:3.10-slim
+FROM node:18-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y jq netcat-openbsd && \
+RUN apt-get update && apt-get install -y jq netcat-openbsd git && \
     rm -rf /var/lib/apt/lists/* 
 
-COPY examples/hybrid-social-network-client/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY examples/app/package*.json ./
+RUN npm install google-protobuf
 
-COPY examples/hybrid-social-network-client/ /app/
+COPY proto/ /app/proto/
+RUN npx grpc_tools_node_protoc \
+    --js_out=import_style=commonjs,binary:./ \
+    --grpc_out=grpc_js:./ \
+    --proto_path=./proto \
+    ./proto/gateway.proto ./proto/types.proto ./proto/protocols.proto
 
-ENV PYTHONPATH "${PYTHONPATH}:/app"
+COPY examples/app/ /app/
 
-CMD ["streamlit", "run", "app.py"]
+CMD ["node", "solana/app.js"]

@@ -1,7 +1,0 @@
-streamlit
-solana
-solders
-requests
-anchorpy
-grpcio
-protobuf

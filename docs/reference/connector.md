@@ -16,7 +16,7 @@ The `TransactionBuilder` is a utility for backend Rust services to create unsign
 
 #### Example Usage
 
-```rust,ignore
+```rust
 // This example demonstrates a backend service banning a user.
 
 // 1. Prepare the unsigned transaction
@@ -42,7 +42,7 @@ The `EventListener` provides a robust system for subscribing to on-chain events 
 
 #### Example Usage
 
-```rust,ignore
+```rust
 // Create a listener for a specific UserProfile PDA
 let mut user_listener = UserListener::new(user_pda, dispatcher, 100);
 
