@@ -7,11 +7,13 @@ services:
       context: .
       dockerfile: Dockerfile.rust.builder
       args:
-        USER_ID: ${UID:-1000}
-        GROUP_ID: ${GID:-1000}
-        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0} # Use from .env or default
-        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1} # Use from .env or default
+        SOLANA_VERSION: ${SOLANA_VERSION}
+        ANCHOR_VERSION: ${ANCHOR_VERSION}
         PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    # This line tags the image built by this service with a specific name.
+    image: w3b2-builder
+    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
+    pull_policy: never
     env_file:
       - .env
     profiles: ["builder", "deploy", "full"]
@@ -20,14 +22,18 @@ services:
       - ./target:/project/target
       - ./keys:/keys
     working_dir: /project
-    command: /usr/local/bin/build_and_deploy.sh --build-only
+    # Pass host UID/GID to the script so it can set correct file permissions on exit
+    command: >
+      bash -c "
+        HOST_UID=${UID:-1000} HOST_GID=${GID:-1000} /usr/local/bin/build_and_deploy.sh --build-only
+      "
 
   solana-validator:
     build:
       context: .
       dockerfile: Dockerfile.validator
       args:
-        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
+        SOLANA_VERSION: ${SOLANA_VERSION}
     env_file:
       - .env
     profiles: ["validator", "deploy", "full"]
@@ -50,7 +56,19 @@ services:
   # It runs AFTER the builder and BEFORE the gateway.
   deployer:
     # We can reuse the builder image since it has all the tools.
-    image: w3b2-builder # Re-use the image built for the builder service
+    # By specifying the build context, we tell Docker Compose to use the
+    # locally built image instead of trying to pull it.
+    build:
+      context: .
+      dockerfile: Dockerfile.rust.builder
+      args:
+        SOLANA_VERSION: ${SOLANA_VERSION}
+        ANCHOR_VERSION: ${ANCHOR_VERSION}
+        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    # This tag ensures it uses the same cached layers as the 'builder' service.
+    image: w3b2-builder
+    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
+    pull_policy: never
     profiles: ["deploy", "full"]
     depends_on:
       solana-validator:
@@ -71,15 +89,18 @@ services:
     command: /usr/local/bin/build_and_deploy.sh --deploy
 
   gateway:
+    # Similarly, we specify the build context here to ensure it uses the local image.
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
       args:
-        USER_ID: ${UID:-1000}
-        GROUP_ID: ${GID:-1000}
-        SOLANA_VERSION: ${SOLANA_VERSION:-2.1.0}
-        ANCHOR_VERSION: ${ANCHOR_VERSION:-0.31.1}
+        SOLANA_VERSION: ${SOLANA_VERSION}
+        ANCHOR_VERSION: ${ANCHOR_VERSION}
         PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
+    # This tag ensures it uses the same cached layers as the 'builder' service.
+    image: w3b2-builder
+    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
+    pull_policy: never
     profiles: ["gateway", "full"]
     depends_on:
       solana-validator:
@@ -87,7 +108,7 @@ services:
       deployer:
         condition: service_completed_successfully
     ports:
-      - "${GATEWAY_PORT:-50051}:50051"
+      - "${GATEWAY_PORT}:50051"
     env_file:
       - .env
     volumes:
@@ -104,9 +125,6 @@ services:
         if [ -z \"$${PROGRAM_ID}\" ]; then
           export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         fi;
-        # Ensure the non-root user can write to the data volume.
-        # The volume is owned by root by default, so we change ownership.
-        sudo chown -R $$(id -u):$$(id -g) /data;
         # Update the connector's PROGRAM_ID in the environment for the gateway process
         export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
         echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
@@ -119,10 +137,35 @@ services:
       dockerfile: Dockerfile.docs
     profiles: ["docs", "full"]
     ports:
-      - "${DOCS_PORT:-8000}:8000"
+      - "${DOCS_PORT}:8000"
     volumes:
-      - ./docs:/project/docs
-      - ./mkdocs.yml:/project/mkdocs.yml
+      - ./docs:/project/docs # Mount the entire docs directory
+      - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
+
+  example-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.example-client
+    profiles: ["full"]
+    depends_on:
+      gateway:
+        condition: service_started
+    # Mount the artifacts directory so the client can read the program ID.
+    volumes:
+      - ./artifacts:/project/artifacts
+    working_dir: /project
+    command: >
+      bash -c "
+        # Wait for artifacts to be available
+        while [ ! -f /project/artifacts/w3b2_solana_program.json ]; do
+          echo 'Waiting for program artifacts...';
+          sleep 2;
+        done;
+        # Read the Program ID from the generated IDL file and export it.
+        export W3B2_CONNECTOR__PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
+        echo 'Starting example-client with PROGRAM_ID='$$W3B2_CONNECTOR__PROGRAM_ID;
+        python /app/client/client.py
+      "
 
 volumes:
   solana-ledger:

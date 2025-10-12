@@ -1,0 +1,24 @@
+site_name: W3B2 Documentation
+theme:
+  name: material
+
+markdown_extensions:
+  - pymdownx.superfences:
+      # make exceptions to highlighting of code blocks
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture:
+    - Core Concepts: architecture/concepts.md
+    - High-Level Diagram: architecture/architecture-diagram.md
+  - Components:
+    - On-Chain Program: reference/solana-program.md
+    - Connector Library: reference/connector.md
+    - gRPC Gateway: reference/gateway-api.md
+  - Tutorials:
+    - End-to-End Workflow: tutorials/end-to-end-workflow.md
