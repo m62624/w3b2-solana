@@ -143,28 +143,33 @@ services:
       - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
 
   example-client:
+    image: w3b2-hybrid-social-network-client
     build:
-      context: .
-      dockerfile: Dockerfile.example-client
+      context: ./examples/hybrid-social-network-client
+      dockerfile: Dockerfile
     profiles: ["full"]
+    ports:
+      - "8501:8501"
     depends_on:
       gateway:
         condition: service_started
-    # Mount the artifacts directory so the client can read the program ID.
     volumes:
       - ./artifacts:/project/artifacts
-    working_dir: /project
+    environment:
+      - GATEWAY_HOST=gateway
+      - GATEWAY_PORT=50051
+      - SOLANA_RPC_URL=http://solana-validator:8899
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_CLIENT_VERIFY_SSL=false
     command: >
       bash -c "
-        # Wait for artifacts to be available
         while [ ! -f /project/artifacts/w3b2_solana_program.json ]; do
           echo 'Waiting for program artifacts...';
           sleep 2;
         done;
-        # Read the Program ID from the generated IDL file and export it.
-        export W3B2_CONNECTOR__PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
-        echo 'Starting example-client with PROGRAM_ID='$$W3B2_CONNECTOR__PROGRAM_ID;
-        python /app/client/client.py
+        export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
+        echo 'Starting client with PROGRAM_ID='$$PROGRAM_ID;
+        streamlit run app.py
       "
 
 volumes:
