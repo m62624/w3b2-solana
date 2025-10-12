@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package w3b2.protocol.common;
+
+// Defines the expected communication flow for an off-chain service after
+// receiving a command via a `dispatch` instruction.
+// Corresponds to the `CommandMode` enum in the smart contract.
+enum CommandMode {
+  // The off-chain service is expected to process the command and subsequently
+  // initiate a new on-chain transaction to send a response.
+  REQUEST_RESPONSE = 0;
+
+  // The on-chain command is the final step in the sequence. The off-chain
+  // service executes the requested action, but no on-chain response is
+  // expected.
+  ONE_WAY = 1;
+}
+
+// Defines a network endpoint for an off-chain service.
+// Corresponds to the `Destination` enum in the smart contract.
+message Destination {
+  oneof endpoint {
+    // An IPv4 address and a port number.
+    IpV4Endpoint ipv4 = 1;
+    // An IPv6 address and a port number.
+    IpV6Endpoint ipv6 = 2;
+    // A fully qualified URL string (e.g., "https://example.com/data").
+    string url = 3;
+  }
+}
+
+// Represents an IPv4 endpoint.
+message IpV4Endpoint {
+  // 4-byte representation of the IPv4 address.
+  bytes address = 1;
+  // Port number.
+  uint32 port = 2;
+}
+
+// Represents an IPv6 endpoint.
+message IpV6Endpoint {
+  // 16-byte representation of the IPv6 address.
+  bytes address = 1;
+  // Port number.
+  uint32 port = 2;
+}
+
+// A structured message for initiating a secure, stateful off-chain
+// communication session. This can be serialized and used as the `payload` in a
+// `user_dispatch_command`. Corresponds to the `CommandConfig` struct in the
+// smart contract.
+message CommandConfig {
+  // A unique identifier for the off-chain session.
+  uint64 session_id = 1;
+
+  // A variable-length byte array containing the encrypted session key.
+  bytes encrypted_session_key = 2;
+
+  // The network endpoint where the initiator expects the recipient to connect.
+  Destination destination = 3;
+
+  // A flexible, general-purpose byte array for any additional metadata.
+  bytes meta = 4;
+}
