@@ -2,6 +2,14 @@ site_name: W3B2 Documentation
 theme:
   name: material
 
+markdown_extensions:
+  - pymdownx.superfences:
+      # make exceptions to highlighting of code blocks
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
