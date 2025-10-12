@@ -1,20 +1,19 @@
 //! # gRPC Service Implementation
 //!
 //! This module defines the gRPC server and its implementation of the `BridgeGatewayService`.
+//! Its sole responsibility is to provide a real-time, persistent stream of on-chain
+//! events to subscribed clients.
 //!
-//! Its sole responsibility is to provide a real-time stream of on-chain events.
-//!
-//! ### Architecture
+//! ## Architecture
 //!
 //! - **Transaction Submission**: Clients are expected to build, sign, and submit
-//!   transactions directly to the Solana RPC node using a standard library for
-//!   their language (e.g., `anchorpy` for Python, `@coral-xyz/anchor` for TypeScript).
+//!   transactions directly to a Solana RPC node using a standard library for their
+//!   language (e.g., `anchorpy` for Python, `@coral-xyz/anchor` for TypeScript).
 //!   The gateway does **not** handle transaction preparation or submission.
 //!
-//! - **Event Streaming**: The gateway provides `listen_as_user` and `listen_as_admin`
-//!   methods. These methods open a persistent server-side stream of on-chain events
-//!   for a specific `UserProfile` or `AdminProfile` PDA, leveraging the underlying
-//!   `w3b2-solana-connector` to provide both historical (catch-up) and real-time events.
+//! - **Event Streaming**: The gateway provides `ListenAsUser` and `ListenAsAdmin`
+//!   server-streaming RPCs. It also provides a unary `Unsubscribe` RPC to allow
+//!   clients to explicitly close a stream.
 
 mod conversions;
 
@@ -111,10 +110,7 @@ pub async fn start(config: &GatewayConfig) -> Result<EventManagerHandle> {
     let grpc_server =
         Server::builder().add_service(BridgeGatewayServiceServer::new(gateway_server));
 
-    tracing::info!(
-        "Non-Custodial gRPC Gateway with Event Streaming listening on {}",
-        addr
-    );
+    tracing::info!("gRPC Event Streaming Gateway listening on {}", addr);
 
     tokio::spawn(async move {
         if let Err(e) = grpc_server.serve(addr).await {

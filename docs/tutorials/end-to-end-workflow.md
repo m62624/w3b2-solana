@@ -10,7 +10,7 @@ Each step will mention the on-chain instruction that a client application (using
 
 Before any users can join, the service provider (the "Admin") must create their on-chain presence by creating an `AdminProfile`.
 
--   **Action**: The Admin calls the gateway to create their `AdminProfile`.
+-   **Action**: The Admin uses a client application to send a transaction to the Solana network.
 -   **On-Chain Instruction**: `admin_register_profile`
 -   **Result**: An `AdminProfile` PDA is created on-chain. The admin can now configure it, for example, by calling `admin_set_config` to set an `unban_fee`.
 
@@ -20,7 +20,7 @@ Before any users can join, the service provider (the "Admin") must create their 
 
 A new user, Alice, decides to use the service. Her first step is to create her own on-chain `UserProfile`, which links her wallet to the admin's service.
 
--   **Action**: Alice's client application calls the gateway to create her `UserProfile`.
+-   **Action**: Alice's client application sends a transaction to create her `UserProfile`.
 -   **On-Chain Instruction**: `user_create_profile`
 -   **Result**: An on-chain `UserProfile` PDA is created, owned by Alice but linked to the admin's profile.
 

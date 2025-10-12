@@ -1,7 +1,4 @@
 services:
-  # This service is a one-off builder.
-  # It starts, builds all artifacts, and then exits.
-  # Other services depend on it and start afterward.
   builder:
     build:
       context: .
@@ -10,9 +7,7 @@ services:
         SOLANA_VERSION: ${SOLANA_VERSION}
         ANCHOR_VERSION: ${ANCHOR_VERSION}
         PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
-    # This line tags the image built by this service with a specific name.
     image: w3b2-builder
-    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
     pull_policy: never
     env_file:
       - .env
@@ -22,7 +17,6 @@ services:
       - ./target:/project/target
       - ./keys:/keys
     working_dir: /project
-    # Pass host UID/GID to the script so it can set correct file permissions on exit
     command: >
       bash -c "
         HOST_UID=${UID:-1000} HOST_GID=${GID:-1000} /usr/local/bin/build_and_deploy.sh --build-only
@@ -38,26 +32,15 @@ services:
       - .env
     profiles: ["validator", "deploy", "full"]
     ports:
-      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899" # RPC
-      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900" # Websocket
-      - "8901:8901" # Faucet
+      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899"
+      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900"
+      - "8901:8901"
     volumes:
       - solana-ledger:/ledger
-    # We pipe the output to `grep -v` to filter out the noisy slot processing logs,
-    # making it easier to see logs from other services during startup.
-    # We use `awk` to print all startup lines until the first "Processed Slot" line.
-    # After that, `awk` continues running but stops printing, which keeps the validator
-    # process alive. The `fflush()` call ensures output is not buffered.
     command: >
       bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
 
-
-  # This service deploys the program and then exits.
-  # It runs AFTER the builder and BEFORE the gateway.
   deployer:
-    # We can reuse the builder image since it has all the tools.
-    # By specifying the build context, we tell Docker Compose to use the
-    # locally built image instead of trying to pull it.
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
@@ -65,9 +48,7 @@ services:
         SOLANA_VERSION: ${SOLANA_VERSION}
         ANCHOR_VERSION: ${ANCHOR_VERSION}
         PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
-    # This tag ensures it uses the same cached layers as the 'builder' service.
     image: w3b2-builder
-    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
     pull_policy: never
     profiles: ["deploy", "full"]
     depends_on:
@@ -78,18 +59,14 @@ services:
     env_file:
       - .env
     environment:
-      # Override the RPC URL to point to the validator service name inside the Docker network
       - SOLANA_RPC_URL=http://solana-validator:8899
-    # We need to mount the artifacts created by the builder.
     volumes:
       - ./artifacts:/project/artifacts
       - ./keys:/keys
     working_dir: /project
-    # The key change is here: we run deploy and then the container exits.
     command: /usr/local/bin/build_and_deploy.sh --deploy
 
   gateway:
-    # Similarly, we specify the build context here to ensure it uses the local image.
     build:
       context: .
       dockerfile: Dockerfile.rust.builder
@@ -97,9 +74,7 @@ services:
         SOLANA_VERSION: ${SOLANA_VERSION}
         ANCHOR_VERSION: ${ANCHOR_VERSION}
         PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
-    # This tag ensures it uses the same cached layers as the 'builder' service.
     image: w3b2-builder
-    # Prevent Docker Compose from trying to pull this local-only image from a remote registry.
     pull_policy: never
     profiles: ["gateway", "full"]
     depends_on:
@@ -112,20 +87,17 @@ services:
     env_file:
       - .env
     volumes:
-      - ./artifacts:/project/artifacts # Mount artifacts to read the program ID
+      - ./artifacts:/project/artifacts
       - ./target:/project/target
       - ./keys:/keys
-      # Mount the docker-specific config file into the container
       - ./config.docker.toml:/project/config.docker.toml
       - gateway-data:/data
     working_dir: /project
     command: >
       bash -c "
-        # The PROGRAM_ID might be empty on the first run, so we read it from the IDL.
         if [ -z \"$${PROGRAM_ID}\" ]; then
           export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         fi;
-        # Update the connector's PROGRAM_ID in the environment for the gateway process
         export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
         echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
         /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
@@ -139,8 +111,8 @@ services:
     ports:
       - "${DOCS_PORT}:8000"
     volumes:
-      - ./docs:/project/docs # Mount the entire docs directory
-      - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
+      - ./docs:/project/docs
+      - ./docs/mkdocs.yml:/project/mkdocs.yml
 
   example-client:
     image: w3b2-hybrid-social-network-client
@@ -157,15 +129,14 @@ services:
     volumes:
       - ./artifacts:/project/artifacts
     environment:
-      - GATEWAY_HOST=gateway # Service name inside Docker network
+      - GATEWAY_HOST=gateway
       - GATEWAY_PORT=${GATEWAY_PORT}
       - SOLANA_RPC_URL=http://solana-validator:${SOLANA_VALIDATOR_RPC_PORT:-8899}
       - STREAMLIT_SERVER_ENABLE_CORS=false
       - STREAMLIT_CLIENT_VERIFY_SSL=false
-      - PYTHONUNBUFFERED=1 # Force python to output logs without buffering
+      - PYTHONUNBUFFERED=1
     command: >
       bash -c "
-        # Wait for the gRPC gateway to be ready before starting the client.
         while ! nc -z gateway ${GATEWAY_PORT}; do
           echo 'Waiting for gRPC gateway to be available...';
           sleep 2;

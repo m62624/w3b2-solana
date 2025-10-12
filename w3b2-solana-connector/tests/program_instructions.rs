@@ -14,10 +14,12 @@ use solana_system_interface::instruction as system_instruction;
 use std::{env, sync::Arc};
 use w3b2_solana_connector::client::{AsyncRpcClient, TransactionBuilder, UserDispatchCommandArgs};
 use w3b2_solana_program::state::AdminProfile;
-struct BanksClientWrapper(BanksClient);
+
+// A mock RPC client that wraps BanksClient for testing purposes.
+struct MockRpcClient(BanksClient);
 
 #[async_trait]
-impl AsyncRpcClient for BanksClientWrapper {
+impl AsyncRpcClient for MockRpcClient {
     async fn get_latest_blockhash(&self) -> Result<Hash, ClientError> {
         self.0
             .get_latest_blockhash()
@@ -25,17 +27,12 @@ impl AsyncRpcClient for BanksClientWrapper {
             .map_err(|e| ClientError::from(TransportError::from(e)))
     }
 
+    // This method is not used in the tests that now submit transactions directly.
     async fn send_and_confirm_transaction(
         &self,
-        transaction: &Transaction,
+        _transaction: &Transaction,
     ) -> Result<solana_sdk::signature::Signature, ClientError> {
-        self.0
-            .process_transaction(transaction.clone())
-            .await
-            .map_err(|e| ClientError::from(TransportError::from(e)))?;
-
-        // Return the signature of the transaction that was just processed.
-        Ok(transaction.signatures[0])
+        unimplemented!("This should not be called in the new test flow")
     }
 }
 
@@ -75,9 +72,8 @@ async fn create_funded_keypair(context: &mut ProgramTestContext) -> anyhow::Resu
 /// Returns the transaction builder, admin's keypair, and the admin PDA.
 async fn setup_admin_profile(
     context: &mut ProgramTestContext,
-) -> anyhow::Result<(TransactionBuilder<dyn AsyncRpcClient>, Keypair, Pubkey)> {
-    let banks_wrapper = BanksClientWrapper(context.banks_client.clone());
-    let rpc_client: Arc<dyn AsyncRpcClient> = Arc::new(banks_wrapper);
+) -> anyhow::Result<(TransactionBuilder<MockRpcClient>, Keypair, Pubkey)> {
+    let rpc_client = Arc::new(MockRpcClient(context.banks_client.clone()));
     let transaction_builder = TransactionBuilder::new(rpc_client);
 
     let admin_authority = create_funded_keypair(context).await?;
@@ -93,7 +89,7 @@ async fn setup_admin_profile(
         .await?;
     admin_tx.message.recent_blockhash = context.last_blockhash;
     admin_tx.sign(&[&admin_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&admin_tx).await?;
+    context.banks_client.process_transaction(admin_tx).await?;
 
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
@@ -105,7 +101,7 @@ async fn setup_admin_profile(
 async fn setup_user_profile(
     context: &mut ProgramTestContext,
 ) -> anyhow::Result<(
-    TransactionBuilder<dyn AsyncRpcClient>,
+    TransactionBuilder<MockRpcClient>,
     (Keypair, Pubkey), // admin
     (Keypair, Pubkey), // user
 )> {
@@ -128,7 +124,7 @@ async fn setup_user_profile(
         .await?;
     user_tx.message.recent_blockhash = context.last_blockhash;
     user_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&user_tx).await?;
+    context.banks_client.process_transaction(user_tx).await?;
 
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
@@ -183,7 +179,7 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
         .await?;
     close_tx.message.recent_blockhash = context.last_blockhash;
     close_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&close_tx).await?;
+    context.banks_client.process_transaction(close_tx).await?;
 
     // The admin profile account should no longer exist.
     let account = context.banks_client.get_account(admin_pda).await?;
@@ -197,9 +193,8 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: Admin {} closed their profile. Signature: {}",
+        "✅ Test passed: Admin {} closed their profile.",
         admin_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -227,8 +222,9 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
         .await?;
     set_config_tx.message.recent_blockhash = context.last_blockhash;
     set_config_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder
-        .submit_transaction(&set_config_tx)
+    context
+        .banks_client
+        .process_transaction(set_config_tx)
         .await?;
 
     let account = context.banks_client.get_account(admin_pda).await?.unwrap();
@@ -240,9 +236,8 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
     assert_eq!(admin_profile.unban_fee, 100);
 
     println!(
-        "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
+        "✅ Test passed: Admin {} successfully updated their config.",
         admin_authority.pubkey(),
-        signature
     );
     Ok(())
 }
@@ -267,15 +262,14 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
         .await?;
     dispatch_tx.message.recent_blockhash = context.last_blockhash;
     dispatch_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&dispatch_tx).await?;
+    context.banks_client.process_transaction(dispatch_tx).await?;
 
     // For this instruction, the primary success condition is that the transaction
     // executes without errors. This implies the program correctly processed the
     // instruction and likely emitted an event, which would be caught by an off-chain listener.
     // In this test, a successful transaction is sufficient verification.
-    assert!(!signature.to_string().is_empty());
 
-    println!("✅ Test passed: Admin dispatched command {command_id} to user profile {user_pda}. Signature: {signature}");
+    println!("✅ Test passed: Admin dispatched command {command_id} to user profile {user_pda}.");
 
     Ok(())
 }
@@ -297,7 +291,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .await?;
     deposit_tx.message.recent_blockhash = context.last_blockhash;
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // === 3. Act: User dispatches the paid command with an oracle signature ===
@@ -330,7 +324,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .await?;
     dispatch_tx.message.recent_blockhash = context.last_blockhash;
     dispatch_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&dispatch_tx).await?;
+    context.banks_client.process_transaction(dispatch_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // === 4. Assert: Check balances after dispatch ===
@@ -363,7 +357,10 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .await?;
     withdraw_tx.message.recent_blockhash = context.last_blockhash;
     withdraw_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&withdraw_tx).await?;
+    context
+        .banks_client
+        .process_transaction(withdraw_tx)
+        .await?;
 
     // === 6. Assert: Check balances after withdrawal ===
     // Admin's internal balance should be zero
@@ -384,9 +381,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     // A simpler check is just to see it increased.
     assert!(final_admin_wallet_balance > initial_admin_wallet_balance);
 
-    println!(
-        "✅ Test passed: Full payment cycle and withdrawal successful. Signature: {signature}"
-    );
+    println!("✅ Test passed: Full payment cycle and withdrawal successful.");
 
     Ok(())
 }
@@ -406,7 +401,7 @@ async fn test_user_deposit() -> anyhow::Result<()> {
         .await?;
     deposit_tx.message.recent_blockhash = context.last_blockhash;
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
 
     // The user's deposit_balance on their PDA should increase.
     let user_account = context
@@ -419,10 +414,9 @@ async fn test_user_deposit() -> anyhow::Result<()> {
     assert_eq!(user_profile.deposit_balance, deposit_amount);
 
     println!(
-        "✅ Test passed: User {} deposited {} lamports. Signature: {}",
+        "✅ Test passed: User {} deposited {} lamports.",
         user_authority.pubkey(),
-        deposit_amount,
-        signature
+        deposit_amount
     );
 
     Ok(())
@@ -444,7 +438,7 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
         .await?;
     deposit_tx.message.recent_blockhash = context.last_blockhash;
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // Get the user's wallet balance before withdrawal
@@ -464,7 +458,10 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
         .await?;
     withdraw_tx.message.recent_blockhash = context.last_blockhash;
     withdraw_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&withdraw_tx).await?;
+    context
+        .banks_client
+        .process_transaction(withdraw_tx)
+        .await?;
 
     // Assert user profile balance has decreased
     let user_account = context
@@ -490,10 +487,9 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: User {} withdrew {} lamports. Signature: {}",
+        "✅ Test passed: User {} withdrew {} lamports.",
         user_authority.pubkey(),
-        withdraw_amount,
-        signature
+        withdraw_amount
     );
 
     Ok(())
@@ -516,7 +512,7 @@ async fn test_user_close_profile() -> anyhow::Result<()> {
         .await?;
     close_tx.message.recent_blockhash = context.last_blockhash;
     close_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&close_tx).await?;
+    context.banks_client.process_transaction(close_tx).await?;
 
     // The user profile account should no longer exist.
     let account = context.banks_client.get_account(user_pda).await?;
@@ -530,9 +526,8 @@ async fn test_user_close_profile() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: User {} closed their profile. Signature: {}",
+        "✅ Test passed: User {} closed their profile.",
         user_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -552,7 +547,7 @@ async fn test_user_update_comm_key() -> anyhow::Result<()> {
         .await?;
     update_tx.message.recent_blockhash = context.last_blockhash;
     update_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&update_tx).await?;
+    context.banks_client.process_transaction(update_tx).await?;
 
     let account = context
         .banks_client
@@ -565,9 +560,8 @@ async fn test_user_update_comm_key() -> anyhow::Result<()> {
     assert_eq!(user_profile.communication_pubkey, new_comm_key.pubkey());
 
     println!(
-        "✅ Test passed: User {} updated communication key. Signature: {}",
+        "✅ Test passed: User {} updated communication key.",
         user_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -594,17 +588,15 @@ async fn test_log_action_by_user() -> anyhow::Result<()> {
         .await?;
     log_tx.message.recent_blockhash = context.last_blockhash;
     log_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&log_tx).await?;
+    context.banks_client.process_transaction(log_tx).await?;
 
     // Similar to dispatch, the main success condition is that the transaction executes
     // without errors, implying an event was emitted.
-    assert!(!signature.to_string().is_empty());
 
     println!(
-        "✅ Test passed: User {} logged action {}. Signature: {}",
+        "✅ Test passed: User {} logged action {}.",
         user_authority.pubkey(),
-        action_code,
-        signature
+        action_code
     );
 
     Ok(())

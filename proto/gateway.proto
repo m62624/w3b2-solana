@@ -6,18 +6,12 @@ import "types.proto";
 import "google/protobuf/empty.proto";
 
 // ===================================================================
-// == Service Definition: BridgeGatewayService (Non-Custodial)
+// == Service Definition: BridgeGatewayService
 // ===================================================================
-/// The primary gRPC service for interacting with the W3B2 Bridge protocol.
+/// The gRPC service for the W3B2 toolset.
 ///
-/// This service follows a non-custodial, two-step "prepare-then-submit" flow
-/// for all on-chain operations:
-/// 1. The client calls a specific "Prepare" method (e.g., `PrepareUserDeposit`)
-///    to request an unsigned transaction from the gateway.
-/// 2. The client signs this transaction locally on their device, ensuring their
-///    private key is never exposed.
-/// 3. The client sends the signed transaction back using the generic
-/// `SubmitTransaction` method.
+/// Its sole responsibility is to provide real-time, persistent event streams
+/// from the on-chain program to off-chain clients.
 service BridgeGatewayService {
 
   // ===================================================================

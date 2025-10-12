@@ -8,33 +8,27 @@ The library offers two primary components that cover the main areas of backend i
 
 ### 1. `TransactionBuilder`
 
-The `TransactionBuilder` is a non-custodial helper for creating unsigned transactions for every instruction in the on-chain program.
+The `TransactionBuilder` is a utility for backend Rust services to create unsigned transactions for the on-chain program.
 
--   **Non-Custodial by Design**: Its most important feature is that it **never handles private keys**. It builds a complete, unsigned `VersionedTransaction`, which can then be serialized and sent to a client (e.g., a browser wallet) for signing. This design makes it safe to use in a backend environment, as the server never has access to user keys.
+-   **Backend-Focused**: It is designed for server-side use where a Rust service (like an admin tool or oracle) needs to create, sign, and submit transactions itself. It is **not** intended for preparing transactions for external clients.
 -   **Asynchronous API**: Built on `tokio`, the entire API is `async`, making it easy to integrate into modern Rust applications.
--   **Public Method Coverage**: It provides a dedicated method for every instruction in the on-chain program (e.g., `prepare_user_dispatch_command`, `prepare_admin_ban_user`), ensuring 100% API coverage.
+-   **Public Method Coverage**: It provides a dedicated method for every instruction in the on-chain program (e.g., `prepare_admin_ban_user`), ensuring 100% API coverage.
 
 #### Example Usage
 
 ```rust,ignore
-// This example demonstrates the "prepare-then-submit" flow.
+// This example demonstrates a backend service banning a user.
 
-// 1. Prepare the unsigned transaction on the backend
-let unsigned_tx = tx_builder.prepare_user_dispatch_command(
-    user_wallet,
-    admin_pda,
-    // ... args
+// 1. Prepare the unsigned transaction
+let mut unsigned_tx = tx_builder.prepare_admin_ban_user(
+    service_wallet.pubkey(), // The service's own wallet
+    user_pda_to_ban,
 ).await?;
 
-// 2. Serialize and send to the client for signing
-let serialized_tx = bincode::serialize(&unsigned_tx)?;
-// ... send to client ...
-
-// 3. Client signs the transaction and sends it back
-let signed_tx = client.sign_transaction(serialized_tx);
-
-// 4. Submit the signed transaction to the network
-let signature = tx_builder.submit_transaction(&signed_tx).await?;
+// 2. The service signs and submits the transaction itself
+let blockhash = rpc_client.get_latest_blockhash().await?;
+unsigned_tx.sign(&[&service_wallet], blockhash);
+let signature = rpc_client.send_and_confirm_transaction(&unsigned_tx).await?;
 ```
 
 ### 2. `EventListener` (`UserListener` & `AdminListener`)

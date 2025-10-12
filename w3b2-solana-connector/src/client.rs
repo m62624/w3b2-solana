@@ -1,23 +1,28 @@
-//! # Non-Custodial Transaction Builder
+//! # On-Chain Transaction Builder
 //!
-//! This module provides the [`TransactionBuilder`], a core component for creating
-//! unsigned Solana transactions for the `w3b2-solana-program`.
+//! This module provides the [`TransactionBuilder`], a utility for creating unsigned
+//! Solana transactions for the `w3b2-solana-program`.
 //!
-//! It is designed for a non-custodial architecture where private keys never leave the
-//! client's device. A backend service (e.g., a gRPC gateway) uses this builder to
-//! construct a transaction, which is then sent to the client for signing. The client
-//! signs it and returns the signature, and the backend submits the signed transaction
-//! to the network.
+//! ## Use Case
+//!
+//! This builder is intended for use by **off-chain Rust services** (e.g., an oracle,
+//! a custom admin tool, or other backend processes) that need to interact with the
+//! on-chain program. It simplifies the process of constructing valid instructions
+//! and transactions.
+//!
+//! It is **not** used by the gRPC gateway, as clients are now expected to build
+//! their own transactions using the program's IDL and a library like `anchor-ts`
+//! or `anchorpy`.
 //!
 //! ## Features
 //!
-//! - **Async API**: All methods are `async` and designed for use in asynchronous Rust applications.
-//! - **RPC Abstraction**: Uses a generic [`AsyncRpcClient`] trait, allowing it to work with
-//!   the standard `solana-client` `RpcClient` as well as mock clients for testing (e.g., `BanksClient`).
-//! - **Comprehensive Coverage**: Provides a `prepare_` method for every instruction in the on-chain program.
-//! - **Security**: Handles the complexity of instruction creation, including deriving PDAs and
-//!   composing multi-instruction transactions (like for `user_dispatch_command` with its
-//!   required `Ed25519` verification instruction).
+//! - **Async API**: All methods are `async`.
+//! - **RPC Abstraction**: Uses a generic [`AsyncRpcClient`] trait, making it compatible
+//!   with both the live `RpcClient` and the `BanksClient` for integration tests.
+//! - **Comprehensive Coverage**: Provides a `prepare_` method for every instruction.
+//! - **Security**: Handles the complexity of instruction creation, such as deriving
+//!   PDAs and composing multi-instruction transactions (like the `Ed25519`
+//!   verification required for `user_dispatch_command`).
 
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
@@ -79,10 +84,11 @@ pub struct UserDispatchCommandArgs {
     pub oracle_signature: [u8; 64],
 }
 
-/// A builder for preparing on-chain transactions for remote signing.
+/// A builder for preparing unsigned on-chain transactions.
 ///
-/// This struct provides methods to construct unsigned transactions for every
-/// instruction in the `w3b2-solana-program`.
+/// This struct provides `prepare_` methods to construct unsigned transactions for
+/// every instruction in the `w3b2-solana-program`. The calling service is
+/// responsible for signing and submitting the resulting transaction.
 #[derive(Clone)]
 pub struct TransactionBuilder<C: AsyncRpcClient + ?Sized> {
     /// A shared, thread-safe reference to a Solana JSON RPC client.
@@ -100,28 +106,6 @@ where
     /// * `rpc_client` - A shared client that implements [`AsyncRpcClient`] (e.g., `Arc<RpcClient>`).
     pub fn new(rpc_client: Arc<C>) -> Self {
         Self { rpc_client }
-    }
-
-    /// Submits a fully signed transaction to the Solana network.
-    ///
-    /// This is the final step in the remote signing flow. After a client signs
-    /// the transaction prepared by one of the `prepare_*` methods, the signed
-    /// transaction is sent back to the server and submitted via this method.
-    ///
-    /// # Arguments
-    ///
-    /// * `transaction` - A `Transaction` object that has been signed by the fee payer.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the `Signature` of the confirmed transaction.
-    pub async fn submit_transaction(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Signature, ClientError> {
-        self.rpc_client
-            .send_and_confirm_transaction(transaction)
-            .await
     }
 
     /// A private helper to create a transaction from a vector of instructions.
