@@ -17,18 +17,22 @@ This project provides the foundation for a variety of hybrid Web2/Web3 use cases
 
 ## High-Level Architecture
 
-The system is composed of four main parts: the **Client**, the **gRPC Gateway**, the **Solana Connector**, and the **On-Chain Program**. The backend components (Gateway, Connector, and your custom Oracle) are managed by the service provider, while the client interacts with the user's wallet.
+The system is composed of four main parts: the **Client**, the **gRPC Gateway**, the **Solana Connector**, and the **On-Chain Program**.
+
+-   **Clients** (e.g., web apps, mobile apps) interact directly with the Solana network for transactions using standard libraries like `anchorpy` (Python) or `@coral-xyz/anchor` (TypeScript).
+-   The **gRPC Gateway**'s sole responsibility is to provide a persistent, real-time stream of on-chain events to clients.
+-   The **Solana Connector** is the underlying Rust library that powers the gateway's event listening capabilities.
+-   The **On-Chain Program** is the Anchor smart contract that serves as the single source of truth.
 
 ```mermaid
 graph TD
     subgraph "User's Device"
-        A[Client Browser/App]
+        A["Client App (using anchorpy/anchor-ts)"]
     end
 
     subgraph "Service Provider's Backend"
         B[gRPC Gateway]
         C[Solana Connector]
-        D[Your Oracle Service]
     end
 
     subgraph "Solana Network"
@@ -36,22 +40,15 @@ graph TD
         F[Solana RPC Node]
     end
 
-    A -- "1. Prepare Tx (gRPC)" --> B
-    B -- "2. Build Unsigned Tx" --> C
-    C -- "3. Return Unsigned Tx" --> B
-    B -- "4. Return Unsigned Tx (gRPC)" --> A
-    A -- "5. Sign Tx w/ Wallet" --> A
-    A -- "6. Submit Signed Tx (gRPC)" --> B
-    B -- "7. Submit to Network" --> C
-    C -- "8. Send to RPC" --> F
-    F -- "9. Processed by" --> E
-
-    D -- "Signs Price Data" --> A
-
-    C -- "Listens for Events" --> F
-    B -- "Receives Events" --> C
-
-    style D fill:#f9f,stroke:#333,stroke-width:2px
+    A -- "1. Signs & Sends Transaction" --> F
+    F -- "2. Processed by" --> E
+    E -- "3. Emits Event" --> F
+    
+    subgraph "Event Streaming"
+      F -- "4. Listened by" --> C
+      C -- "5. Forwards to" --> B
+      B -- "6. Streams to" --> A
+    end
 ```
 
 ## Local Development with Docker

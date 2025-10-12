@@ -1,105 +1,57 @@
 # gRPC Gateway API Reference
 
-The gRPC gateway provides a ready-to-use service that exposes the functionality of the on-chain program to clients written in any gRPC-compatible language (e.g., Python, TypeScript, Go). It offers a high-level, language-agnostic API that abstracts away the complexities of blockchain interaction.
-
-The full API definition is defined in the `w3b2-solana-gateway` crate and can be referenced from its source code.
-
-## The "Prepare-Then-Submit" Pattern
-
-The gateway is designed around a non-custodial workflow that ensures server-side components **never** handle user private keys. This is achieved through a two-step "prepare-then-submit" pattern:
-
-1.  **Prepare**: The client calls a `prepare_*` method on the gateway (e.g., `PrepareUserDeposit`). The gateway builds the necessary unsigned Solana transaction and returns it to the client as a serialized byte array.
-2.  **Sign & Submit**: The client receives the byte array, deserializes it into a transaction, and uses the user's local wallet (e.g., a local keypair, a browser extension) to sign it. The client then sends the now-signed transaction back to the gateway's single `SubmitTransaction` method, which broadcasts it to the Solana network.
-
-This pattern ensures that the user's secret key never leaves their device, which is a critical security practice.
+The gRPC gateway provides a focused, high-performance service for streaming on-chain events from the W3B2 program. Its sole responsibility is to allow clients to subscribe to real-time event feeds for specific on-chain accounts.
 
 ## API Methods
 
-The API provides three main categories of RPC methods.
+The API is focused exclusively on event streaming. For creating and submitting transactions, clients should use a standard library for their language, such as `anchorpy` for Python or `@coral-xyz/anchor` for TypeScript, along with the program's IDL. This is the recommended and most robust approach for interacting with the on-chain program.
 
-### 1. Transaction Preparation (`Prepare*`)
-
-This is a suite of unary RPC methods that map one-to-one with the instructions available in the on-chain program. Each method accepts the parameters needed for the specific instruction and returns an `UnsignedTx` message containing the transaction bytes.
-
-#### Example: Preparing a `user_deposit` Transaction
-
-This RPC call asks the gateway to create an unsigned transaction for a user to deposit 0.1 SOL into their profile.
-
-**Request (`grpcurl`):**
-```bash
-grpcurl -plaintext \
-    -d '{
-        "authority_pubkey": "USER_WALLET_PUBKEY",
-        "admin_profile_pda": "ADMIN_PDA_PUBKEY",
-        "amount": 100000000
-    }' \
-    localhost:50051 w3b2.protocol.gateway.BridgeGatewayService/PrepareUserDeposit
-```
-
-**Response:**
-
-The gateway returns a JSON object containing the unsigned transaction, encoded as a base64 string.
-
-```json
-{
-  "unsignedTx": "AVuD9J...base64_encoded_transaction...m8gQ=="
-}
-```
-
-#### Complete List of Preparation Methods
-
-**Admin Methods:**
-*   `PrepareAdminRegisterProfile`
-*   `PrepareAdminCloseProfile`
-*   `PrepareAdminSetConfig`
-*   `PrepareAdminWithdraw`
-*   `PrepareAdminDispatchCommand`
-*   `PrepareAdminBanUser`
-*   `PrepareAdminUnbanUser`
-
-**User Methods:**
-*   `PrepareUserCreateProfile`
-*   `PrepareUserUpdateCommKey`
-*   `PrepareUserCloseProfile`
-*   `PrepareUserDeposit`
-*   `PrepareUserWithdraw`
-*   `PrepareUserRequestUnban`
-
-**Operational Methods:**
-*   `PrepareUserDispatchCommand`
-*   `PrepareLogAction`
-
-### 2. Transaction Submission
-
-This is a single unary RPC method for submitting a signed transaction.
-
-*   **`SubmitTransaction(SubmitTransactionRequest) returns (TransactionResponse)`**
-    Accepts a message containing the signed transaction bytes. The gateway submits it to the network and returns a message with the resulting transaction signature string.
-
-### 3. Event Streaming
+### Event Streaming
 
 These are server-side streaming methods that allow a client to subscribe to a persistent stream of on-chain events for a specific PDA. The gateway uses the underlying `EventListener` from the `w3b2-solana-connector`, meaning it provides the same "catch-up then live" event delivery guarantees.
 
 *   **`ListenAsUser(ListenRequest) returns (stream EventStreamItem)`**
-    Opens a stream for events related to a specific `UserProfile` PDA. The `ListenRequest` contains the public key of the user profile to listen to.
+    Opens a stream for events related to a specific `UserProfile` PDA.
 
 *   **`ListenAsAdmin(ListenRequest) returns (stream EventStreamItem)`**
-    Opens a stream for events related to a specific `AdminProfile` PDA. The `ListenRequest` contains the public key of the admin profile to listen to.
+    Opens a stream for events related to a specific `AdminProfile` PDA.
 
 *   **`Unsubscribe(UnsubscribeRequest)`**
     Manually closes an active event stream subscription.
 
-#### Example: Listening for User Events
+#### Client Integration Example
 
-This RPC call opens a persistent stream to listen for events related to a specific `UserProfile` PDA. The server will first send all historical events and then continue to send new events as they happen.
+To connect to the gateway's event stream, you should use the provided `.proto` files to generate a gRPC client in your programming language of choice.
 
-**Request (`grpcurl`):**
-```bash
-grpcurl -plaintext \
-    -d '{
-        "pda": "USER_PROFILE_PDA_PUBKEY"
-    }' \
-    localhost:50051 w3b2.protocol.gateway.BridgeGatewayService/ListenAsUser
+1.  **Locate the Protobuf Definitions**: The API definitions are located in the `proto/` directory at the root of the repository. The main service is defined in `gateway.proto`.
+
+2.  **Generate Client Code**: Use your language's standard gRPC code generation tools (e.g., `grpc-tools` for Python, `protoc-gen-go-grpc` for Go) to create client stubs from the `.proto` files.
+
+3.  **Implement the Listener**: Use the generated client to call the `ListenAsUser` or `ListenAsAdmin` methods. These are server-streaming RPCs, so your client will receive a stream of `EventStreamItem` messages.
+
+Your client logic should iterate over this stream to process events as they arrive. The `source` field in `EventStreamItem` allows you to distinguish between historical (`CATCHUP`) and real-time (`LIVE`) events.
+
+#### Conceptual Client Example (Python)
+
+```python
+# Assuming 'gateway_pb2' and 'gateway_pb2_grpc' are generated
+import gateway_pb2
+import gateway_pb2_grpc
+import grpc
+
+channel = grpc.insecure_channel('localhost:50051')
+stub = gateway_pb2_grpc.BridgeGatewayServiceStub(channel)
+
+user_pda_to_listen = "..." # The PDA of the user profile
+
+request = gateway_pb2.ListenRequest(pda=user_pda_to_listen)
+
+try:
+    for item in stub.ListenAsUser(request):
+        print(f"Received event from source: {item.source}")
+        # Process item.event based on its type
+except grpc.RpcError as e:
+    print(f"An error occurred: {e.details()}")
 ```
 
 **Response Stream:**

@@ -1,8 +1,7 @@
 streamlit
-grpcio
-grpcio-tools
 solana
 solders
-base58
-protobuf
 requests
+anchorpy
+grpcio
+protobuf

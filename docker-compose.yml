@@ -145,8 +145,9 @@ services:
   example-client:
     image: w3b2-hybrid-social-network-client
     build:
-      context: ./examples/hybrid-social-network-client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.example-client
+    pull_policy: never
     profiles: ["full"]
     ports:
       - "8501:8501"
@@ -156,20 +157,26 @@ services:
     volumes:
       - ./artifacts:/project/artifacts
     environment:
-      - GATEWAY_HOST=gateway
-      - GATEWAY_PORT=50051
-      - SOLANA_RPC_URL=http://solana-validator:8899
+      - GATEWAY_HOST=gateway # Service name inside Docker network
+      - GATEWAY_PORT=${GATEWAY_PORT}
+      - SOLANA_RPC_URL=http://solana-validator:${SOLANA_VALIDATOR_RPC_PORT:-8899}
       - STREAMLIT_SERVER_ENABLE_CORS=false
       - STREAMLIT_CLIENT_VERIFY_SSL=false
+      - PYTHONUNBUFFERED=1 # Force python to output logs without buffering
     command: >
       bash -c "
+        # Wait for the gRPC gateway to be ready before starting the client.
+        while ! nc -z gateway ${GATEWAY_PORT}; do
+          echo 'Waiting for gRPC gateway to be available...';
+          sleep 2;
+        done;
         while [ ! -f /project/artifacts/w3b2_solana_program.json ]; do
           echo 'Waiting for program artifacts...';
           sleep 2;
         done;
         export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
         echo 'Starting client with PROGRAM_ID='$$PROGRAM_ID;
-        streamlit run app.py
+        streamlit run app.py --server.port 8501 --server.address 0.0.0.0
       "
 
 volumes:
