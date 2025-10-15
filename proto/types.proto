@@ -7,6 +7,134 @@ package w3b2.protocol.gateway;
 
 // --- Core RPC Message Types for Transactions ---
 
+/// A request to prepare an `admin_register_profile` transaction.
+message PrepareAdminRegisterProfileRequest {
+  string authority_pubkey = 1;
+  string communication_pubkey = 2;
+}
+
+/// A request to prepare an `admin_set_config` transaction.
+message PrepareAdminSetConfigRequest {
+  string authority_pubkey = 1;
+  optional string new_oracle_authority = 2;
+  optional int64 new_timestamp_validity = 3;
+  optional string new_communication_pubkey = 4;
+  optional uint64 new_unban_fee = 5;
+}
+
+/// A request to prepare an `admin_withdraw` transaction.
+message PrepareAdminWithdrawRequest {
+  string authority_pubkey = 1;
+  uint64 amount = 2;
+  string destination = 3;
+}
+
+/// A request to prepare an `admin_close_profile` transaction.
+message PrepareAdminCloseProfileRequest {
+  string authority_pubkey = 1;
+}
+
+/// A request to prepare an `admin_dispatch_command` transaction.
+message PrepareAdminDispatchCommandRequest {
+  string authority_pubkey = 1;
+  string target_user_profile_pda = 2;
+  uint64 command_id = 3;
+  bytes payload = 4;
+}
+
+/// A request to prepare an `admin_ban_user` transaction.
+message PrepareAdminBanUserRequest {
+  string authority_pubkey = 1;
+  string target_user_profile_pda = 2;
+}
+
+/// A request to prepare an `admin_unban_user` transaction.
+message PrepareAdminUnbanUserRequest {
+  string authority_pubkey = 1;
+  string target_user_profile_pda = 2;
+}
+
+/// A request to prepare a `user_create_profile` transaction.
+message PrepareUserCreateProfileRequest {
+  string authority_pubkey = 1;
+  string target_admin_pda = 2;
+  string communication_pubkey = 3;
+}
+
+/// A request to prepare a `user_update_comm_key` transaction.
+message PrepareUserUpdateCommKeyRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  string new_key = 3;
+}
+
+/// A request to prepare a `user_deposit` transaction.
+message PrepareUserDepositRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  uint64 amount = 3;
+}
+
+/// A request to prepare a `user_withdraw` transaction.
+message PrepareUserWithdrawRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+  uint64 amount = 3;
+  string destination = 4;
+}
+
+/// A request to prepare a `user_close_profile` transaction.
+message PrepareUserCloseProfileRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+}
+
+/// A request to prepare a `user_dispatch_command` transaction.
+message PrepareUserDispatchCommandRequest {
+  string authority_pubkey = 1;
+  string target_admin_pda = 2;
+  uint32 command_id = 3;
+  uint64 price = 4;
+  int64 timestamp = 5;
+  bytes payload = 6;
+  string oracle_pubkey = 7;
+  bytes oracle_signature = 8;
+}
+
+/// A request to prepare a `user_request_unban` transaction.
+message PrepareUserRequestUnbanRequest {
+  string authority_pubkey = 1;
+  string admin_profile_pda = 2;
+}
+
+/// A request to prepare a `log_action` transaction.
+message PrepareLogActionRequest {
+  string authority_pubkey = 1;
+  string user_profile_pda = 2;
+  string admin_profile_pda = 3;
+  uint64 session_id = 4;
+  uint32 action_code = 5;
+}
+
+/// A response containing a serialized, unsigned transaction message.
+message UnsignedTransactionResponse {
+  /// The serialized `Message` part of a Solana transaction. The client must
+  /// add a recent blockhash to this message before signing.
+  bytes unsigned_tx_message = 1;
+}
+
+/// A request to submit a fully signed transaction.
+message SubmitTransactionRequest {
+  /// The serialized, signed `Transaction`.
+  bytes signed_tx = 1;
+}
+
+/// A response containing the signature of a submitted transaction.
+message TransactionResponse {
+  /// The base-58 encoded transaction signature.
+  string signature = 1;
+}
+
 // --- Messages for Event Streaming ---
 
 /// A request to start listening for events for a specific PDA.

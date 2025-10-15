@@ -84,10 +84,11 @@ async fn setup_admin_profile(
         &w3b2_solana_program::ID,
     );
 
-    let mut admin_tx = transaction_builder
+    let admin_message = transaction_builder
         .prepare_admin_register_profile(admin_authority.pubkey(), admin_comm_key.pubkey())
         .await?;
-    admin_tx.message.recent_blockhash = context.last_blockhash;
+
+    let mut admin_tx = Transaction::new_unsigned(admin_message);
     admin_tx.sign(&[&admin_authority], context.last_blockhash);
     context.banks_client.process_transaction(admin_tx).await?;
 
@@ -119,10 +120,10 @@ async fn setup_user_profile(
         &w3b2_solana_program::ID,
     );
 
-    let mut user_tx = transaction_builder
+    let user_message = transaction_builder
         .prepare_user_create_profile(user_authority.pubkey(), admin_pda, user_comm_key.pubkey())
         .await?;
-    user_tx.message.recent_blockhash = context.last_blockhash;
+    let mut user_tx = Transaction::new_unsigned(user_message);
     user_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(user_tx).await?;
 
@@ -174,10 +175,10 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
         .get_balance(admin_authority.pubkey())
         .await?;
 
-    let mut close_tx = transaction_builder
+    let close_message = transaction_builder
         .prepare_admin_close_profile(admin_authority.pubkey())
         .await?;
-    close_tx.message.recent_blockhash = context.last_blockhash;
+    let mut close_tx = Transaction::new_unsigned(close_message);
     close_tx.sign(&[&admin_authority], context.last_blockhash);
     context.banks_client.process_transaction(close_tx).await?;
 
@@ -211,7 +212,7 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
     let new_validity = 120i64;
     let new_comm_key = Keypair::new();
 
-    let mut set_config_tx = transaction_builder
+    let set_config_message = transaction_builder
         .prepare_admin_set_config(
             admin_authority.pubkey(),
             Some(new_oracle.pubkey()),
@@ -220,7 +221,7 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
             Some(100), // New unban fee
         )
         .await?;
-    set_config_tx.message.recent_blockhash = context.last_blockhash;
+    let mut set_config_tx = Transaction::new_unsigned(set_config_message);
     set_config_tx.sign(&[&admin_authority], context.last_blockhash);
     context
         .banks_client
@@ -252,7 +253,7 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
     let command_id = 999;
     let payload = b"System message from admin".to_vec();
 
-    let mut dispatch_tx = transaction_builder
+    let dispatch_message = transaction_builder
         .prepare_admin_dispatch_command(
             admin_authority.pubkey(),
             user_pda,
@@ -260,7 +261,7 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
             payload.clone(),
         )
         .await?;
-    dispatch_tx.message.recent_blockhash = context.last_blockhash;
+    let mut dispatch_tx = Transaction::new_unsigned(dispatch_message);
     dispatch_tx.sign(&[&admin_authority], context.last_blockhash);
     context.banks_client.process_transaction(dispatch_tx).await?;
 
@@ -286,10 +287,10 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
 
     // === 2. Arrange: User deposits funds ===
     let deposit_amount = 200_000; // More than command price
-    let mut deposit_tx = transaction_builder
+    let deposit_message = transaction_builder
         .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
         .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
@@ -308,7 +309,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     .concat();
     let signature = admin_authority.sign_message(&message);
 
-    let mut dispatch_tx = transaction_builder
+    let dispatch_message = transaction_builder
         .prepare_user_dispatch_command(
             user_authority.pubkey(),
             admin_pda,
@@ -322,7 +323,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
             },
         )
         .await?;
-    dispatch_tx.message.recent_blockhash = context.last_blockhash;
+    let mut dispatch_tx = Transaction::new_unsigned(dispatch_message);
     dispatch_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(dispatch_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
@@ -348,14 +349,14 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .get_balance(admin_authority.pubkey())
         .await?;
 
-    let mut withdraw_tx = transaction_builder
+    let withdraw_message = transaction_builder
         .prepare_admin_withdraw(
             admin_authority.pubkey(),
             command_price,
             admin_authority.pubkey(), // Destination is the admin's own wallet
         )
         .await?;
-    withdraw_tx.message.recent_blockhash = context.last_blockhash;
+    let mut withdraw_tx = Transaction::new_unsigned(withdraw_message);
     withdraw_tx.sign(&[&admin_authority], context.last_blockhash);
     context
         .banks_client
@@ -396,10 +397,10 @@ async fn test_user_deposit() -> anyhow::Result<()> {
     let deposit_amount = 500_000; // 0.0005 SOL
 
     // The user deposits funds from their wallet to their UserProfile PDA.
-    let mut deposit_tx = transaction_builder
+    let deposit_message = transaction_builder
         .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
         .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(deposit_tx).await?;
 
@@ -433,10 +434,10 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
     let withdraw_amount = 200_000;
 
     // First, deposit funds to have something to withdraw.
-    let mut deposit_tx = transaction_builder
+    let deposit_message = transaction_builder
         .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
         .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
@@ -448,7 +449,7 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
         .await?;
 
     // The user withdraws funds from their UserProfile PDA back to their wallet.
-    let mut withdraw_tx = transaction_builder
+    let withdraw_message = transaction_builder
         .prepare_user_withdraw(
             user_authority.pubkey(),
             admin_pda,
@@ -456,7 +457,7 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
             user_authority.pubkey(), // Destination is the user's own wallet
         )
         .await?;
-    withdraw_tx.message.recent_blockhash = context.last_blockhash;
+    let mut withdraw_tx = Transaction::new_unsigned(withdraw_message);
     withdraw_tx.sign(&[&user_authority], context.last_blockhash);
     context
         .banks_client
@@ -507,10 +508,10 @@ async fn test_user_close_profile() -> anyhow::Result<()> {
         .get_balance(user_authority.pubkey())
         .await?;
 
-    let mut close_tx = transaction_builder
+    let close_message = transaction_builder
         .prepare_user_close_profile(user_authority.pubkey(), admin_pda)
         .await?;
-    close_tx.message.recent_blockhash = context.last_blockhash;
+    let mut close_tx = Transaction::new_unsigned(close_message);
     close_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(close_tx).await?;
 
@@ -542,10 +543,10 @@ async fn test_user_update_comm_key() -> anyhow::Result<()> {
 
     let new_comm_key = Keypair::new();
 
-    let mut update_tx = transaction_builder
+    let update_message = transaction_builder
         .prepare_user_update_comm_key(user_authority.pubkey(), admin_pda, new_comm_key.pubkey())
         .await?;
-    update_tx.message.recent_blockhash = context.last_blockhash;
+    let mut update_tx = Transaction::new_unsigned(update_message);
     update_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(update_tx).await?;
 
@@ -577,7 +578,7 @@ async fn test_log_action_by_user() -> anyhow::Result<()> {
     let session_id = 12345;
     let action_code = 404;
 
-    let mut log_tx = transaction_builder
+    let log_message = transaction_builder
         .prepare_log_action(
             user_authority.pubkey(),
             user_pda,
@@ -586,7 +587,7 @@ async fn test_log_action_by_user() -> anyhow::Result<()> {
             action_code,
         )
         .await?;
-    log_tx.message.recent_blockhash = context.last_blockhash;
+    let mut log_tx = Transaction::new_unsigned(log_message);
     log_tx.sign(&[&user_authority], context.last_blockhash);
     context.banks_client.process_transaction(log_tx).await?;
 

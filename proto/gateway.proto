@@ -1,17 +1,27 @@
 syntax = "proto3";
 
 package w3b2.protocol.gateway;
-import "types.proto";
 
 import "google/protobuf/empty.proto";
+import "types.proto";
 
 // ===================================================================
 // == Service Definition: BridgeGatewayService
 // ===================================================================
-/// The gRPC service for the W3B2 toolset.
+/// The gRPC service for the W3B2 toolset, providing a non-custodial
+/// interface for interacting with the on-chain program.
 ///
-/// Its sole responsibility is to provide real-time, persistent event streams
-/// from the on-chain program to off-chain clients.
+/// ## Workflow
+/// 1. **Prepare**: The client calls a `prepare_*` method (e.g.,
+///    `PrepareUserDeposit`).
+/// 2. **Receive**: The server returns an `UnsignedTransactionResponse`
+///    containing the serialized transaction *message*.
+/// 3. **Sign**: The client deserializes the message, adds a recent blockhash,
+///    creates a `Transaction`, and signs it locally with its private key.
+/// 4. **Submit**: The client calls `SubmitTransaction` with the serialized,
+///    signed transaction.
+/// 5. **Listen**: The client uses `ListenAsUser` or `ListenAsAdmin` to receive
+///    real-time confirmation and subsequent events.
 service BridgeGatewayService {
 
   // ===================================================================
@@ -33,4 +43,52 @@ service BridgeGatewayService {
   /// Manually unsubscribes a client from an active event stream using its
   /// unique subscription ID.
   rpc Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty);
+
+  // ===================================================================
+  // == Transaction Preparation RPCs
+  // ===================================================================
+
+  // --- Admin ---
+  rpc PrepareAdminRegisterProfile(PrepareAdminRegisterProfileRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminSetConfig(PrepareAdminSetConfigRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminWithdraw(PrepareAdminWithdrawRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminCloseProfile(PrepareAdminCloseProfileRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminDispatchCommand(PrepareAdminDispatchCommandRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminBanUser(PrepareAdminBanUserRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareAdminUnbanUser(PrepareAdminUnbanUserRequest)
+      returns (UnsignedTransactionResponse);
+
+  // --- User ---
+  rpc PrepareUserCreateProfile(PrepareUserCreateProfileRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserUpdateCommKey(PrepareUserUpdateCommKeyRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserDeposit(PrepareUserDepositRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserWithdraw(PrepareUserWithdrawRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserCloseProfile(PrepareUserCloseProfileRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserDispatchCommand(PrepareUserDispatchCommandRequest)
+      returns (UnsignedTransactionResponse);
+  rpc PrepareUserRequestUnban(PrepareUserRequestUnbanRequest)
+      returns (UnsignedTransactionResponse);
+
+  // --- Operational ---
+  rpc PrepareLogAction(PrepareLogActionRequest)
+      returns (UnsignedTransactionResponse);
+
+  // ===================================================================
+  // == Transaction Submission RPC
+  // ===================================================================
+
+  /// Submits a client-signed transaction to the Solana network.
+  rpc SubmitTransaction(SubmitTransactionRequest)
+      returns (TransactionResponse);
 }

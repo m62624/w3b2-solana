@@ -29,7 +29,8 @@ use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
 use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::Instruction;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::message::Message;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
@@ -64,6 +65,35 @@ impl AsyncRpcClient for RpcClient {
         self.send_and_confirm_transaction(transaction).await
     }
 }
+impl<C> TransactionBuilder<C>
+where
+    C: AsyncRpcClient + ?Sized,
+{
+    /// Submits a signed transaction and waits for confirmation.
+    pub async fn submit_transaction(&self, tx: &Transaction) -> Result<Signature, ClientError> {
+        self.rpc_client.send_and_confirm_transaction(tx).await
+    }
+
+    /// A helper that takes a `Message`, fetches a recent blockhash, creates a
+    /// `Transaction`, signs it, and submits it to the network.
+    ///
+    /// This is useful for internal tools and tests where the full prepare-sign-submit
+    /// flow is handled in one place.
+    pub async fn build_sign_and_submit(
+        &self,
+        mut message: Message,
+        signers: &[&Keypair],
+    ) -> Result<Signature, ClientError> {
+        let blockhash = self.rpc_client.get_latest_blockhash().await?;
+        message.recent_blockhash = blockhash;
+
+        let mut tx = Transaction::new_unsigned(message);
+
+        tx.sign(signers, blockhash);
+
+        self.submit_transaction(&tx).await
+    }
+}
 
 /// A collection of arguments required for the `prepare_user_dispatch_command` method.
 ///
@@ -95,10 +125,7 @@ pub struct TransactionBuilder<C: AsyncRpcClient + ?Sized> {
     rpc_client: Arc<C>,
 }
 
-impl<C> TransactionBuilder<C>
-where
-    C: AsyncRpcClient + ?Sized,
-{
+impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// Creates a new `TransactionBuilder`.
     ///
     /// # Arguments
@@ -108,29 +135,17 @@ where
         Self { rpc_client }
     }
 
-    /// A private helper to create a transaction from a vector of instructions.
+    /// A private helper to create a message from a vector of instructions.
     ///
-    /// This function encapsulates the boilerplate of fetching the latest blockhash
-    /// and creating a new transaction with a specified fee payer.
-    async fn create_transaction_with_instructions(
+    /// This function encapsulates the boilerplate of creating a new message
+    /// with a specified fee payer.
+    fn create_message_with_instructions(
         &self,
         payer: &Pubkey,
         instructions: Vec<Instruction>,
-    ) -> Result<Transaction, ClientError> {
-        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
-        let mut tx = Transaction::new_with_payer(&instructions, Some(payer));
-        tx.message.recent_blockhash = latest_blockhash;
-        Ok(tx)
-    }
-
-    /// A private helper to create a transaction from a single instruction.
-    async fn create_transaction(
-        &self,
-        payer: &Pubkey,
-        instruction: Instruction,
-    ) -> Result<Transaction, ClientError> {
-        self.create_transaction_with_instructions(payer, vec![instruction])
-            .await
+    ) -> Message {
+        // The blockhash will be set by the client just before signing.
+        Message::new_with_blockhash(&instructions, Some(payer), &Hash::default())
     }
 
     // --- Admin Transaction Preparations ---
@@ -145,7 +160,7 @@ where
         &self,
         authority: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -163,7 +178,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_ban_user` transaction.
@@ -176,7 +191,7 @@ where
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -191,7 +206,7 @@ where
             data: instruction::AdminBanUser {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_unban_user` transaction.
@@ -204,7 +219,7 @@ where
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -219,7 +234,7 @@ where
             data: instruction::AdminUnbanUser {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_set_config` transaction.
@@ -238,7 +253,7 @@ where
         new_timestamp_validity: Option<i64>,
         new_communication_pubkey: Option<Pubkey>,
         new_unban_fee: Option<u64>,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -258,7 +273,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_withdraw` transaction.
@@ -273,7 +288,7 @@ where
         authority: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -288,7 +303,7 @@ where
             data: instruction::AdminWithdraw { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_close_profile` transaction.
@@ -299,7 +314,7 @@ where
     pub async fn prepare_admin_close_profile(
         &self,
         authority: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -313,7 +328,7 @@ where
             data: instruction::AdminCloseProfile {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares an `admin_dispatch_command` transaction.
@@ -330,7 +345,7 @@ where
         target_user_profile_pda: Pubkey,
         command_id: u64,
         payload: Vec<u8>,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -349,7 +364,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     // --- User Transaction Preparations ---
@@ -366,7 +381,7 @@ where
         authority: Pubkey,
         target_admin_pda: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -388,7 +403,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares a `user_update_comm_key` transaction.
@@ -403,7 +418,7 @@ where
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         new_key: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -420,7 +435,7 @@ where
             data: instruction::UserUpdateCommKey { new_key }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares a `user_deposit` transaction.
@@ -435,7 +450,7 @@ where
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         amount: u64,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -453,7 +468,7 @@ where
             data: instruction::UserDeposit { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares a `user_withdraw` transaction.
@@ -470,7 +485,7 @@ where
         admin_profile_pda: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -488,7 +503,7 @@ where
             data: instruction::UserWithdraw { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares a `user_close_profile` transaction.
@@ -501,7 +516,7 @@ where
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -518,7 +533,7 @@ where
             data: instruction::UserCloseProfile {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     // --- Operational Transaction Preparations ---
@@ -539,7 +554,7 @@ where
         authority: Pubkey,
         target_admin_pda: Pubkey,
         args: UserDispatchCommandArgs,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         // 1. Reconstruct the message that the oracle signed.
         let message = [
             args.command_id.to_le_bytes().as_ref(),
@@ -580,8 +595,7 @@ where
         };
 
         // 4. Create a transaction containing both instructions in the correct order.
-        self.create_transaction_with_instructions(&authority, vec![ed25519_ix, dispatch_ix])
-            .await
+        Ok(self.create_message_with_instructions(&authority, vec![ed25519_ix, dispatch_ix]))
     }
 
     /// Prepares a `user_request_unban` transaction.
@@ -594,7 +608,7 @@ where
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -611,7 +625,7 @@ where
             data: instruction::UserRequestUnban {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 
     /// Prepares a `log_action` transaction.
@@ -634,7 +648,7 @@ where
         admin_profile_pda: Pubkey,
         session_id: u64,
         action_code: u16,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Result<Message, ClientError> {
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
             accounts: accounts::LogAction {
@@ -650,6 +664,6 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        Ok(self.create_message_with_instructions(&authority, vec![ix]))
     }
 }

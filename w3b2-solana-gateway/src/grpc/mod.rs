@@ -1,26 +1,45 @@
 //! # gRPC Service Implementation
 //!
 //! This module defines the gRPC server and its implementation of the `BridgeGatewayService`.
-//! Its sole responsibility is to provide a real-time, persistent stream of on-chain
-//! events to subscribed clients.
 //!
-//! ## Architecture
+//! ## Core Components
 //!
-//! - **Transaction Submission**: Clients are expected to build, sign, and submit
-//!   transactions directly to a Solana RPC node using a standard library for their
-//!   language (e.g., `anchorpy` for Python, `@coral-xyz/anchor` for TypeScript).
-//!   The gateway does **not** handle transaction preparation or submission.
+//! - **[`GatewayServer`]**: The main struct that implements the `BridgeGatewayService` tonic trait.
+//!   It holds the application's shared state, [`AppState`].
 //!
-//! - **Event Streaming**: The gateway provides `ListenAsUser` and `ListenAsAdmin`
-//!   server-streaming RPCs. It also provides a unary `Unsubscribe` RPC to allow
-//!   clients to explicitly close a stream.
+//! - **[`AppState`]**: A container for shared, thread-safe components needed by the gRPC
+//!   service methods, such as the Solana `RpcClient`, a handle to the `EventManager`,
+//!   and the gateway's configuration.
+//!
+//! - **[`start`]**: The main entry point for initializing and running the gateway. It sets up
+//!   the database, spawns the `EventManager` for background event processing, and starts
+//!   the tonic gRPC server.
+//!
+//! ## RPC Method Groups
+//!
+//! The `BridgeGatewayService` implementation is organized into three main categories:
+//!
+//! 1.  **Transaction Preparation (`prepare_*`)**: A suite of methods that map one-to-one
+//!     with the instructions in the on-chain program. Each method takes high-level inputs,
+//!     uses the `w3b2-solana-connector`'s `TransactionBuilder` to construct an unsigned
+//!     transaction, and returns its serialized `Message` to the client. This enables
+//!     a non-custodial workflow where the gateway never handles private keys.
+//!
+//! 2.  **Transaction Submission (`submit_transaction`)**: A single method that accepts a
+//!     signed transaction from a client, deserializes it, and submits it to the Solana network.
+//!
+//! 3.  **Event Streaming (`listen_as_user`, `listen_as_admin`, `unsubscribe`)**: Methods that
+//!     allow clients to open a persistent, server-side stream of on-chain events for a
+//!     specific `UserProfile` or `AdminProfile` PDA. The server leverages the `EventManager`
+//!     to provide both historical (catch-up) and real-time events.
 
 mod conversions;
 
 use anyhow::Result;
 use dashmap::DashMap;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::message::Message;
+use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -28,15 +47,15 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 use w3b2_solana_connector::workers::{EventManager, EventManagerHandle};
 
+use w3b2_solana_connector::client::{TransactionBuilder, UserDispatchCommandArgs};
+
 use crate::grpc::proto::w3b2::protocol::gateway::bridge_gateway_service_server::{
     BridgeGatewayService, BridgeGatewayServiceServer,
 };
 use crate::{
     config::GatewayConfig,
     error::GatewayError,
-    grpc::proto::w3b2::protocol::gateway::{
-        self, EventStreamItem, ListenRequest, UnsubscribeRequest,
-    },
+    grpc::proto::w3b2::protocol::gateway::{self, EventStreamItem, ListenRequest, PrepareAdminBanUserRequest, PrepareAdminCloseProfileRequest, PrepareAdminDispatchCommandRequest, PrepareAdminRegisterProfileRequest, PrepareAdminSetConfigRequest, PrepareAdminUnbanUserRequest, PrepareAdminWithdrawRequest, PrepareLogActionRequest, PrepareUserCloseProfileRequest, PrepareUserCreateProfileRequest, PrepareUserDepositRequest, PrepareUserDispatchCommandRequest, PrepareUserRequestUnbanRequest, PrepareUserUpdateCommKeyRequest, PrepareUserWithdrawRequest, SubmitTransactionRequest, TransactionResponse, UnsignedTransactionResponse, UnsubscribeRequest},
     storage::SledStorage,
 };
 
@@ -110,7 +129,10 @@ pub async fn start(config: &GatewayConfig) -> Result<EventManagerHandle> {
     let grpc_server =
         Server::builder().add_service(BridgeGatewayServiceServer::new(gateway_server));
 
-    tracing::info!("gRPC Event Streaming Gateway listening on {}", addr);
+    tracing::info!(
+        "Non-Custodial gRPC Gateway with Event Streaming listening on {}",
+        addr
+    );
 
     tokio::spawn(async move {
         if let Err(e) = grpc_server.serve(addr).await {
@@ -297,6 +319,596 @@ impl BridgeGatewayService for GatewayServer {
             }
 
             Ok(Response::new(()))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    // --- Transaction Preparation ---
+
+    /// Prepares an unsigned `user_request_unban` transaction.
+    async fn prepare_user_request_unban(
+        &self,
+        request: Request<PrepareUserRequestUnbanRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserRequestUnban request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_request_unban(authority, admin_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared user_request_unban tx for authority {}",
+                authority
+            );
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_ban_user` transaction.
+    async fn prepare_admin_ban_user(
+        &self,
+        request: Request<PrepareAdminBanUserRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminBanUser request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_ban_user(authority, target_user_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared admin_ban_user tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_unban_user` transaction.
+    async fn prepare_admin_unban_user(
+        &self,
+        request: Request<PrepareAdminUnbanUserRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminUnbanUser request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_unban_user(authority, target_user_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared admin_unban_user tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_register_profile` transaction.
+    async fn prepare_admin_register_profile(
+        &self,
+        request: Request<PrepareAdminRegisterProfileRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminRegisterProfile request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let communication_pubkey = parse_pubkey(&req.communication_pubkey)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_register_profile(authority, communication_pubkey)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared admin_register_profile tx for authority {}",
+                authority
+            );
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_set_config` transaction.
+    async fn prepare_admin_set_config(
+        &self,
+        request: Request<PrepareAdminSetConfigRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminSetConfig request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let new_oracle_authority = req
+                .new_oracle_authority
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+            let new_communication_pubkey = req
+                .new_communication_pubkey
+                .map(|s| parse_pubkey(&s))
+                .transpose()?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_set_config(
+                    authority,
+                    new_oracle_authority,
+                    req.new_timestamp_validity,
+                    new_communication_pubkey,
+                    req.new_unban_fee,
+                )
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared admin_set_config tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_withdraw` transaction.
+    async fn prepare_admin_withdraw(
+        &self,
+        request: Request<PrepareAdminWithdrawRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminWithdraw request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let destination = parse_pubkey(&req.destination)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_withdraw(authority, req.amount, destination)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared admin_withdraw tx for authority {}", authority);
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_close_profile` transaction.
+    async fn prepare_admin_close_profile(
+        &self,
+        request: Request<PrepareAdminCloseProfileRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminCloseProfile request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_close_profile(authority)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared admin_close_profile tx for authority {}",
+                authority
+            );
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `admin_dispatch_command` transaction.
+    async fn prepare_admin_dispatch_command(
+        &self,
+        request: Request<PrepareAdminDispatchCommandRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareAdminDispatchCommand request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_admin_dispatch_command(
+                    authority,
+                    target_user_profile_pda,
+                    req.command_id,
+                    req.payload,
+                )
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared admin_dispatch_command tx for authority {}",
+                authority
+            );
+
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_create_profile` transaction.
+    async fn prepare_user_create_profile(
+        &self,
+        request: Request<PrepareUserCreateProfileRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserCreateProfile request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_admin_pda = parse_pubkey(&req.target_admin_pda)?;
+            let communication_pubkey = parse_pubkey(&req.communication_pubkey)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_create_profile(authority, target_admin_pda, communication_pubkey)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared user_create_profile tx for authority {}",
+                authority
+            );
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_update_comm_key` transaction.
+    async fn prepare_user_update_comm_key(
+        &self,
+        request: Request<PrepareUserUpdateCommKeyRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserUpdateCommKey request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+            let new_key = parse_pubkey(&req.new_key)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_update_comm_key(authority, admin_profile_pda, new_key)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared user_update_comm_key tx for authority {}",
+                authority
+            );
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_deposit` transaction.
+    async fn prepare_user_deposit(
+        &self,
+        request: Request<PrepareUserDepositRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserDeposit request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_deposit(authority, admin_profile_pda, req.amount)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared user_deposit tx for authority {}", authority);
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_withdraw` transaction.
+    async fn prepare_user_withdraw(
+        &self,
+        request: Request<PrepareUserWithdrawRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserWithdraw request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+            let destination = parse_pubkey(&req.destination)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_withdraw(authority, admin_profile_pda, req.amount, destination)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared user_withdraw tx for authority {}", authority);
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_close_profile` transaction.
+    async fn prepare_user_close_profile(
+        &self,
+        request: Request<PrepareUserCloseProfileRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserCloseProfile request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_close_profile(authority, admin_profile_pda)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared user_close_profile tx for authority {}", authority);
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `user_dispatch_command` transaction.
+    async fn prepare_user_dispatch_command(
+        &self,
+        request: Request<PrepareUserDispatchCommandRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received PrepareUserDispatchCommand request: {:?}",
+                request.get_ref()
+            );
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let target_admin_pda = parse_pubkey(&req.target_admin_pda)?;
+            let oracle_pubkey = parse_pubkey(&req.oracle_pubkey)?;
+
+            // Convert the signature from Vec<u8> to [u8; 64]
+            let oracle_signature: [u8; 64] = req.oracle_signature.try_into().map_err(|_| {
+                GatewayError::InvalidArgument("Oracle signature must be 64 bytes".to_string())
+            })?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_user_dispatch_command(
+                    authority,
+                    target_admin_pda,
+                    UserDispatchCommandArgs {
+                        command_id: req.command_id as u16,
+                        price: req.price,
+                        timestamp: req.timestamp,
+                        payload: req.payload,
+                        oracle_pubkey,
+                        oracle_signature,
+                    },
+                )
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!(
+                "Prepared user_dispatch_command tx for authority {}",
+                authority
+            );
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Prepares an unsigned `log_action` transaction.
+    async fn prepare_log_action(
+        &self,
+        request: Request<PrepareLogActionRequest>,
+    ) -> Result<Response<UnsignedTransactionResponse>, Status> {
+        let result: Result<Response<UnsignedTransactionResponse>, GatewayError> = (async {
+            tracing::info!("Received PrepareLogAction request: {:?}", request.get_ref());
+
+            let req = request.into_inner();
+            let authority = parse_pubkey(&req.authority_pubkey)?;
+            let user_profile_pda = parse_pubkey(&req.user_profile_pda)?;
+            let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let message = builder
+                .prepare_log_action(
+                    authority,
+                    user_profile_pda,
+                    admin_profile_pda,
+                    req.session_id,
+                    req.action_code as u16,
+                )
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            let unsigned_tx_message = message.serialize();
+            tracing::debug!("Prepared log_action tx for authority {}", authority);
+            Ok(Response::new(UnsignedTransactionResponse {
+                unsigned_tx_message,
+            }))
+        })
+        .await;
+
+        result.map_err(Status::from)
+    }
+
+    /// Submits a signed transaction to the network.
+    async fn submit_transaction(
+        &self,
+        request: Request<SubmitTransactionRequest>,
+    ) -> Result<Response<TransactionResponse>, Status> {
+        let result: Result<Response<TransactionResponse>, GatewayError> = (async {
+            tracing::info!(
+                "Received SubmitTransaction request with {} bytes",
+                request.get_ref().signed_tx.len()
+            );
+
+            let req = request.into_inner();
+            let tx_bytes = req.signed_tx;
+
+                let (transaction, _len): (Transaction, usize) =
+                bincode::serde::borrow_decode_from_slice(
+                    tx_bytes.as_slice(),
+                    bincode::config::standard(),
+                )
+                .map_err(GatewayError::from)?;
+
+            tracing::debug!("Deserialized transaction: {:?}", transaction);
+
+            let builder = TransactionBuilder::new(self.state.rpc_client.clone());
+            let signature = builder
+                .submit_transaction(&transaction)
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            tracing::info!("Submitted transaction, signature: {}", signature);
+
+            Ok(Response::new(TransactionResponse {
+                signature: signature.to_string(),
+            }))
         })
         .await;
 
