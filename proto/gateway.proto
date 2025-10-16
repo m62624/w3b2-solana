@@ -91,4 +91,10 @@ service BridgeGatewayService {
   /// Submits a client-signed transaction to the Solana network.
   rpc SubmitTransaction(SubmitTransactionRequest)
       returns (TransactionResponse);
+
+  // ===================================================================
+  // == Utility RPCs
+  // ===================================================================
+  /// Fetches the latest blockhash from the Solana network.
+  rpc GetLatestBlockhash(google.protobuf.Empty) returns (BlockhashResponse);
 }

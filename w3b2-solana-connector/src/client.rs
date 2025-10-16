@@ -30,12 +30,14 @@ use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClien
 use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::message::Message;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use std::sync::Arc;
 use w3b2_solana_program::{accounts, instruction};
+
+pub use crate::dispatcher::UserDispatchCommandArgs;
 
 /// A trait abstracting over the asynchronous RPC client functionality.
 ///
@@ -93,25 +95,27 @@ where
 
         self.submit_transaction(&tx).await
     }
-}
 
-/// A collection of arguments required for the `prepare_user_dispatch_command` method.
-///
-/// This struct simplifies the method signature by grouping all the parameters
-/// related to the oracle-signed command.
-pub struct UserDispatchCommandArgs {
-    /// The `u16` identifier for the command, as signed by the oracle.
-    pub command_id: u16,
-    /// The price of the command in lamports, as signed by the oracle.
-    pub price: u64,
-    /// The Unix timestamp from the oracle's signature, used to prevent replay attacks.
-    pub timestamp: i64,
-    /// An opaque byte array for application-specific data.
-    pub payload: Vec<u8>,
-    /// The public key of the oracle that signed the message.
-    pub oracle_pubkey: Pubkey,
-    /// The 64-byte Ed25519 signature from the oracle.
-    pub oracle_signature: [u8; 64],
+    pub fn rpc_client(&self) -> Arc<C> {
+        self.rpc_client.clone()
+    }
+
+    /// A private helper to create a message from a vector of instructions.
+    ///
+    /// This function encapsulates the boilerplate of creating a new message
+    /// with a specified fee payer.
+    pub fn create_message_with_instructions(
+        payer: &Pubkey,
+        instructions: Vec<Instruction>,
+    ) -> Vec<u8> {
+        let placeholder = Hash::default();
+        let msg = solana_sdk::message::Message::new_with_blockhash(
+            &instructions,
+            Some(payer),
+            &placeholder,
+        );
+        bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap()
+    }
 }
 
 /// A builder for preparing unsigned on-chain transactions.
@@ -135,19 +139,6 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
         Self { rpc_client }
     }
 
-    /// A private helper to create a message from a vector of instructions.
-    ///
-    /// This function encapsulates the boilerplate of creating a new message
-    /// with a specified fee payer.
-    fn create_message_with_instructions(
-        &self,
-        payer: &Pubkey,
-        instructions: Vec<Instruction>,
-    ) -> Message {
-        // The blockhash will be set by the client just before signing.
-        Message::new_with_blockhash(&instructions, Some(payer), &Hash::default())
-    }
-
     // --- Admin Transaction Preparations ---
 
     /// Prepares an `admin_register_profile` transaction.
@@ -156,11 +147,11 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     ///
     /// * `authority` - The public key of the admin's wallet that will sign the transaction.
     /// * `communication_pubkey` - The public key for secure off-chain communication.
-    pub async fn prepare_admin_register_profile(
+    pub fn prepare_admin_register_profile(
         &self,
         authority: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -178,7 +169,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             .data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_ban_user` transaction.
@@ -187,11 +178,11 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     ///
     /// * `authority` - The public key of the admin's wallet.
     /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be banned.
-    pub async fn prepare_admin_ban_user(
+    pub fn prepare_admin_ban_user(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -206,7 +197,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::AdminBanUser {}.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_unban_user` transaction.
@@ -215,11 +206,11 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     ///
     /// * `authority` - The public key of the admin's wallet.
     /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be unbanned.
-    pub async fn prepare_admin_unban_user(
+    pub fn prepare_admin_unban_user(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -234,7 +225,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::AdminUnbanUser {}.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_set_config` transaction.
@@ -246,14 +237,14 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
     /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
     /// * `new_unban_fee` - An optional new fee in lamports for unban requests.
-    pub async fn prepare_admin_set_config(
+    pub fn prepare_admin_set_config(
         &self,
         authority: Pubkey,
         new_oracle_authority: Option<Pubkey>,
         new_timestamp_validity: Option<i64>,
         new_communication_pubkey: Option<Pubkey>,
         new_unban_fee: Option<u64>,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -273,7 +264,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             .data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_withdraw` transaction.
@@ -283,12 +274,12 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `authority` - The public key of the admin's wallet.
     /// * `amount` - The amount of lamports to withdraw from the `AdminProfile` balance.
     /// * `destination` - The public key of the account to receive the funds.
-    pub async fn prepare_admin_withdraw(
+    pub fn prepare_admin_withdraw(
         &self,
         authority: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -303,7 +294,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::AdminWithdraw { amount }.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_close_profile` transaction.
@@ -311,10 +302,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// # Arguments
     ///
     /// * `authority` - The public key of the admin's wallet.
-    pub async fn prepare_admin_close_profile(
-        &self,
-        authority: Pubkey,
-    ) -> Result<Message, ClientError> {
+    pub fn prepare_admin_close_profile(&self, authority: Pubkey) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -328,7 +316,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::AdminCloseProfile {}.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_dispatch_command` transaction.
@@ -339,13 +327,13 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `target_user_profile_pda` - The PDA of the target `UserProfile`.
     /// * `command_id` - A `u64` identifier for the command.
     /// * `payload` - An opaque byte array for application-specific data.
-    pub async fn prepare_admin_dispatch_command(
+    pub fn prepare_admin_dispatch_command(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
         command_id: u64,
         payload: Vec<u8>,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -364,7 +352,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             .data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     // --- User Transaction Preparations ---
@@ -376,12 +364,12 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `authority` - The user's wallet `Pubkey` that will sign and own the profile.
     /// * `target_admin_pda` - The `Pubkey` of the `AdminProfile` PDA to link to.
     /// * `communication_pubkey` - The user's public key for off-chain communication.
-    pub async fn prepare_user_create_profile(
+    pub fn prepare_user_create_profile(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -403,7 +391,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             .data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_update_comm_key` transaction.
@@ -413,12 +401,12 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `new_key` - The new communication key to set.
-    pub async fn prepare_user_update_comm_key(
+    pub fn prepare_user_update_comm_key(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         new_key: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -435,7 +423,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::UserUpdateCommKey { new_key }.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_deposit` transaction.
@@ -445,12 +433,12 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to deposit.
-    pub async fn prepare_user_deposit(
+    pub fn prepare_user_deposit(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         amount: u64,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -468,7 +456,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::UserDeposit { amount }.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_withdraw` transaction.
@@ -479,13 +467,13 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to withdraw.
     /// * `destination` - The `Pubkey` of the wallet to receive the funds.
-    pub async fn prepare_user_withdraw(
+    pub fn prepare_user_withdraw(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -503,7 +491,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::UserWithdraw { amount }.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_close_profile` transaction.
@@ -512,11 +500,11 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
-    pub async fn prepare_user_close_profile(
+    pub fn prepare_user_close_profile(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -533,7 +521,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::UserCloseProfile {}.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     // --- Operational Transaction Preparations ---
@@ -549,12 +537,12 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `authority` - The user's wallet `Pubkey` that will sign the transaction.
     /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` PDA.
     /// * `args` - A [`UserDispatchCommandArgs`] struct containing all oracle-signed parameters.
-    pub async fn prepare_user_dispatch_command(
+    pub fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         args: UserDispatchCommandArgs,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         // 1. Reconstruct the message that the oracle signed.
         let message = [
             args.command_id.to_le_bytes().as_ref(),
@@ -595,7 +583,10 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
         };
 
         // 4. Create a transaction containing both instructions in the correct order.
-        Ok(self.create_message_with_instructions(&authority, vec![ed25519_ix, dispatch_ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(
+            &authority,
+            vec![ed25519_ix, dispatch_ix],
+        )
     }
 
     /// Prepares a `user_request_unban` transaction.
@@ -604,11 +595,11 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
-    pub async fn prepare_user_request_unban(
+    pub fn prepare_user_request_unban(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -625,7 +616,7 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             data: instruction::UserRequestUnban {}.data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `log_action` transaction.
@@ -641,14 +632,14 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA.
     /// * `session_id` - A `u64` identifier to correlate actions.
     /// * `action_code` - A `u16` code for the specific action.
-    pub async fn prepare_log_action(
+    pub fn prepare_log_action(
         &self,
         authority: Pubkey,
         user_profile_pda: Pubkey,
         admin_profile_pda: Pubkey,
         session_id: u64,
         action_code: u16,
-    ) -> Result<Message, ClientError> {
+    ) -> Vec<u8> {
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
             accounts: accounts::LogAction {
@@ -664,6 +655,6 @@ impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
             .data(),
         };
 
-        Ok(self.create_message_with_instructions(&authority, vec![ix]))
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 }

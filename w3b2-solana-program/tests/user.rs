@@ -393,6 +393,7 @@ fn test_user_request_unban_success() {
 
     // Reset state for the next scenario
     admin::unban_user(&mut svm, &admin_authority, user_pda);
+    svm.expire_blockhash();
     admin::ban_user(&mut svm, &admin_authority, user_pda);
 
     // --- Scenario 2: Unban request with a fee ---

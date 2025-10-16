@@ -1,177 +1,140 @@
-use anchor_client::{
-    solana_sdk::{
-        commitment_config::CommitmentConfig,
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-        system_program, sysvar,
-    },
-    Client, Cluster,
+use anyhow::{Context, Result};
+use futures::stream::StreamExt;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_sdk::{
+    commitment_config::CommitmentConfig,
+    hash::Hash,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::Transaction,
 };
-use anyhow::Result;
-use std::rc::Rc;
-use w3b2_solana_program::{accounts, instruction as w3b2_instruction};
-use solana_ed25519_program::new_instruction_with_pubkey;
+use std::{str::FromStr, sync::Arc, time::Duration};
+use tracing::info;
+use w3b2_solana_connector::client::TransactionBuilder;
+use w3b2_solana_proto::services::gateway::{
+    bridge_gateway_service_client::BridgeGatewayServiceClient, ListenRequest,
+    PrepareAdminDispatchCommandRequest, SubmitTransactionRequest,
+};
 
-
-struct SocialApp {
-    program_id: Pubkey,
-    admin: Rc<Keypair>,
-    alice: Rc<Keypair>,
-    bob: Rc<Keypair>,
-    oracle: Rc<Keypair>,
-    admin_pda: Pubkey,
-    alice_pda: Pubkey,
-    bob_pda: Pubkey,
-}
-
-impl SocialApp {
-    fn new() -> Result<Self> {
-        let program_id = w3b2_solana_program::ID;
-
-        let admin = Rc::new(Keypair::new());
-        let alice = Rc::new(Keypair::new());
-        let bob = Rc::new(Keypair::new());
-        let oracle = Rc::new(Keypair::new());
-
-        println!("Generated Keypairs:");
-        println!("  Admin: {}", admin.pubkey());
-        println!("  Alice: {}", alice.pubkey());
-        println!("  Bob: {}", bob.pubkey());
-        println!("  Oracle: {}", oracle.pubkey());
-
-        let (admin_pda, _) = Pubkey::find_program_address(&[b"admin", admin.pubkey().as_ref()], &program_id);
-        let (alice_pda, _) = Pubkey::find_program_address(&[b"user", alice.pubkey().as_ref(), admin_pda.as_ref()], &program_id);
-        let (bob_pda, _) = Pubkey::find_program_address(&[b"user", bob.pubkey().as_ref(), admin_pda.as_ref()], &program_id);
-
-        Ok(Self { program_id, admin, alice, bob, oracle, admin_pda, alice_pda, bob_pda })
-    }
-
-    fn get_program_for_keypair(&self, payer: Rc<Keypair>) -> Result<anchor_client::Program<Rc<Keypair>>> {
-        let client = Client::new_with_options(Cluster::Localnet, payer, CommitmentConfig::confirmed());
-        Ok(client.program(self.program_id)?)
-    }
-
-    async fn setup(&self) -> Result<()> {
-        println!("\nRegistering admin profile...");
-        let admin_program = self.get_program_for_keypair(self.admin.clone())?;
-
-        admin_program
-            .request()
-            .signer(self.admin.as_ref())
-            .accounts(accounts::AdminRegisterProfile {
-                authority: self.admin.pubkey(),
-                admin_profile: self.admin_pda,
-                system_program: system_program::ID,
-            })
-            .args(w3b2_instruction::AdminRegisterProfile {
-                communication_pubkey: self.admin.pubkey(),
-            })
-            .send()?;
-
-        println!("Setting oracle authority...");
-        admin_program
-            .request()
-            .signer(self.admin.as_ref())
-            .accounts(accounts::AdminSetConfig {
-                authority: self.admin.pubkey(),
-                admin_profile: self.admin_pda,
-            })
-            .args(w3b2_instruction::AdminSetConfig {
-                new_oracle_authority: Some(self.oracle.pubkey()),
-                new_timestamp_validity: None,
-                new_communication_pubkey: None,
-                new_unban_fee: None,
-            })
-            .send()?;
-
-        println!("Creating user profiles...");
-        self.create_user_profile(&self.alice, self.alice_pda).await?;
-        self.create_user_profile(&self.bob, self.bob_pda).await?;
-
-        println!("Setup complete.");
-        Ok(())
-    }
-
-    async fn create_user_profile(&self, user: &Rc<Keypair>, user_pda: Pubkey) -> Result<()> {
-        let program = self.get_program_for_keypair(user.clone())?;
-        program
-            .request()
-            .signer(user.as_ref())
-            .accounts(accounts::UserCreateProfile {
-                authority: user.pubkey(),
-                admin_profile: self.admin_pda,
-                user_profile: user_pda,
-                system_program: system_program::ID,
-            })
-            .args(w3b2_instruction::UserCreateProfile {
-                target_admin_pda: self.admin_pda,
-                communication_pubkey: user.pubkey(),
-            })
-            .send()?;
-        Ok(())
-    }
-
-    async fn send_message(&self, from: &Rc<Keypair>, from_pda: Pubkey, to_name: &str, text: &str) -> Result<()> {
-        println!("[{}] -> [{}]: {}", from.pubkey(), to_name, text);
-
-        let command_id = 1u16;
-        let price = 0u64;
-        let timestamp = chrono::Utc::now().timestamp();
-        let payload = format!("MSG:{}", text).into_bytes();
-
-        let mut oracle_msg_data = Vec::new();
-        oracle_msg_data.extend_from_slice(&command_id.to_le_bytes());
-        oracle_msg_data.extend_from_slice(&price.to_le_bytes());
-        oracle_msg_data.extend_from_slice(&timestamp.to_le_bytes());
-
-        let signature = self.oracle.sign_message(&oracle_msg_data);
-
-        let ed25519_ix = new_instruction_with_pubkey(
-            &self.oracle.pubkey(),
-            &oracle_msg_data,
-            signature.as_ref(),
-        );
-
-        let program = self.get_program_for_keypair(from.clone())?;
-        program
-            .request()
-            .signer(from.as_ref())
-            .accounts(accounts::UserDispatchCommand {
-                authority: from.pubkey(),
-                user_profile: from_pda,
-                admin_profile: self.admin_pda,
-                instructions: sysvar::instructions::ID,
-            })
-            .args(w3b2_instruction::UserDispatchCommand {
-                command_id,
-                price,
-                timestamp,
-                payload,
-            })
-            .pre_instructions(vec![ed25519_ix])
-            .send()?;
-
-        Ok(())
-    }
-}
+const RPC_URL: &str = "http://127.0.0.1:8899";
+const GATEWAY_URL: &str = "http://127.0.0.1:50051";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _app = SocialApp::new()?;
-    // The user has requested that the application only needs to compile, not run.
-    // The following lines are commented out to prevent execution.
-    // _app.setup().await?;
-    // let mut turn = 0;
-    // loop {
-    //     let (s_kp, s_pda, r_name) = if turn % 2 == 0 {
-    //         (&_app.alice, _app.alice_pda, "Bob")
-    //     } else {
-    //         (&_app.bob, _app.bob_pda, "Alice")
-    //     };
-    //     _app.send_message(s_kp, s_pda, r_name, &format!("Message #{}", turn + 1)).await?;
-    //     turn += 1;
-    //     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-    // }
-    println!("Compilation check successful. All client logic is in place.");
+    // --- 0. Setup ---
+    let rpc_client = Arc::new(RpcClient::new_with_commitment(
+        RPC_URL.to_string(),
+        CommitmentConfig::confirmed(),
+    ));
+    let builder = TransactionBuilder::new(rpc_client.clone());
+
+    // Create keypairs for admin and user
+    let admin_authority = Keypair::new();
+    let user_authority = Keypair::new();
+
+    // Fund them so they can pay for transactions
+    // In a real scenario, these would already have funds.
+    // This part requires a local validator running.
+    // await_funding(&rpc_client, &admin_authority.pubkey()).await?;
+    // await_funding(&rpc_client, &user_authority.pubkey()).await?;
+
+    // Create profiles on-chain (this part uses the builder directly for simplicity)
+    let (admin_pda, user_pda) =
+        setup_profiles(&builder, &admin_authority, &user_authority).await?;
+
+    info!("Admin PDA: {}", admin_pda);
+    info!("User PDA: {}", user_pda);
+
+    // --- Interaction via gRPC Gateway ---
+    let command_id = 101;
+    let payload = b"Welcome to the platform!".to_vec();
+
+    let mut grpc_client = BridgeGatewayServiceClient::connect(GATEWAY_URL).await?;
+
+    // 1. Client requests the gateway to prepare a message
+    let prepare_req = PrepareAdminDispatchCommandRequest {
+        authority_pubkey: admin_authority.pubkey().to_string(),
+        target_user_profile_pda: user_pda.to_string(),
+        command_id,
+        payload,
+    };
+
+    let prepare_res = grpc_client
+        .prepare_admin_dispatch_command(prepare_req)
+        .await?
+        .into_inner();
+
+    // 2. Client gets the latest blockhash from the gateway
+    let blockhash_res = grpc_client.get_latest_blockhash(()).await?.into_inner();
+    let blockhash = Hash::new(&blockhash_res.blockhash);
+
+    // 3. Client patches the message with the real blockhash
+    let mut message_bytes = prepare_res.unsigned_tx_message;
+    let offset = prepare_res.blockhash_placeholder_offset as usize;
+    message_bytes[offset..offset + 32].copy_from_slice(&blockhash.to_bytes());
+
+    // 4. Client deserializes the patched message and signs it
+    let message = bincode::deserialize(&message_bytes).context("Failed to deserialize message")?;
+    let mut tx = Transaction::new_unsigned(message);
+    tx.sign(&[&admin_authority], blockhash);
+
+    // 5. Client submits the signed transaction through the gateway
+    let submit_req = SubmitTransactionRequest {
+        signed_tx: bincode::serialize(&tx).context("Failed to serialize transaction")?,
+    };
+    let submit_res = grpc_client.submit_transaction(submit_req).await?.into_inner();
+    let signature = submit_res.signature;
+
+    info!(
+        "Admin dispatch transaction sent successfully! Signature: {}",
+        signature
+    );
+
     Ok(())
+}
+
+/// Helper function to create and fund admin and user profiles for the example.
+/// In a real application, this would likely be done through a UI or separate setup script.
+async fn setup_profiles(
+    builder: &TransactionBuilder<RpcClient>,
+    admin: &Keypair,
+    user: &Keypair,
+) -> Result<(Pubkey, Pubkey)> {
+    // Admin registers a profile
+    let admin_comm_key = Keypair::new().pubkey();
+    let (admin_message_bytes, admin_offset) = builder
+        .prepare_admin_register_profile(admin.pubkey(), admin_comm_key)
+        .await?;
+    let blockhash = builder.rpc_client().get_latest_blockhash().await?;
+    let mut final_admin_msg_bytes = admin_message_bytes;
+    final_admin_msg_bytes[admin_offset as usize..admin_offset as usize + 32]
+        .copy_from_slice(&blockhash.to_bytes());
+    let admin_message = bincode::deserialize(&final_admin_msg_bytes)?;
+    let mut admin_tx = Transaction::new_unsigned(admin_message);
+    admin_tx.sign(&[admin], blockhash);
+    builder.submit_transaction(&admin_tx).await?;
+
+    let (admin_pda, _) =
+        Pubkey::find_program_address(&[b"admin", admin.pubkey().as_ref()], &w3b2_solana_program::ID);
+
+    // User creates a profile linked to the admin
+    let user_comm_key = Keypair::new().pubkey();
+    let (user_message_bytes, user_offset) = builder
+        .prepare_user_create_profile(user.pubkey(), admin_pda, user_comm_key)
+        .await?;
+    let blockhash = builder.rpc_client().get_latest_blockhash().await?;
+    let mut final_user_msg_bytes = user_message_bytes;
+    final_user_msg_bytes[user_offset as usize..user_offset as usize + 32]
+        .copy_from_slice(&blockhash.to_bytes());
+    let user_message = bincode::deserialize(&final_user_msg_bytes)?;
+    let mut user_tx = Transaction::new_unsigned(user_message);
+    user_tx.sign(&[user], blockhash);
+    builder.submit_transaction(&user_tx).await?;
+
+    let (user_pda, _) = Pubkey::find_program_address(
+        &[b"user", user.pubkey().as_ref(), admin_pda.as_ref()],
+        &w3b2_solana_program::ID,
+    );
+
+    Ok((admin_pda, user_pda))
 }

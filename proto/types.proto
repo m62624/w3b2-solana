@@ -7,6 +7,31 @@ package w3b2.protocol.gateway;
 
 // --- Core RPC Message Types for Transactions ---
 
+/// A response containing a serialized, unsigned transaction message.
+message UnsignedTransactionResponse {
+  /// The serialized `Message` part of a Solana transaction. The client must
+  /// add a recent blockhash to this message before signing.
+  bytes unsigned_tx_message = 1;
+}
+
+/// A request to submit a fully signed transaction.
+message SubmitTransactionRequest {
+  /// The serialized, signed `Transaction`.
+  bytes signed_tx = 1;
+}
+
+/// A response containing the signature of a submitted transaction.
+message TransactionResponse {
+  /// The base-58 encoded transaction signature.
+  string signature = 1;
+}
+
+/// A response containing the latest blockhash.
+message BlockhashResponse {
+  /// The raw 32 bytes of the latest blockhash.
+  bytes blockhash = 1;
+}
+
 /// A request to prepare an `admin_register_profile` transaction.
 message PrepareAdminRegisterProfileRequest {
   string authority_pubkey = 1;
@@ -30,9 +55,7 @@ message PrepareAdminWithdrawRequest {
 }
 
 /// A request to prepare an `admin_close_profile` transaction.
-message PrepareAdminCloseProfileRequest {
-  string authority_pubkey = 1;
-}
+message PrepareAdminCloseProfileRequest { string authority_pubkey = 1; }
 
 /// A request to prepare an `admin_dispatch_command` transaction.
 message PrepareAdminDispatchCommandRequest {
@@ -114,25 +137,6 @@ message PrepareLogActionRequest {
   string admin_profile_pda = 3;
   uint64 session_id = 4;
   uint32 action_code = 5;
-}
-
-/// A response containing a serialized, unsigned transaction message.
-message UnsignedTransactionResponse {
-  /// The serialized `Message` part of a Solana transaction. The client must
-  /// add a recent blockhash to this message before signing.
-  bytes unsigned_tx_message = 1;
-}
-
-/// A request to submit a fully signed transaction.
-message SubmitTransactionRequest {
-  /// The serialized, signed `Transaction`.
-  bytes signed_tx = 1;
-}
-
-/// A response containing the signature of a submitted transaction.
-message TransactionResponse {
-  /// The base-58 encoded transaction signature.
-  string signature = 1;
 }
 
 // --- Messages for Event Streaming ---

@@ -38,7 +38,6 @@ mod conversions;
 use anyhow::Result;
 use dashmap::DashMap;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::message::Message;
 use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -55,7 +54,16 @@ use crate::grpc::proto::w3b2::protocol::gateway::bridge_gateway_service_server::
 use crate::{
     config::GatewayConfig,
     error::GatewayError,
-    grpc::proto::w3b2::protocol::gateway::{self, EventStreamItem, ListenRequest, PrepareAdminBanUserRequest, PrepareAdminCloseProfileRequest, PrepareAdminDispatchCommandRequest, PrepareAdminRegisterProfileRequest, PrepareAdminSetConfigRequest, PrepareAdminUnbanUserRequest, PrepareAdminWithdrawRequest, PrepareLogActionRequest, PrepareUserCloseProfileRequest, PrepareUserCreateProfileRequest, PrepareUserDepositRequest, PrepareUserDispatchCommandRequest, PrepareUserRequestUnbanRequest, PrepareUserUpdateCommKeyRequest, PrepareUserWithdrawRequest, SubmitTransactionRequest, TransactionResponse, UnsignedTransactionResponse, UnsubscribeRequest},
+    grpc::proto::w3b2::protocol::gateway::{
+        self, BlockhashResponse, EventStreamItem, ListenRequest, PrepareAdminBanUserRequest,
+        PrepareAdminCloseProfileRequest, PrepareAdminDispatchCommandRequest,
+        PrepareAdminRegisterProfileRequest, PrepareAdminSetConfigRequest,
+        PrepareAdminUnbanUserRequest, PrepareAdminWithdrawRequest, PrepareLogActionRequest,
+        PrepareUserCloseProfileRequest, PrepareUserCreateProfileRequest, PrepareUserDepositRequest,
+        PrepareUserDispatchCommandRequest, PrepareUserRequestUnbanRequest,
+        PrepareUserUpdateCommKeyRequest, PrepareUserWithdrawRequest, SubmitTransactionRequest,
+        TransactionResponse, UnsignedTransactionResponse, UnsubscribeRequest,
+    },
     storage::SledStorage,
 };
 
@@ -343,16 +351,10 @@ impl BridgeGatewayService for GatewayServer {
             let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_request_unban(authority, admin_profile_pda)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_user_request_unban(authority, admin_profile_pda);
 
-            let unsigned_tx_message = message.serialize();
-            tracing::debug!(
-                "Prepared user_request_unban tx for authority {}",
-                authority
-            );
+            tracing::debug!("Prepared user_request_unban tx for authority {}", authority);
             Ok(Response::new(UnsignedTransactionResponse {
                 unsigned_tx_message,
             }))
@@ -378,12 +380,9 @@ impl BridgeGatewayService for GatewayServer {
             let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_ban_user(authority, target_user_profile_pda)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_admin_ban_user(authority, target_user_profile_pda);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared admin_ban_user tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse {
@@ -411,12 +410,9 @@ impl BridgeGatewayService for GatewayServer {
             let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_unban_user(authority, target_user_profile_pda)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_admin_unban_user(authority, target_user_profile_pda);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared admin_unban_user tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse {
@@ -444,12 +440,9 @@ impl BridgeGatewayService for GatewayServer {
             let communication_pubkey = parse_pubkey(&req.communication_pubkey)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_register_profile(authority, communication_pubkey)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_admin_register_profile(authority, communication_pubkey);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!(
                 "Prepared admin_register_profile tx for authority {}",
                 authority
@@ -487,18 +480,13 @@ impl BridgeGatewayService for GatewayServer {
                 .transpose()?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_set_config(
-                    authority,
-                    new_oracle_authority,
-                    req.new_timestamp_validity,
-                    new_communication_pubkey,
-                    req.new_unban_fee,
-                )
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
-
-            let unsigned_tx_message = message.serialize();
+            let unsigned_tx_message = builder.prepare_admin_set_config(
+                authority,
+                new_oracle_authority,
+                req.new_timestamp_validity,
+                new_communication_pubkey,
+                req.new_unban_fee,
+            );
             tracing::debug!("Prepared admin_set_config tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse {
@@ -526,12 +514,9 @@ impl BridgeGatewayService for GatewayServer {
             let destination = parse_pubkey(&req.destination)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_withdraw(authority, req.amount, destination)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_admin_withdraw(authority, req.amount, destination);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared admin_withdraw tx for authority {}", authority);
 
             Ok(Response::new(UnsignedTransactionResponse {
@@ -558,12 +543,8 @@ impl BridgeGatewayService for GatewayServer {
             let authority = parse_pubkey(&req.authority_pubkey)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_close_profile(authority)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message = builder.prepare_admin_close_profile(authority);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!(
                 "Prepared admin_close_profile tx for authority {}",
                 authority
@@ -594,17 +575,12 @@ impl BridgeGatewayService for GatewayServer {
             let target_user_profile_pda = parse_pubkey(&req.target_user_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_admin_dispatch_command(
-                    authority,
-                    target_user_profile_pda,
-                    req.command_id,
-                    req.payload,
-                )
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
-
-            let unsigned_tx_message = message.serialize();
+            let unsigned_tx_message = builder.prepare_admin_dispatch_command(
+                authority,
+                target_user_profile_pda,
+                req.command_id,
+                req.payload,
+            );
             tracing::debug!(
                 "Prepared admin_dispatch_command tx for authority {}",
                 authority
@@ -636,12 +612,12 @@ impl BridgeGatewayService for GatewayServer {
             let communication_pubkey = parse_pubkey(&req.communication_pubkey)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_create_profile(authority, target_admin_pda, communication_pubkey)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message = builder.prepare_user_create_profile(
+                authority,
+                target_admin_pda,
+                communication_pubkey,
+            );
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!(
                 "Prepared user_create_profile tx for authority {}",
                 authority
@@ -672,12 +648,9 @@ impl BridgeGatewayService for GatewayServer {
             let new_key = parse_pubkey(&req.new_key)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_update_comm_key(authority, admin_profile_pda, new_key)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_user_update_comm_key(authority, admin_profile_pda, new_key);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!(
                 "Prepared user_update_comm_key tx for authority {}",
                 authority
@@ -707,12 +680,9 @@ impl BridgeGatewayService for GatewayServer {
             let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_deposit(authority, admin_profile_pda, req.amount)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_user_deposit(authority, admin_profile_pda, req.amount);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared user_deposit tx for authority {}", authority);
             Ok(Response::new(UnsignedTransactionResponse {
                 unsigned_tx_message,
@@ -740,12 +710,13 @@ impl BridgeGatewayService for GatewayServer {
             let destination = parse_pubkey(&req.destination)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_withdraw(authority, admin_profile_pda, req.amount, destination)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message = builder.prepare_user_withdraw(
+                authority,
+                admin_profile_pda,
+                req.amount,
+                destination,
+            );
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared user_withdraw tx for authority {}", authority);
             Ok(Response::new(UnsignedTransactionResponse {
                 unsigned_tx_message,
@@ -772,12 +743,9 @@ impl BridgeGatewayService for GatewayServer {
             let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_close_profile(authority, admin_profile_pda)
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+            let unsigned_tx_message =
+                builder.prepare_user_close_profile(authority, admin_profile_pda);
 
-            let unsigned_tx_message = message.serialize();
             tracing::debug!("Prepared user_close_profile tx for authority {}", authority);
             Ok(Response::new(UnsignedTransactionResponse {
                 unsigned_tx_message,
@@ -810,23 +778,18 @@ impl BridgeGatewayService for GatewayServer {
             })?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_user_dispatch_command(
-                    authority,
-                    target_admin_pda,
-                    UserDispatchCommandArgs {
-                        command_id: req.command_id as u16,
-                        price: req.price,
-                        timestamp: req.timestamp,
-                        payload: req.payload,
-                        oracle_pubkey,
-                        oracle_signature,
-                    },
-                )
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
-
-            let unsigned_tx_message = message.serialize();
+            let unsigned_tx_message = builder.prepare_user_dispatch_command(
+                authority,
+                target_admin_pda,
+                UserDispatchCommandArgs {
+                    command_id: req.command_id as u16,
+                    price: req.price,
+                    timestamp: req.timestamp,
+                    payload: req.payload,
+                    oracle_pubkey,
+                    oracle_signature,
+                },
+            );
             tracing::debug!(
                 "Prepared user_dispatch_command tx for authority {}",
                 authority
@@ -854,18 +817,13 @@ impl BridgeGatewayService for GatewayServer {
             let admin_profile_pda = parse_pubkey(&req.admin_profile_pda)?;
 
             let builder = TransactionBuilder::new(self.state.rpc_client.clone());
-            let message = builder
-                .prepare_log_action(
-                    authority,
-                    user_profile_pda,
-                    admin_profile_pda,
-                    req.session_id,
-                    req.action_code as u16,
-                )
-                .await
-                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
-
-            let unsigned_tx_message = message.serialize();
+            let unsigned_tx_message = builder.prepare_log_action(
+                authority,
+                user_profile_pda,
+                admin_profile_pda,
+                req.session_id,
+                req.action_code as u16,
+            );
             tracing::debug!("Prepared log_action tx for authority {}", authority);
             Ok(Response::new(UnsignedTransactionResponse {
                 unsigned_tx_message,
@@ -890,7 +848,7 @@ impl BridgeGatewayService for GatewayServer {
             let req = request.into_inner();
             let tx_bytes = req.signed_tx;
 
-                let (transaction, _len): (Transaction, usize) =
+            let (transaction, _len): (Transaction, usize) =
                 bincode::serde::borrow_decode_from_slice(
                     tx_bytes.as_slice(),
                     bincode::config::standard(),
@@ -912,6 +870,31 @@ impl BridgeGatewayService for GatewayServer {
         })
         .await;
 
+        result.map_err(Status::from)
+    }
+
+    // --- Utility RPCs ---
+
+    /// Fetches the latest blockhash from the Solana network.
+    async fn get_latest_blockhash(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<BlockhashResponse>, Status> {
+        let result: Result<Response<BlockhashResponse>, GatewayError> = (async {
+            tracing::info!("Received GetLatestBlockhash request");
+
+            let blockhash = self
+                .state
+                .rpc_client
+                .get_latest_blockhash()
+                .await
+                .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            Ok(Response::new(BlockhashResponse {
+                blockhash: blockhash.to_bytes().to_vec(),
+            }))
+        })
+        .await;
         result.map_err(Status::from)
     }
 }

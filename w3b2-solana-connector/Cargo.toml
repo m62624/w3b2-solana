@@ -23,6 +23,7 @@ futures = { workspace = true }
 # --- Serialization and Data Handling ---
 base64 = { workspace = true }
 serde = { workspace = true, optional = true }
+bincode = { workspace = true, features = ["serde"] }
 
 # --- Logging and Tracing ---
 tracing = { workspace = true }
@@ -31,6 +32,7 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
+prost.workspace  =true 
 # --- Utilities ---
 chrono = "0.4"
 dirs = "6.0.0"
