@@ -56,7 +56,7 @@ You can now link to this library from your application.
 
 ## Usage
 
-The `w3b2-solana-signer` library is universal. Since it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that can work with external C libraries (e.g., Python's `ctypes`, Node.js's `ffi-napi`, Go's `cgo`, etc.).
+The `w3b2-solana-signer` library is universal. Since it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that can work with external C libraries.
 
 You will need to:
 1.  Load the compiled shared library (`.so`, `.dll`, or `.dylib`).
