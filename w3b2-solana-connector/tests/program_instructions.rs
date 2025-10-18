@@ -2,6 +2,7 @@ use anchor_lang::AccountDeserialize;
 use async_trait::async_trait;
 use solana_client::client_error::ClientError;
 use solana_program_test::*;
+use solana_sdk::message::Message;
 use solana_sdk::transport::TransportError;
 use solana_sdk::{
     hash::Hash,
@@ -14,10 +15,12 @@ use solana_system_interface::instruction as system_instruction;
 use std::{env, sync::Arc};
 use w3b2_solana_connector::client::{AsyncRpcClient, TransactionBuilder, UserDispatchCommandArgs};
 use w3b2_solana_program::state::AdminProfile;
-struct BanksClientWrapper(BanksClient);
+
+// A mock RPC client that wraps BanksClient for testing purposes.
+struct MockRpcClient(BanksClient);
 
 #[async_trait]
-impl AsyncRpcClient for BanksClientWrapper {
+impl AsyncRpcClient for MockRpcClient {
     async fn get_latest_blockhash(&self) -> Result<Hash, ClientError> {
         self.0
             .get_latest_blockhash()
@@ -25,17 +28,12 @@ impl AsyncRpcClient for BanksClientWrapper {
             .map_err(|e| ClientError::from(TransportError::from(e)))
     }
 
+    // This method is not used in the tests that now submit transactions directly.
     async fn send_and_confirm_transaction(
         &self,
-        transaction: &Transaction,
+        _transaction: &Transaction,
     ) -> Result<solana_sdk::signature::Signature, ClientError> {
-        self.0
-            .process_transaction(transaction.clone())
-            .await
-            .map_err(|e| ClientError::from(TransportError::from(e)))?;
-
-        // Return the signature of the transaction that was just processed.
-        Ok(transaction.signatures[0])
+        unimplemented!("This should not be called in the new test flow")
     }
 }
 
@@ -75,9 +73,8 @@ async fn create_funded_keypair(context: &mut ProgramTestContext) -> anyhow::Resu
 /// Returns the transaction builder, admin's keypair, and the admin PDA.
 async fn setup_admin_profile(
     context: &mut ProgramTestContext,
-) -> anyhow::Result<(TransactionBuilder<dyn AsyncRpcClient>, Keypair, Pubkey)> {
-    let banks_wrapper = BanksClientWrapper(context.banks_client.clone());
-    let rpc_client: Arc<dyn AsyncRpcClient> = Arc::new(banks_wrapper);
+) -> anyhow::Result<(TransactionBuilder<MockRpcClient>, Keypair, Pubkey)> {
+    let rpc_client = Arc::new(MockRpcClient(context.banks_client.clone()));
     let transaction_builder = TransactionBuilder::new(rpc_client);
 
     let admin_authority = create_funded_keypair(context).await?;
@@ -88,12 +85,18 @@ async fn setup_admin_profile(
         &w3b2_solana_program::ID,
     );
 
-    let mut admin_tx = transaction_builder
-        .prepare_admin_register_profile(admin_authority.pubkey(), admin_comm_key.pubkey())
-        .await?;
-    admin_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder
+        .prepare_admin_register_profile(admin_authority.pubkey(), admin_comm_key.pubkey());
+
+    let mut admin_message: Message = bincode::serde::borrow_decode_from_slice(
+        message_bytes.as_slice(),
+        bincode::config::standard(),
+    )?
+    .0;
+    admin_message.recent_blockhash = context.last_blockhash;
+    let mut admin_tx = Transaction::new_unsigned(admin_message);
     admin_tx.sign(&[&admin_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&admin_tx).await?;
+    context.banks_client.process_transaction(admin_tx).await?;
 
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
@@ -105,7 +108,7 @@ async fn setup_admin_profile(
 async fn setup_user_profile(
     context: &mut ProgramTestContext,
 ) -> anyhow::Result<(
-    TransactionBuilder<dyn AsyncRpcClient>,
+    TransactionBuilder<MockRpcClient>,
     (Keypair, Pubkey), // admin
     (Keypair, Pubkey), // user
 )> {
@@ -123,12 +126,21 @@ async fn setup_user_profile(
         &w3b2_solana_program::ID,
     );
 
-    let mut user_tx = transaction_builder
-        .prepare_user_create_profile(user_authority.pubkey(), admin_pda, user_comm_key.pubkey())
-        .await?;
-    user_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_create_profile(
+        user_authority.pubkey(),
+        admin_pda,
+        user_comm_key.pubkey(),
+    );
+
+    let mut user_message: Message = bincode::serde::borrow_decode_from_slice(
+        message_bytes.as_slice(),
+        bincode::config::standard(),
+    )?
+    .0;
+    user_message.recent_blockhash = context.last_blockhash;
+    let mut user_tx = Transaction::new_unsigned(user_message);
     user_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&user_tx).await?;
+    context.banks_client.process_transaction(user_tx).await?;
 
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
@@ -178,12 +190,17 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
         .get_balance(admin_authority.pubkey())
         .await?;
 
-    let mut close_tx = transaction_builder
-        .prepare_admin_close_profile(admin_authority.pubkey())
-        .await?;
-    close_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_admin_close_profile(admin_authority.pubkey());
+
+    let mut close_message: Message = bincode::serde::borrow_decode_from_slice(
+        message_bytes.as_slice(),
+        bincode::config::standard(),
+    )?
+    .0;
+    close_message.recent_blockhash = context.last_blockhash;
+    let mut close_tx = Transaction::new_unsigned(close_message);
     close_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&close_tx).await?;
+    context.banks_client.process_transaction(close_tx).await?;
 
     // The admin profile account should no longer exist.
     let account = context.banks_client.get_account(admin_pda).await?;
@@ -197,9 +214,8 @@ async fn test_admin_close_profile() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: Admin {} closed their profile. Signature: {}",
+        "✅ Test passed: Admin {} closed their profile.",
         admin_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -216,19 +232,22 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
     let new_validity = 120i64;
     let new_comm_key = Keypair::new();
 
-    let mut set_config_tx = transaction_builder
-        .prepare_admin_set_config(
-            admin_authority.pubkey(),
-            Some(new_oracle.pubkey()),
-            Some(new_validity),
-            Some(new_comm_key.pubkey()),
-            Some(100), // New unban fee
-        )
-        .await?;
-    set_config_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_admin_set_config(
+        admin_authority.pubkey(),
+        Some(new_oracle.pubkey()),
+        Some(new_validity),
+        Some(new_comm_key.pubkey()),
+        Some(100), // New unban fee
+    );
+
+    let mut set_config_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    set_config_message.recent_blockhash = context.last_blockhash;
+    let mut set_config_tx = Transaction::new_unsigned(set_config_message);
     set_config_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder
-        .submit_transaction(&set_config_tx)
+    context
+        .banks_client
+        .process_transaction(set_config_tx)
         .await?;
 
     let account = context.banks_client.get_account(admin_pda).await?.unwrap();
@@ -240,9 +259,8 @@ async fn test_admin_set_config() -> anyhow::Result<()> {
     assert_eq!(admin_profile.unban_fee, 100);
 
     println!(
-        "✅ Test passed: Admin {} successfully updated their config. Signature: {}",
+        "✅ Test passed: Admin {} successfully updated their config.",
         admin_authority.pubkey(),
-        signature
     );
     Ok(())
 }
@@ -257,25 +275,28 @@ async fn test_admin_dispatch_command() -> anyhow::Result<()> {
     let command_id = 999;
     let payload = b"System message from admin".to_vec();
 
-    let mut dispatch_tx = transaction_builder
-        .prepare_admin_dispatch_command(
-            admin_authority.pubkey(),
-            user_pda,
-            command_id,
-            payload.clone(),
-        )
-        .await?;
-    dispatch_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_admin_dispatch_command(
+        admin_authority.pubkey(),
+        user_pda,
+        command_id,
+        payload.clone(),
+    );
+    let mut dispatch_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    dispatch_message.recent_blockhash = context.last_blockhash;
+    let mut dispatch_tx = Transaction::new_unsigned(dispatch_message);
     dispatch_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&dispatch_tx).await?;
+    context
+        .banks_client
+        .process_transaction(dispatch_tx)
+        .await?;
 
     // For this instruction, the primary success condition is that the transaction
     // executes without errors. This implies the program correctly processed the
     // instruction and likely emitted an event, which would be caught by an off-chain listener.
     // In this test, a successful transaction is sufficient verification.
-    assert!(!signature.to_string().is_empty());
 
-    println!("✅ Test passed: Admin dispatched command {command_id} to user profile {user_pda}. Signature: {signature}");
+    println!("✅ Test passed: Admin dispatched command {command_id} to user profile {user_pda}.");
 
     Ok(())
 }
@@ -292,12 +313,17 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
 
     // === 2. Arrange: User deposits funds ===
     let deposit_amount = 200_000; // More than command price
-    let mut deposit_tx = transaction_builder
-        .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
-        .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_deposit(
+        user_authority.pubkey(),
+        admin_pda,
+        deposit_amount,
+    );
+    let mut deposit_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    deposit_message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // === 3. Act: User dispatches the paid command with an oracle signature ===
@@ -314,23 +340,27 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     .concat();
     let signature = admin_authority.sign_message(&message);
 
-    let mut dispatch_tx = transaction_builder
-        .prepare_user_dispatch_command(
-            user_authority.pubkey(),
-            admin_pda,
-            UserDispatchCommandArgs {
-                command_id,
-                price: command_price,
-                timestamp,
-                payload: vec![1, 2, 3], // Dummy payload
-                oracle_pubkey: admin_authority.pubkey(),
-                oracle_signature: signature.as_ref().try_into().unwrap(),
-            },
-        )
-        .await?;
-    dispatch_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_dispatch_command(
+        user_authority.pubkey(),
+        admin_pda,
+        UserDispatchCommandArgs {
+            command_id,
+            price: command_price,
+            timestamp,
+            payload: vec![1, 2, 3], // Dummy payload
+            oracle_pubkey: admin_authority.pubkey(),
+            oracle_signature: signature.as_ref().try_into().unwrap(),
+        },
+    );
+    let mut dispatch_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    dispatch_message.recent_blockhash = context.last_blockhash;
+    let mut dispatch_tx = Transaction::new_unsigned(dispatch_message);
     dispatch_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&dispatch_tx).await?;
+    context
+        .banks_client
+        .process_transaction(dispatch_tx)
+        .await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // === 4. Assert: Check balances after dispatch ===
@@ -354,16 +384,20 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
         .get_balance(admin_authority.pubkey())
         .await?;
 
-    let mut withdraw_tx = transaction_builder
-        .prepare_admin_withdraw(
-            admin_authority.pubkey(),
-            command_price,
-            admin_authority.pubkey(), // Destination is the admin's own wallet
-        )
-        .await?;
-    withdraw_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_admin_withdraw(
+        admin_authority.pubkey(),
+        command_price,
+        admin_authority.pubkey(), // Destination is the admin's own wallet
+    );
+    let mut withdraw_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    withdraw_message.recent_blockhash = context.last_blockhash;
+    let mut withdraw_tx = Transaction::new_unsigned(withdraw_message);
     withdraw_tx.sign(&[&admin_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&withdraw_tx).await?;
+    context
+        .banks_client
+        .process_transaction(withdraw_tx)
+        .await?;
 
     // === 6. Assert: Check balances after withdrawal ===
     // Admin's internal balance should be zero
@@ -384,9 +418,7 @@ async fn test_full_payment_cycle_and_withdraw() -> anyhow::Result<()> {
     // A simpler check is just to see it increased.
     assert!(final_admin_wallet_balance > initial_admin_wallet_balance);
 
-    println!(
-        "✅ Test passed: Full payment cycle and withdrawal successful. Signature: {signature}"
-    );
+    println!("✅ Test passed: Full payment cycle and withdrawal successful.");
 
     Ok(())
 }
@@ -401,12 +433,17 @@ async fn test_user_deposit() -> anyhow::Result<()> {
     let deposit_amount = 500_000; // 0.0005 SOL
 
     // The user deposits funds from their wallet to their UserProfile PDA.
-    let mut deposit_tx = transaction_builder
-        .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
-        .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_deposit(
+        user_authority.pubkey(),
+        admin_pda,
+        deposit_amount,
+    );
+    let mut deposit_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    deposit_message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
 
     // The user's deposit_balance on their PDA should increase.
     let user_account = context
@@ -419,10 +456,9 @@ async fn test_user_deposit() -> anyhow::Result<()> {
     assert_eq!(user_profile.deposit_balance, deposit_amount);
 
     println!(
-        "✅ Test passed: User {} deposited {} lamports. Signature: {}",
+        "✅ Test passed: User {} deposited {} lamports.",
         user_authority.pubkey(),
-        deposit_amount,
-        signature
+        deposit_amount
     );
 
     Ok(())
@@ -439,12 +475,17 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
     let withdraw_amount = 200_000;
 
     // First, deposit funds to have something to withdraw.
-    let mut deposit_tx = transaction_builder
-        .prepare_user_deposit(user_authority.pubkey(), admin_pda, deposit_amount)
-        .await?;
-    deposit_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_deposit(
+        user_authority.pubkey(),
+        admin_pda,
+        deposit_amount,
+    );
+    let mut deposit_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    deposit_message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
     deposit_tx.sign(&[&user_authority], context.last_blockhash);
-    transaction_builder.submit_transaction(&deposit_tx).await?;
+    context.banks_client.process_transaction(deposit_tx).await?;
     context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
 
     // Get the user's wallet balance before withdrawal
@@ -454,17 +495,21 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
         .await?;
 
     // The user withdraws funds from their UserProfile PDA back to their wallet.
-    let mut withdraw_tx = transaction_builder
-        .prepare_user_withdraw(
-            user_authority.pubkey(),
-            admin_pda,
-            withdraw_amount,
-            user_authority.pubkey(), // Destination is the user's own wallet
-        )
-        .await?;
-    withdraw_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_withdraw(
+        user_authority.pubkey(),
+        admin_pda,
+        withdraw_amount,
+        user_authority.pubkey(), // Destination is the user's own wallet
+    );
+    let mut withdraw_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    withdraw_message.recent_blockhash = context.last_blockhash;
+    let mut withdraw_tx = Transaction::new_unsigned(withdraw_message);
     withdraw_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&withdraw_tx).await?;
+    context
+        .banks_client
+        .process_transaction(withdraw_tx)
+        .await?;
 
     // Assert user profile balance has decreased
     let user_account = context
@@ -490,10 +535,9 @@ async fn test_user_withdraw() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: User {} withdrew {} lamports. Signature: {}",
+        "✅ Test passed: User {} withdrew {} lamports.",
         user_authority.pubkey(),
-        withdraw_amount,
-        signature
+        withdraw_amount
     );
 
     Ok(())
@@ -511,12 +555,14 @@ async fn test_user_close_profile() -> anyhow::Result<()> {
         .get_balance(user_authority.pubkey())
         .await?;
 
-    let mut close_tx = transaction_builder
-        .prepare_user_close_profile(user_authority.pubkey(), admin_pda)
-        .await?;
-    close_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes =
+        transaction_builder.prepare_user_close_profile(user_authority.pubkey(), admin_pda);
+    let mut close_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    close_message.recent_blockhash = context.last_blockhash;
+    let mut close_tx = Transaction::new_unsigned(close_message);
     close_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&close_tx).await?;
+    context.banks_client.process_transaction(close_tx).await?;
 
     // The user profile account should no longer exist.
     let account = context.banks_client.get_account(user_pda).await?;
@@ -530,9 +576,8 @@ async fn test_user_close_profile() -> anyhow::Result<()> {
     assert!(final_wallet_balance > initial_wallet_balance);
 
     println!(
-        "✅ Test passed: User {} closed their profile. Signature: {}",
+        "✅ Test passed: User {} closed their profile.",
         user_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -547,12 +592,17 @@ async fn test_user_update_comm_key() -> anyhow::Result<()> {
 
     let new_comm_key = Keypair::new();
 
-    let mut update_tx = transaction_builder
-        .prepare_user_update_comm_key(user_authority.pubkey(), admin_pda, new_comm_key.pubkey())
-        .await?;
-    update_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_user_update_comm_key(
+        user_authority.pubkey(),
+        admin_pda,
+        new_comm_key.pubkey(),
+    );
+    let mut update_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    update_message.recent_blockhash = context.last_blockhash;
+    let mut update_tx = Transaction::new_unsigned(update_message);
     update_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&update_tx).await?;
+    context.banks_client.process_transaction(update_tx).await?;
 
     let account = context
         .banks_client
@@ -565,9 +615,8 @@ async fn test_user_update_comm_key() -> anyhow::Result<()> {
     assert_eq!(user_profile.communication_pubkey, new_comm_key.pubkey());
 
     println!(
-        "✅ Test passed: User {} updated communication key. Signature: {}",
+        "✅ Test passed: User {} updated communication key.",
         user_authority.pubkey(),
-        signature
     );
 
     Ok(())
@@ -583,28 +632,27 @@ async fn test_log_action_by_user() -> anyhow::Result<()> {
     let session_id = 12345;
     let action_code = 404;
 
-    let mut log_tx = transaction_builder
-        .prepare_log_action(
-            user_authority.pubkey(),
-            user_pda,
-            admin_pda,
-            session_id,
-            action_code,
-        )
-        .await?;
-    log_tx.message.recent_blockhash = context.last_blockhash;
+    let message_bytes = transaction_builder.prepare_log_action(
+        user_authority.pubkey(),
+        user_pda,
+        admin_pda,
+        session_id,
+        action_code,
+    );
+    let mut log_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    log_message.recent_blockhash = context.last_blockhash;
+    let mut log_tx = Transaction::new_unsigned(log_message);
     log_tx.sign(&[&user_authority], context.last_blockhash);
-    let signature = transaction_builder.submit_transaction(&log_tx).await?;
+    context.banks_client.process_transaction(log_tx).await?;
 
     // Similar to dispatch, the main success condition is that the transaction executes
     // without errors, implying an event was emitted.
-    assert!(!signature.to_string().is_empty());
 
     println!(
-        "✅ Test passed: User {} logged action {}. Signature: {}",
+        "✅ Test passed: User {} logged action {}.",
         user_authority.pubkey(),
-        action_code,
-        signature
+        action_code
     );
 
     Ok(())

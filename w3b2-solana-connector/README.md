@@ -1,87 +1,67 @@
 # W3B2 Solana Connector
 
-This crate provides a high-level, asynchronous Rust library for building backend services that interact with the `w3b2-solana-program`. It offers two primary components:
+This crate provides a high-level, asynchronous Rust library for building backend services that interact with the `w3b2-solana-program`. It is the primary tool for Rust-based services (like oracles, administrative tools, or the gRPC gateway) to listen for on-chain events.
 
-1.  **[`TransactionBuilder`](src/client.rs)**: A non-custodial helper for creating unsigned transactions for every instruction in the on-chain program.
-2.  **Event Listeners ([`UserListener`](src/listener.rs), [`AdminListener`](src/listener.rs))**: A robust system for subscribing to on-chain events related to specific `UserProfile` or `AdminProfile` PDAs.
-
-It is the ideal tool for building custom Rust backends (e.g., a gRPC gateway) that require direct, low-level interaction with the on-chain program.
+The connector's main responsibility is to provide a robust and persistent event streaming system that allows an application to monitor the activity of any `AdminProfile` or `UserProfile` PDA.
 
 ## Key Features
 
-- **Non-Custodial by Design**: The `TransactionBuilder` only creates unsigned transactions. It never handles private keys, making it suitable for secure backend services where the signing is delegated to a client.
-- **Asynchronous API**: Built on Tokio, the entire crate is `async` and fits naturally into modern Rust applications.
-- **Robust Event Handling**: The event listening system automatically handles historical event catch-up and real-time event streaming, providing two separate, ordered channels to ensure your application has a complete and consistent view of on-chain state.
-- **Test-Friendly**: The `TransactionBuilder` is generic over an `AsyncRpcClient` trait, allowing for easy mocking with `solana-program-test`'s `BanksClient` in your integration tests.
+- **Asynchronous API**: Built on `tokio`, the entire crate is `async` and designed for use in modern, high-performance Rust applications.
+- **Robust Event Handling**: The event listening system automatically handles historical event catch-up and real-time event streaming, providing a consistent and gap-free view of on-chain state.
+- **Persistent State**: It uses a lightweight `SQLite` database to keep track of processed transaction signatures, ensuring that event processing can resume from the correct point after a restart, preventing missed or duplicated events.
+- **Specific Listeners**: Provides dedicated listener types (`AdminListener`, `UserListener`) for subscribing to events related to a specific on-chain account.
 
-## Usage Example
+## Usage
 
-### 1. Building a Transaction
+The primary use case is to listen for events emitted by the on-chain program. The `EventManager` is the central component that manages the connection and event dispatching.
 
-The `TransactionBuilder` is used to prepare an instruction, which can then be sent to a client for signing.
+### Listening for Events
 
-```rust,ignore
-use w3b2_solana_connector::client::{TransactionBuilder, UserDispatchCommandArgs};
+The `UserListener` and `AdminListener` provide a powerful way to monitor on-chain activity for a specific account.
+
+```rust
+use w3b2_solana_connector::{
+    workers::EventManager,
+    config::ConnectorConfig,
+    storage::MemoryStorage,
+};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::Arc;
 
-// 1. Initialize the RPC Client and Builder
+// 1. Initialize dependencies
+let config = Arc::new(ConnectorConfig::default());
 let rpc_client = Arc::new(RpcClient::new("https://api.mainnet-beta.solana.com".to_string()));
-let tx_builder = TransactionBuilder::new(rpc_client);
+let storage = Arc::new(MemoryStorage::new()); // Or SledStorage for persistence
 
-// 2. Define transaction parameters
-let user_wallet = Pubkey::new_unique();
-let admin_pda = Pubkey::new_unique();
-let oracle_key = Pubkey::new_unique();
-let oracle_signature = [0u8; 64]; // The real signature from the oracle
+// 2. Create the EventManager and its handle
+let (event_manager, handle) = EventManager::new(
+    config.clone(),
+    rpc_client.clone(),
+    storage,
+);
 
-// 3. Prepare the unsigned transaction
-let unsigned_tx = tx_builder.prepare_user_dispatch_command(
-    user_wallet,
-    admin_pda,
-    UserDispatchCommandArgs {
-        command_id: 1,
-        price: 1000,
-        timestamp: 1672531200,
-        payload: vec![1, 2, 3],
-        oracle_pubkey: oracle_key,
-        oracle_signature,
-    },
-).await?;
+// 3. Spawn the workers to run in the background
+tokio::spawn(async move {
+    event_manager.run().await;
+});
 
-// 4. The `unsigned_tx` can now be serialized and sent to the user's wallet for signing.
-//    Once signed, it can be submitted to the network via `tx_builder.submit_transaction()`.
-```
 
-### 2. Listening for Events
-
-The `UserListener` and `AdminListener` provide a powerful way to monitor on-chain activity for a specific account.
-
-```rust,ignore
-use w3b2_solana_connector::workers::EventManager;
-use w3b2_solana_connector::listener::UserListener;
-use solana_sdk::pubkey::Pubkey;
-
-// 1. Initialize the EventManager (typically done once per application)
-let event_manager = EventManager::new(rpc_client.clone(), "sqlite::memory:".to_string()).await?;
-let dispatcher = event_manager.dispatcher();
-
-// 2. Create a listener for a specific UserProfile PDA
+// 4. Create a listener for a specific UserProfile PDA
 let user_pda = Pubkey::new_unique();
-let mut user_listener = UserListener::new(user_pda, dispatcher, 100);
+let mut listener = handle.listen_as_user(user_pda);
 
-// 3. Spawn a task to process events
+// 5. Spawn a task to process events for the user
 tokio::spawn(async move {
     // First, process all historical events to ensure state is synchronized
-    while let Some(event) = user_listener.next_catchup_event().await {
-        println!("Caught up on historical event: {:?}", event);
+    while let Some(event) = listener.next_catchup_event().await {
+        println!("[User: {}] Caught up on historical event: {:?}", user_pda, event);
     }
-    println!("State for {} is fully synchronized.", user_pda);
+    println!("[User: {}] State is fully synchronized.", user_pda);
 
     // Then, process new events as they arrive in real-time
-    while let Some(event) = user_listener.next_live_event().await {
-        println!("Received live event: {:?}", event);
+    while let Some(event) = listener.next_live_event().await {
+        println!("[User: {}] Received live event: {:?}", user_pda, event);
     }
 });
 

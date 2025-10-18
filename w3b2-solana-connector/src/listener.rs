@@ -15,23 +15,26 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
-//! // Get a handle to the central event manager
-//! let event_manager: EventManager = ...;
-//! let dispatcher = event_manager.dispatcher();
+//! ```rust
+//! // Assume `handle` is an EventManagerHandle from `EventManager::new()`
+//! let handle = // ...
+//! # w3b2_solana_connector::workers::EventManager::new(Default::default(), Default::default(), Default::default()).1;
 //!
 //! // Create a listener for a specific UserProfile PDA
-//! let mut user_listener = UserListener::new(user_pda, dispatcher, 100);
+//! let user_pda = solana_sdk::pubkey::new_rand();
+//! let mut user_listener = handle.listen_as_user(user_pda);
 //!
-//! // Process historical events first to sync state
-//! while let Some(event) = user_listener.next_catchup_event().await {
-//!     println!("Historical event: {:?}", event);
-//! }
+//! async move {
+//!     // Process historical events first to sync state
+//!     while let Some(event) = user_listener.next_catchup_event().await {
+//!         println!("Historical event: {:?}", event);
+//!     }
 //!
-//! // Then, process live events as they arrive
-//! while let Some(event) = user_listener.next_live_event().await {
-//!     println!("Live event: {:?}", event);
-//! }
+//!     // Then, process live events as they arrive
+//!     while let Some(event) = user_listener.next_live_event().await {
+//!         println!("Live event: {:?}", event);
+//!     }
+//! };
 //! ```
 
 use crate::dispatcher::{DispatcherCommand, DispatcherHandle, ListenerChannels};

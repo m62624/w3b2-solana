@@ -17,6 +17,7 @@ pub mod client;
 pub mod config;
 /// The internal event routing worker (`Dispatcher`).
 mod dispatcher;
+
 /// Logic for parsing on-chain events from transaction logs.
 pub mod events;
 /// High-level, PDA-based event listeners (`UserListener`, `AdminListener`) with

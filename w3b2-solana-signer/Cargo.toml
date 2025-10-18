@@ -1,0 +1,22 @@
+[package]
+name = "w3b2-solana-signer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+name = "w3b2_solana_signer"
+
+[dependencies]
+lazy_static.workspace = true
+zeroize = "1.5"
+libc = "0.2"
+bincode = { workspace = true, features = ["serde"] }
+solana-sdk.workspace = true
+dashmap = "6.1.0"
+
+[dev-dependencies]
+serial_test = "3.2.0"
+
+[features]
+default = []

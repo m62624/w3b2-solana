@@ -51,6 +51,25 @@ pub struct DispatcherHandle {
     pub command_tx: mpsc::Sender<DispatcherCommand>,
 }
 
+/// A collection of arguments required for the `prepare_user_dispatch_command` method.
+///
+/// This struct simplifies the method signature by grouping all the parameters
+/// related to the oracle-signed command.
+pub struct UserDispatchCommandArgs {
+    /// The `u16` identifier for the command, as signed by the oracle.
+    pub command_id: u16,
+    /// The price of the command in lamports, as signed by the oracle.
+    pub price: u64,
+    /// The Unix timestamp from the oracle's signature, used to prevent replay attacks.
+    pub timestamp: i64,
+    /// An opaque byte array for application-specific data.
+    pub payload: Vec<u8>,
+    /// The public key of the oracle that signed the message.
+    pub oracle_pubkey: Pubkey,
+    /// The 64-byte Ed25519 signature from the oracle.
+    pub oracle_signature: [u8; 64],
+}
+
 impl DispatcherHandle {
     pub async fn dispatch(&self, event: BridgeEvent) {
         if self

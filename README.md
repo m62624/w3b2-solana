@@ -1,87 +1,75 @@
-# W3B2: A Toolset for Solana-Based Services
+# W3B2-Solana: The Easiest Way to Connect Your Existing Service to the Solana Blockchain.
 
-W3B2 is a toolset for building services on the Solana blockchain that need to interact with traditional Web2 applications. It provides an on-chain smart contract for managing state and financial logic, a Rust library for backend integration, and a gRPC gateway for broader API access.
+W3B2-Solana is a toolset for developers looking to integrate their existing Web2 services with the security, transparency, and non-custodial nature of the Solana blockchain. It provides the on-chain programs and off-chain libraries to seamlessly blend high-performance, traditional backend infrastructure with the power of Web3.
 
-It is designed for developers who want to leverage the security and transparency of Solana for specific tasks without moving their entire application on-chain.
+The core value is enabling **two powerful interaction models** within a single, unified framework:
 
-> **Note**: This `README.md` provides a high-level overview. For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**, which you can run locally using the `docs` Docker profile.
+1.  **Direct On-Chain Transactions**: For simple, low-data interactions like micropayments, voting, or logging critical audit data, your application can interact directly with the on-chain program. This is the classic Web3 model, providing maximum transparency and security for well-defined, atomic operations.
 
-## What Can You Do With This Toolset?
+2.  **Secure Off-Chain Handshake for Heavy Traffic**: For high-bandwidth Web2 services (e.g., video streaming, large file transfers, real-time data feeds), using the blockchain for every packet of data is inefficient and costly. This toolset allows you to use the blockchain as a **secure message bus** to negotiate a direct, off-chain connection between your service and the user. The on-chain transaction becomes a verifiable, auditable "handshake" that establishes a secure, private communication channel, while the heavy data lifting happens off-chain.
 
-This project provides the foundation for a variety of hybrid Web2/Web3 use cases:
-
--   **Non-Custodial Paid APIs**: Charge users in SOL for API calls. Your backend oracle signs the price, and the user approves the payment with their wallet. The on-chain program guarantees the fund transfer.
--   **Verifiable Audit Trails**: Log critical off-chain actions (e.g., "User A deleted file B") to the Solana blockchain as an immutable, permanent record.
--   **User-Managed Deposits**: Allow users to pre-fund an account for your service. All funds remain under the user's control and can only be spent with their explicit, signed approval for a specific action.
--   **On-Chain User Management**: Implement on-chain banning/moderation systems that are transparent and enforced by the smart contract.
+This hybrid approach allows you to use the blockchain for what it's best at—security, auditability, and asset transfer—while leveraging your existing Web2 infrastructure for performance and scale.
 
 ## High-Level Architecture
 
-The system is composed of four main parts: the **Client**, the **gRPC Gateway**, the **Solana Connector**, and the **On-Chain Program**. The backend components (Gateway, Connector, and your custom Oracle) are managed by the service provider, while the client interacts with the user's wallet.
-
 ```mermaid
 graph TD
-    subgraph "User's Device"
-        A[Client Browser/App]
+    subgraph "Service Provider Backend"
+        Oracle["Oracle (Any Language)"]
+        Signer["w3b2-solana-signer (C-ABI)"]
+        Gateway["gRPC Gateway"]
+
+        Oracle -- "1. Signs Payload via" --> Signer
     end
 
-    subgraph "Service Provider's Backend"
-        B[gRPC Gateway]
-        C[Solana Connector]
-        D[Your Oracle Service]
+    subgraph "User's Device"
+        Client["Client App (Web/Mobile)"]
     end
 
     subgraph "Solana Network"
-        E[On-Chain Program]
-        F[Solana RPC Node]
+        RPC["Solana RPC Node"]
+        Program["On-Chain Program"]
     end
 
-    A -- "1. Prepare Tx (gRPC)" --> B
-    B -- "2. Build Unsigned Tx" --> C
-    C -- "3. Return Unsigned Tx" --> B
-    B -- "4. Return Unsigned Tx (gRPC)" --> A
-    A -- "5. Sign Tx w/ Wallet" --> A
-    A -- "6. Submit Signed Tx (gRPC)" --> B
-    B -- "7. Submit to Network" --> C
-    C -- "8. Send to RPC" --> F
-    F -- "9. Processed by" --> E
+    subgraph "Event Streaming (Optional)"
+        Connector["w3b2-solana-connector"]
+        Gateway -- "uses" --> Connector
+    end
 
-    D -- "Signs Price Data" --> A
-
-    C -- "Listens for Events" --> F
-    B -- "Receives Events" --> C
-
-    style D fill:#f9f,stroke:#333,stroke-width:2px
+    Oracle -- "2. Sends Signed Payload to" --> Client
+    Client -- "3. Constructs & Signs Transaction" --> RPC
+    RPC -- "4. Processes Transaction" --> Program
+    Program -- "5. Emits Event" --> RPC
+    RPC -- "6. Forwards Event to" --> Connector
+    Connector -- "7. Streams to" --> Gateway
+    Gateway -- "8. Streams to Client" --> Client
 ```
+
+## How the Secure Handshake Works
+
+For high-traffic services, the architecture above supports a "secure handshake" pattern. The on-chain program provides the instruments for this secure negotiation:
+-   **`communication_pubkey`**: Both admins and users store a public key on-chain for secure, hybrid encryption.
+-   **`dispatch` commands**: The `admin_dispatch_command` and `user_dispatch_command` instructions contain a flexible `payload` field.
+-   **The Flow**:
+    1.  A party (e.g., the user) initiates a connection by calling a `dispatch` command.
+    2.  The `payload` of this command contains a connection configuration, encrypted for the recipient using their on-chain `communication_pubkey`.
+    3.  The recipient's backend service, listening for on-chain events via the `w3b2-solana-connector`, receives this encrypted config.
+    4.  After decrypting the config, the service can establish a direct, off-chain connection (e.g., a WebSocket, TCP socket) with the user, completely bypassing the blockchain for the actual data transfer.
+
+The `w3b2-solana-program/src/protocols.rs` file provides a reference implementation for a configuration payload, but developers are free to implement any protocol they need.
+
+## Crate Overview
+
+This workspace contains the following crates:
+
+-   `w3b2-solana-program`: The core on-chain Anchor program.
+-   `w3b2-solana-connector`: A Rust library for listening to on-chain events.
+-   `w3b2-solana-gateway`: An optional gRPC server that streams on-chain events to clients.
+-   `w3b2-solana-signer`: A C-ABI compatible library for signing messages from any programming language, useful for building oracles.
+-   `w3b2-solana-logger`: A simple logging utility for the Rust services.
+
+> **Note**: For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**. Instructions to run it locally are in the [Local Development](#local-development-with-docker) section.
 
 ## Local Development with Docker
 
-This project provides a full Docker Compose pipeline for building, testing, and deploying all components. This is the recommended way to get started.
-
-> **Note:** The repository does **not** include any private keys. You must provide your own Solana program keypair. All builds and deployments will use your Program ID, and all components will be built with this ID.
-
-### Prerequisites
-
-*   Docker & Docker Compose
-
-### Quickstart
-
-1.  **Generate a Program Keypair**: The build process requires a keypair for the on-chain program. Use the `builder` service to generate one.
-    ```bash
-    # This creates ./keys/program-keypair.json on your host
-    docker compose run --rm builder solana-keygen new --outfile /keys/program-keypair.json
-    ```
-
-2.  **Run the Full Stack**: Use the `full` profile to build, deploy, and run all services.
-    ```bash
-    docker compose --profile full up --build
-    ```
-
-This command will:
--   Build the on-chain program and gateway.
--   Start a local Solana validator.
--   Deploy the program to the validator.
--   Run the gRPC gateway.
--   Serve the full documentation site.
-
-Once started, you can access the **Full Documentation Site** to continue.
+The recommended development environment is managed via Docker and Docker Compose. See the full documentation for details on getting started.

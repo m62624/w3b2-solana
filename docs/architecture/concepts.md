@@ -54,3 +54,32 @@ The unban process is a prime example of the toolset's design philosophy. It is a
     5.  The admin makes an off-chain decision and, if they choose to, calls the `admin_unban_user` instruction to lift the ban.
 
 The `unban_fee` is not a payment for an unban; it's a **fee for the admin's time to review the appeal**. The smart contract's job is to verifiably record the request and the payment, not to make the business decision.
+
+---
+
+## Secure Handshake for High-Traffic Off-Chain Services
+
+While the blockchain is excellent for simple, atomic transactions, it is not suitable for high-throughput data transfer (e.g., video streaming, large file sharing, real-time game data). For these use cases, W3B2-Solana provides the tools to use the blockchain as a **secure message bus** to negotiate a direct, off-chain communication channel.
+
+This pattern allows you to leverage your existing high-performance Web2 infrastructure while using the blockchain for what it excels at: authentication, authorization, and auditing.
+
+### The Mechanism
+
+The core of this pattern lies in using the `dispatch` instructions (`user_dispatch_command` and `admin_dispatch_command`) not just for simple commands, but as a secure envelope for establishing an off-chain connection.
+
+1.  **On-Chain Keys for Off-Chain Encryption**: Both `AdminProfile` and `UserProfile` accounts have a `communication_pubkey` field. This key is stored on-chain and is publicly visible, making it the perfect public key for use in a hybrid encryption scheme (like ECIES).
+
+2.  **The Encrypted Payload**: A party wishing to initiate a direct connection (e.g., a user wants to download a large file from the service) constructs a configuration message. This message might contain details like a one-time access token, an IP address, a port, or a dedicated WebSocket URL. This entire configuration is then encrypted using the recipient's `communication_pubkey`.
+
+3.  **The Dispatch "Handshake"**: The encrypted configuration is placed into the `payload` field of a `dispatch` command and sent as an on-chain transaction.
+
+4.  **Off-Chain Event Listening**: The recipient's backend service, using `w3b2-solana-connector`, is constantly listening for `...CommandDispatched` events. When it sees the handshake transaction, it receives the encrypted payload.
+
+5.  **Decryption and Connection**: The backend service uses its corresponding private key to decrypt the payload. Now possessing the connection details, it can grant the user access to the high-throughput, off-chain service.
+
+### Benefits of this Approach
+
+-   **Audit Trail**: The on-chain transaction serves as an immutable, verifiable record that a specific user requested and was granted access at a specific time.
+-   **Security**: The initial handshake is secured by on-chain credentials. You are not relying on traditional Web2 authentication methods alone.
+-   **Performance & Cost-Effectiveness**: The actual data transfer happens off-chain, avoiding the high cost and low throughput of storing large amounts of data on the blockchain.
+-   **Flexibility**: The `payload` is an opaque byte array. You can implement any off-chain protocol you wish. The `protocols.rs` file in the on-chain program provides a useful, serializable `CommandConfig` struct as a starting point, but you are free to define your own.

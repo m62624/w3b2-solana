@@ -1,3 +1,25 @@
+//! # W3B2 Solana Gateway
+//!
+//! The `w3b2-solana-gateway` is a gRPC server that provides real-time,
+//! persistent event streams from the W3B2 on-chain program to off-chain
+//! clients.
+//!
+//! ## Core Functionality
+//!
+//! The gateway's sole responsibility is to listen for on-chain events and
+//! forward them to subscribed clients. It does **not** handle transaction
+//! building, signing, or submission. Clients are expected to construct and
+//! send their own transactions directly to a Solana RPC node using standard
+//! libraries like `anchor-ts` or `anchorpy`.
+//!
+//! ## Key Modules
+//!
+//! - `grpc`: Contains the gRPC server implementation, including the `ListenAsUser`
+//!   and `ListenAsAdmin` streaming RPCs.
+//! - `storage`: Manages the persistent storage layer used for event catch-up.
+//! - `config`: Handles application configuration.
+//! - `cli`: Defines the command-line interface for running the gateway.
+
 pub mod cli;
 pub mod config;
 pub mod error;

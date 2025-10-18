@@ -26,12 +26,13 @@ This project provides a full Docker Compose pipeline for building, testing, and 
     ```
 
     This single command orchestrates the entire development environment:
-    -   It builds the on-chain program (`.so`) and its IDL (`.json`).
-    -   It builds the gRPC gateway.
-    -   It starts a local Solana validator instance with the necessary accounts and configuration.
-    -   It deploys the newly built program to the local validator.
-    -   It runs the gRPC gateway, connecting it to the validator.
-    -   It serves this documentation site locally.
+
+    - It builds the on-chain program (`.so`) and its IDL (`.json`).
+    - It builds the gRPC gateway.
+    - It starts a local Solana validator instance with the necessary accounts and configuration.
+    - It deploys the newly built program to the local validator.
+    - It runs the gRPC gateway, connecting it to the validator.
+    - It serves this documentation site locally.
 
 ### What's Running?
 

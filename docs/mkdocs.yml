@@ -20,5 +20,6 @@ nav:
     - On-Chain Program: reference/solana-program.md
     - Connector Library: reference/connector.md
     - gRPC Gateway: reference/gateway-api.md
+    - Signer (C-ABI): reference/signer.md
   - Tutorials:
     - End-to-End Workflow: tutorials/end-to-end-workflow.md

@@ -5,6 +5,7 @@ members = [
     "w3b2-solana-connector",
     "w3b2-solana-gateway",
     "w3b2-solana-logger",
+    "w3b2-solana-signer",
 ]
 
 [workspace.dependencies]
@@ -13,6 +14,7 @@ w3b2-solana-program = { path = "w3b2-solana-program" }
 w3b2-solana-connector = { path = "w3b2-solana-connector" }
 w3b2-solana-gateway = { path = "w3b2-solana-gateway" }
 w3b2-solana-logger = { path = "w3b2-solana-logger" }
+w3b2-solana-signer = { path = "w3b2-solana-signer" }
 
 # external
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
@@ -46,6 +48,7 @@ tonic = "0.11"
 config = { version = "0.15.18", features = ["toml"] }
 chrono = "0.4"
 solana-ed25519-program = "2.2.3"
+rand = "0.8.5"
 
 
 [profile.release]

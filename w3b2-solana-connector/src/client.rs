@@ -1,23 +1,29 @@
-//! # Non-Custodial Transaction Builder
+//! # Legacy Transaction Builder
 //!
-//! This module provides the [`TransactionBuilder`], a core component for creating
-//! unsigned Solana transactions for the `w3b2-solana-program`.
+//! This module provides the [`TransactionBuilder`], a utility for creating unsigned
+//! Solana transaction messages for the `w3b2-solana-program`.
 //!
-//! It is designed for a non-custodial architecture where private keys never leave the
-//! client's device. A backend service (e.g., a gRPC gateway) uses this builder to
-//! construct a transaction, which is then sent to the client for signing. The client
-//! signs it and returns the signature, and the backend submits the signed transaction
-//! to the network.
+//! ## Use Case
+//!
+//! This builder is a helper for **off-chain Rust services** (e.g., an oracle,
+//! a custom admin tool) that need to construct instructions programmatically in Rust.
+//! It simplifies the process of building valid `Message` objects that can then be
+//! signed and sent to the blockchain.
+//!
+//! It is **not** the primary or recommended way for typical clients to interact with
+//! the on-chain program. Standard clients (web, mobile) should use the program's IDL
+//! with mainstream libraries like `@coral-xyz/anchor` (TypeScript) or `anchorpy` (Python).
+//! This builder is also **not** used by the gRPC gateway.
 //!
 //! ## Features
 //!
-//! - **Async API**: All methods are `async` and designed for use in asynchronous Rust applications.
-//! - **RPC Abstraction**: Uses a generic [`AsyncRpcClient`] trait, allowing it to work with
-//!   the standard `solana-client` `RpcClient` as well as mock clients for testing (e.g., `BanksClient`).
-//! - **Comprehensive Coverage**: Provides a `prepare_` method for every instruction in the on-chain program.
-//! - **Security**: Handles the complexity of instruction creation, including deriving PDAs and
-//!   composing multi-instruction transactions (like for `user_dispatch_command` with its
-//!   required `Ed25519` verification instruction).
+//! - **Async API**: All methods are `async`.
+//! - **RPC Abstraction**: Uses a generic [`AsyncRpcClient`] trait, making it compatible
+//!   with both the live `RpcClient` and the `BanksClient` for integration tests.
+//! - **Comprehensive Coverage**: Provides a `prepare_` method for every instruction.
+//! - **Security**: Handles the complexity of instruction creation, such as deriving
+//!   PDAs and composing multi-instruction transactions (like the `Ed25519`
+//!   verification required for `user_dispatch_command`).
 
 use anchor_lang::{InstructionData, ToAccountMetas};
 use async_trait::async_trait;
@@ -30,6 +36,8 @@ use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
 use std::sync::Arc;
 use w3b2_solana_program::{accounts, instruction};
+
+pub use crate::dispatcher::UserDispatchCommandArgs;
 
 /// A trait abstracting over the asynchronous RPC client functionality.
 ///
@@ -59,40 +67,45 @@ impl AsyncRpcClient for RpcClient {
         self.send_and_confirm_transaction(transaction).await
     }
 }
+impl<C> TransactionBuilder<C>
+where
+    C: AsyncRpcClient + ?Sized,
+{
+    /// Submits a signed transaction and waits for confirmation.
+    pub async fn submit_transaction(&self, tx: &Transaction) -> Result<Signature, ClientError> {
+        self.rpc_client.send_and_confirm_transaction(tx).await
+    }
 
-/// A collection of arguments required for the `prepare_user_dispatch_command` method.
-///
-/// This struct simplifies the method signature by grouping all the parameters
-/// related to the oracle-signed command.
-pub struct UserDispatchCommandArgs {
-    /// The `u16` identifier for the command, as signed by the oracle.
-    pub command_id: u16,
-    /// The price of the command in lamports, as signed by the oracle.
-    pub price: u64,
-    /// The Unix timestamp from the oracle's signature, used to prevent replay attacks.
-    pub timestamp: i64,
-    /// An opaque byte array for application-specific data.
-    pub payload: Vec<u8>,
-    /// The public key of the oracle that signed the message.
-    pub oracle_pubkey: Pubkey,
-    /// The 64-byte Ed25519 signature from the oracle.
-    pub oracle_signature: [u8; 64],
+    /// A private helper to create a message from a vector of instructions.
+    ///
+    /// This function encapsulates the boilerplate of creating a new message
+    /// with a specified fee payer.
+    pub fn create_message_with_instructions(
+        payer: &Pubkey,
+        instructions: Vec<Instruction>,
+    ) -> Vec<u8> {
+        let placeholder = Hash::default();
+        let msg = solana_sdk::message::Message::new_with_blockhash(
+            &instructions,
+            Some(payer),
+            &placeholder,
+        );
+        bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap()
+    }
 }
 
-/// A builder for preparing on-chain transactions for remote signing.
+/// A builder for preparing unsigned on-chain transactions.
 ///
-/// This struct provides methods to construct unsigned transactions for every
-/// instruction in the `w3b2-solana-program`.
+/// This struct provides `prepare_` methods to construct unsigned transactions for
+/// every instruction in the `w3b2-solana-program`. The calling service is
+/// responsible for signing and submitting the resulting transaction.
 #[derive(Clone)]
 pub struct TransactionBuilder<C: AsyncRpcClient + ?Sized> {
     /// A shared, thread-safe reference to a Solana JSON RPC client.
     rpc_client: Arc<C>,
 }
 
-impl<C> TransactionBuilder<C>
-where
-    C: AsyncRpcClient + ?Sized,
-{
+impl<C: AsyncRpcClient + ?Sized> TransactionBuilder<C> {
     /// Creates a new `TransactionBuilder`.
     ///
     /// # Arguments
@@ -100,53 +113,6 @@ where
     /// * `rpc_client` - A shared client that implements [`AsyncRpcClient`] (e.g., `Arc<RpcClient>`).
     pub fn new(rpc_client: Arc<C>) -> Self {
         Self { rpc_client }
-    }
-
-    /// Submits a fully signed transaction to the Solana network.
-    ///
-    /// This is the final step in the remote signing flow. After a client signs
-    /// the transaction prepared by one of the `prepare_*` methods, the signed
-    /// transaction is sent back to the server and submitted via this method.
-    ///
-    /// # Arguments
-    ///
-    /// * `transaction` - A `Transaction` object that has been signed by the fee payer.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the `Signature` of the confirmed transaction.
-    pub async fn submit_transaction(
-        &self,
-        transaction: &Transaction,
-    ) -> Result<Signature, ClientError> {
-        self.rpc_client
-            .send_and_confirm_transaction(transaction)
-            .await
-    }
-
-    /// A private helper to create a transaction from a vector of instructions.
-    ///
-    /// This function encapsulates the boilerplate of fetching the latest blockhash
-    /// and creating a new transaction with a specified fee payer.
-    async fn create_transaction_with_instructions(
-        &self,
-        payer: &Pubkey,
-        instructions: Vec<Instruction>,
-    ) -> Result<Transaction, ClientError> {
-        let latest_blockhash = self.rpc_client.get_latest_blockhash().await?;
-        let mut tx = Transaction::new_with_payer(&instructions, Some(payer));
-        tx.message.recent_blockhash = latest_blockhash;
-        Ok(tx)
-    }
-
-    /// A private helper to create a transaction from a single instruction.
-    async fn create_transaction(
-        &self,
-        payer: &Pubkey,
-        instruction: Instruction,
-    ) -> Result<Transaction, ClientError> {
-        self.create_transaction_with_instructions(payer, vec![instruction])
-            .await
     }
 
     // --- Admin Transaction Preparations ---
@@ -157,11 +123,11 @@ where
     ///
     /// * `authority` - The public key of the admin's wallet that will sign the transaction.
     /// * `communication_pubkey` - The public key for secure off-chain communication.
-    pub async fn prepare_admin_register_profile(
+    pub fn prepare_admin_register_profile(
         &self,
         authority: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -179,7 +145,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_ban_user` transaction.
@@ -188,11 +154,11 @@ where
     ///
     /// * `authority` - The public key of the admin's wallet.
     /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be banned.
-    pub async fn prepare_admin_ban_user(
+    pub fn prepare_admin_ban_user(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -207,7 +173,7 @@ where
             data: instruction::AdminBanUser {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_unban_user` transaction.
@@ -216,11 +182,11 @@ where
     ///
     /// * `authority` - The public key of the admin's wallet.
     /// * `target_user_profile_pda` - The PDA of the `UserProfile` to be unbanned.
-    pub async fn prepare_admin_unban_user(
+    pub fn prepare_admin_unban_user(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -235,7 +201,7 @@ where
             data: instruction::AdminUnbanUser {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_set_config` transaction.
@@ -247,14 +213,14 @@ where
     /// * `new_timestamp_validity` - An optional new duration in seconds for signature validity.
     /// * `new_communication_pubkey` - An optional new `Pubkey` for off-chain communication.
     /// * `new_unban_fee` - An optional new fee in lamports for unban requests.
-    pub async fn prepare_admin_set_config(
+    pub fn prepare_admin_set_config(
         &self,
         authority: Pubkey,
         new_oracle_authority: Option<Pubkey>,
         new_timestamp_validity: Option<i64>,
         new_communication_pubkey: Option<Pubkey>,
         new_unban_fee: Option<u64>,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -274,7 +240,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_withdraw` transaction.
@@ -284,12 +250,12 @@ where
     /// * `authority` - The public key of the admin's wallet.
     /// * `amount` - The amount of lamports to withdraw from the `AdminProfile` balance.
     /// * `destination` - The public key of the account to receive the funds.
-    pub async fn prepare_admin_withdraw(
+    pub fn prepare_admin_withdraw(
         &self,
         authority: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -304,7 +270,7 @@ where
             data: instruction::AdminWithdraw { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_close_profile` transaction.
@@ -312,10 +278,7 @@ where
     /// # Arguments
     ///
     /// * `authority` - The public key of the admin's wallet.
-    pub async fn prepare_admin_close_profile(
-        &self,
-        authority: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    pub fn prepare_admin_close_profile(&self, authority: Pubkey) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -329,7 +292,7 @@ where
             data: instruction::AdminCloseProfile {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares an `admin_dispatch_command` transaction.
@@ -340,13 +303,13 @@ where
     /// * `target_user_profile_pda` - The PDA of the target `UserProfile`.
     /// * `command_id` - A `u64` identifier for the command.
     /// * `payload` - An opaque byte array for application-specific data.
-    pub async fn prepare_admin_dispatch_command(
+    pub fn prepare_admin_dispatch_command(
         &self,
         authority: Pubkey,
         target_user_profile_pda: Pubkey,
         command_id: u64,
         payload: Vec<u8>,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (admin_pda, _) =
             Pubkey::find_program_address(&[b"admin", authority.as_ref()], &w3b2_solana_program::ID);
 
@@ -365,7 +328,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     // --- User Transaction Preparations ---
@@ -377,12 +340,12 @@ where
     /// * `authority` - The user's wallet `Pubkey` that will sign and own the profile.
     /// * `target_admin_pda` - The `Pubkey` of the `AdminProfile` PDA to link to.
     /// * `communication_pubkey` - The user's public key for off-chain communication.
-    pub async fn prepare_user_create_profile(
+    pub fn prepare_user_create_profile(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         communication_pubkey: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), target_admin_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -404,7 +367,7 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_update_comm_key` transaction.
@@ -414,12 +377,12 @@ where
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `new_key` - The new communication key to set.
-    pub async fn prepare_user_update_comm_key(
+    pub fn prepare_user_update_comm_key(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         new_key: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -436,7 +399,7 @@ where
             data: instruction::UserUpdateCommKey { new_key }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_deposit` transaction.
@@ -446,12 +409,12 @@ where
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to deposit.
-    pub async fn prepare_user_deposit(
+    pub fn prepare_user_deposit(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         amount: u64,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -469,7 +432,7 @@ where
             data: instruction::UserDeposit { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_withdraw` transaction.
@@ -480,13 +443,13 @@ where
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
     /// * `amount` - The amount of lamports to withdraw.
     /// * `destination` - The `Pubkey` of the wallet to receive the funds.
-    pub async fn prepare_user_withdraw(
+    pub fn prepare_user_withdraw(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
         amount: u64,
         destination: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -504,7 +467,7 @@ where
             data: instruction::UserWithdraw { amount }.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `user_close_profile` transaction.
@@ -513,11 +476,11 @@ where
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
-    pub async fn prepare_user_close_profile(
+    pub fn prepare_user_close_profile(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -534,7 +497,7 @@ where
             data: instruction::UserCloseProfile {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     // --- Operational Transaction Preparations ---
@@ -550,12 +513,12 @@ where
     /// * `authority` - The user's wallet `Pubkey` that will sign the transaction.
     /// * `target_admin_pda` - The `Pubkey` of the target `AdminProfile` PDA.
     /// * `args` - A [`UserDispatchCommandArgs`] struct containing all oracle-signed parameters.
-    pub async fn prepare_user_dispatch_command(
+    pub fn prepare_user_dispatch_command(
         &self,
         authority: Pubkey,
         target_admin_pda: Pubkey,
         args: UserDispatchCommandArgs,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         // 1. Reconstruct the message that the oracle signed.
         let message = [
             args.command_id.to_le_bytes().as_ref(),
@@ -596,8 +559,10 @@ where
         };
 
         // 4. Create a transaction containing both instructions in the correct order.
-        self.create_transaction_with_instructions(&authority, vec![ed25519_ix, dispatch_ix])
-            .await
+        TransactionBuilder::<C>::create_message_with_instructions(
+            &authority,
+            vec![ed25519_ix, dispatch_ix],
+        )
     }
 
     /// Prepares a `user_request_unban` transaction.
@@ -606,11 +571,11 @@ where
     ///
     /// * `authority` - The user's wallet `Pubkey`.
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA this user profile is linked to.
-    pub async fn prepare_user_request_unban(
+    pub fn prepare_user_request_unban(
         &self,
         authority: Pubkey,
         admin_profile_pda: Pubkey,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let (user_pda, _) = Pubkey::find_program_address(
             &[b"user", authority.as_ref(), admin_profile_pda.as_ref()],
             &w3b2_solana_program::ID,
@@ -627,7 +592,7 @@ where
             data: instruction::UserRequestUnban {}.data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 
     /// Prepares a `log_action` transaction.
@@ -643,14 +608,14 @@ where
     /// * `admin_profile_pda` - The `Pubkey` of the `AdminProfile` PDA.
     /// * `session_id` - A `u64` identifier to correlate actions.
     /// * `action_code` - A `u16` code for the specific action.
-    pub async fn prepare_log_action(
+    pub fn prepare_log_action(
         &self,
         authority: Pubkey,
         user_profile_pda: Pubkey,
         admin_profile_pda: Pubkey,
         session_id: u64,
         action_code: u16,
-    ) -> Result<Transaction, ClientError> {
+    ) -> Vec<u8> {
         let ix = Instruction {
             program_id: w3b2_solana_program::ID,
             accounts: accounts::LogAction {
@@ -666,6 +631,6 @@ where
             .data(),
         };
 
-        self.create_transaction(&authority, ix).await
+        TransactionBuilder::<C>::create_message_with_instructions(&authority, vec![ix])
     }
 }

@@ -1,3 +1,7 @@
+
+# Ignore local configuration and secrets
+keys/
+
 # Git
 .git
 .gitignore
@@ -37,12 +41,12 @@ logs/
 # Test files
 test-ledger/
 w3b2_db/
+w3b2_gateway.db/
 test_db_*
 
 # Build artifacts
 dist/
 build/
-artifacts/
 
 # Environment files
 .env

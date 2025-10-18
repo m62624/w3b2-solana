@@ -1,49 +1,48 @@
-# High-Level Architecture Diagram
+# High-Level Architecture
 
-The system is composed of four main parts: the **Client**, the **gRPC Gateway**, the **Solana Connector**, and the **On-Chain Program**. The backend components (Gateway, Connector, and your custom Oracle) are managed by the service provider, while the client interacts with the user's wallet.
+The W3B2-Solana toolset facilitates a clear separation of concerns between the user's client, the service provider's backend, and the Solana network.
 
-The diagram below illustrates the typical flow for a paid, user-initiated command.
+The diagram below illustrates the flow for a typical paid, user-initiated command, leveraging the "developer-owned oracle" pattern.
 
 ```mermaid
 graph TD
-    subgraph "User's Device"
-        A[Client Browser/App]
+    subgraph "Service Provider Backend"
+        Oracle["Oracle (Python/Node.js/etc.)"]
+        Signer["w3b2-solana-signer (C-ABI)"]
+        Gateway["gRPC Gateway"]
+
+        Oracle -- "1. Signs Payload via" --> Signer
     end
 
-    subgraph "Service Provider's Backend"
-        B[gRPC Gateway]
-        C[Solana Connector]
-        D[Your Oracle Service]
+    subgraph "User's Device"
+        Client["Client App (Web/Mobile)"]
     end
 
     subgraph "Solana Network"
-        E[On-Chain Program]
-        F[Solana RPC Node]
+        RPC["Solana RPC Node"]
+        Program["On-Chain Program"]
     end
 
-    A -- "1. Prepare Tx (gRPC)" --> B
-    B -- "2. Build Unsigned Tx" --> C
-    C -- "3. Return Unsigned Tx" --> B
-    B -- "4. Return Unsigned Tx (gRPC)" --> A
-    A -- "5. Sign Tx w/ Wallet" --> A
-    A -- "6. Submit Signed Tx (gRPC)" --> B
-    B -- "7. Submit to Network" --> C
-    C -- "8. Send to RPC" --> F
-    F -- "9. Processed by" --> E
+    subgraph "Event Streaming (Optional)"
+        Connector["w3b2-solana-connector"]
+        Gateway -- "uses" --> Connector
+    end
 
-    D -- "Signs Price Data" --> A
-
-    C -- "Listens for Events" --> F
-    B -- "Receives Events" --> C
-
-    style D fill:#f9f,stroke:#333,stroke-width:2px
+    Oracle -- "2. Sends Signed Payload to" --> Client
+    Client -- "3. Constructs & Signs Transaction" --> RPC
+    RPC -- "4. Processes Transaction" --> Program
+    Program -- "5. Emits Event" --> RPC
+    RPC -- "6. Forwards Event to" --> Connector
+    Connector -- "7. Streams to" --> Gateway
+    Gateway -- "8. Streams to Client" --> Client
 ```
 
 ### Component Roles
 
--   **Client**: Any application (web, mobile, desktop) that interacts with the service. It manages the user's wallet for signing transactions.
--   **gRPC Gateway**: The primary, language-agnostic entry point to the backend. It exposes the API for preparing and submitting transactions.
--   **Solana Connector**: A Rust library that handles the low-level details of building Solana transactions and listening for on-chain events.
--   **Oracle Service**: A custom backend component, defined by the service provider, responsible for providing and signing dynamic data, such as the price of a command.
--   **On-Chain Program**: The Anchor smart contract that acts as the source of truth, enforcing rules and managing all on-chain state and fund transfers.
--   **Solana RPC Node**: The gateway to the Solana network itself.
+-   **Client Application**: The end-user's application (e.g., web, mobile). It is responsible for communicating with the service provider's Oracle to get signed data, constructing transactions using a standard library (like `@coral-xyz/anchor`), signing them with the user's wallet, and submitting them directly to a Solana RPC node.
+-   **Oracle**: A backend service run by the developer. Its job is to enforce business logic (e.g., pricing, rate-limiting) and produce a signed data payload that authorizes a specific on-chain action. It can be written in any language.
+-   **`w3b2-solana-signer`**: A C-ABI compatible Rust library that can be compiled into a shared object (`.so`, `.dll`, `.dylib`). It allows Oracles written in non-Rust languages to securely sign messages with a Solana keypair. It should only be used if a native keypair library is unavailable for the oracle's language.
+-   **`w3b2-solana-program`**: The core on-chain Anchor program. It is the single source of truth, responsible for verifying the oracle's signature, enforcing rules, managing state, and transferring funds.
+-   **`w3b2-solana-gateway`**: An optional gRPC server that provides a persistent, real-time stream of on-chain events to clients. Its sole responsibility is event streaming.
+-   **`w3b2-solana-connector`**: The underlying Rust library that powers the gateway's event listening capabilities. It can also be used directly in Rust-based backend services.
+-   **Solana RPC Node**: The public gateway to the Solana network. Both clients and the service provider's backend connect to an RPC node to send transactions and subscribe to account changes.

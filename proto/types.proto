@@ -7,180 +7,136 @@ package w3b2.protocol.gateway;
 
 // --- Core RPC Message Types for Transactions ---
 
-/// A generic response containing a base64-encoded, unsigned Solana transaction.
-/// The client is expected to decode, sign, and send this back via
-/// SubmitTransaction.
+/// A response containing a serialized, unsigned transaction message.
 message UnsignedTransactionResponse {
-  /// The raw bytes of the unsigned transaction, serialized using bincode.
-  bytes unsigned_tx = 1;
+  /// The serialized `Message` part of a Solana transaction. The client must
+  /// add a recent blockhash to this message before signing.
+  bytes unsigned_tx_message = 1;
 }
 
-/// A request to submit a signed transaction to the network.
+/// A request to submit a fully signed transaction.
 message SubmitTransactionRequest {
-  /// The raw bytes of the fully signed transaction, serialized using bincode.
+  /// The serialized, signed `Transaction`.
   bytes signed_tx = 1;
 }
 
-/// A response containing the signature of a successfully submitted transaction.
+/// A response containing the signature of a submitted transaction.
 message TransactionResponse {
-  /// The base58-encoded signature of the submitted transaction.
+  /// The base-58 encoded transaction signature.
   string signature = 1;
 }
 
-// --- "Prepare" Transaction Request Messages ---
+/// A response containing the latest blockhash.
+message BlockhashResponse {
+  /// The raw 32 bytes of the latest blockhash.
+  bytes blockhash = 1;
+}
 
-/// Prepares a transaction to register a new AdminProfile.
+/// A request to prepare an `admin_register_profile` transaction.
 message PrepareAdminRegisterProfileRequest {
-  /// The public key of the admin's wallet, who will be the owner and signer.
   string authority_pubkey = 1;
-  /// The public key for secure off-chain communication.
   string communication_pubkey = 2;
 }
-/// Prepares a transaction to configure an AdminProfile.
-/// Fields are optional; only provided values will be updated.
+
+/// A request to prepare an `admin_set_config` transaction.
 message PrepareAdminSetConfigRequest {
-  /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The new public key of the oracle.
   optional string new_oracle_authority = 2;
-  /// The new validity period for oracle signatures in seconds.
   optional int64 new_timestamp_validity = 3;
-  /// The new public key for off-chain communication.
   optional string new_communication_pubkey = 4;
-  /// The new fee for a user to request an unban.
   optional uint64 new_unban_fee = 5;
 }
-/// Prepares a transaction for an admin to withdraw earned funds.
+
+/// A request to prepare an `admin_withdraw` transaction.
 message PrepareAdminWithdrawRequest {
-  /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The amount of lamports to withdraw from the internal balance.
   uint64 amount = 2;
-  /// The public key of the wallet that will receive the funds.
   string destination = 3;
 }
-/// Prepares a transaction to close an AdminProfile account.
-message PrepareAdminCloseProfileRequest {
-  /// The public key of the admin's wallet (`authority`), who will receive the
-  /// rent refund.
-  string authority_pubkey = 1;
-}
-/// Prepares a transaction for an admin to send a command to a user.
+
+/// A request to prepare an `admin_close_profile` transaction.
+message PrepareAdminCloseProfileRequest { string authority_pubkey = 1; }
+
+/// A request to prepare an `admin_dispatch_command` transaction.
 message PrepareAdminDispatchCommandRequest {
-  /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the target `UserProfile` **PDA**.
   string target_user_profile_pda = 2;
-  /// The `u64` identifier for the command or notification.
   uint64 command_id = 3;
-  /// An opaque byte array for application-specific data.
   bytes payload = 4;
 }
-/// Prepares a transaction for an admin to ban a user.
+
+/// A request to prepare an `admin_ban_user` transaction.
 message PrepareAdminBanUserRequest {
-  /// The public key of the admin's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the target `UserProfile` **PDA** to ban.
   string target_user_profile_pda = 2;
-}
-/// Prepares a transaction for an admin to unban a user.
-message PrepareAdminUnbanUserRequest {
-  /// The public key of the admin's wallet (`authority`).
-  string authority_pubkey = 1;
-  /// The public key of the target `UserProfile` **PDA** to unban.
-  string target_user_profile_pda = 2;
-}
-/// Prepares a transaction to log a generic off-chain action.
-message PrepareLogActionRequest {
-  /// The public key of the actor's wallet (user or admin).
-  string authority_pubkey = 1;
-  /// The public key of the `UserProfile` **PDA**.
-  string user_profile_pda = 2;
-  /// The public key of the `AdminProfile` **PDA**.
-  string admin_profile_pda = 3;
-  /// A `u64` identifier to correlate this action with a session.
-  uint64 session_id = 4;
-  /// A `u16` code representing the specific off-chain action.
-  uint32 action_code = 5;
 }
 
-/// Prepares a transaction for a user to create a profile for a specific
-/// service.
-message PrepareUserCreateProfileRequest {
-  /// The public key of the user's wallet, who will be the owner and signer.
+/// A request to prepare an `admin_unban_user` transaction.
+message PrepareAdminUnbanUserRequest {
   string authority_pubkey = 1;
-  /// The public key of the target `AdminProfile` **PDA**.
+  string target_user_profile_pda = 2;
+}
+
+/// A request to prepare a `user_create_profile` transaction.
+message PrepareUserCreateProfileRequest {
+  string authority_pubkey = 1;
   string target_admin_pda = 2;
-  /// The public key for secure off-chain communication.
   string communication_pubkey = 3;
 }
-/// Prepares a transaction to update a UserProfile's communication key.
+
+/// A request to prepare a `user_update_comm_key` transaction.
 message PrepareUserUpdateCommKeyRequest {
-  /// The public key of the user's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the `AdminProfile` **PDA** this user profile is linked
-  /// to.
   string admin_profile_pda = 2;
-  /// The new communication public key to set.
   string new_key = 3;
 }
-/// Prepares a transaction for a user to deposit funds into their profile.
+
+/// A request to prepare a `user_deposit` transaction.
 message PrepareUserDepositRequest {
-  /// The public key of the user's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the `AdminProfile` **PDA** this user profile is linked
-  /// to.
   string admin_profile_pda = 2;
-  /// The amount of lamports to deposit.
   uint64 amount = 3;
 }
-/// Prepares a transaction for a user to withdraw unspent funds from their
-/// profile.
+
+/// A request to prepare a `user_withdraw` transaction.
 message PrepareUserWithdrawRequest {
-  /// The public key of the user's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the `AdminProfile` **PDA** this user profile is linked
-  /// to.
   string admin_profile_pda = 2;
-  /// The amount of lamports to withdraw.
   uint64 amount = 3;
-  /// The public key of the wallet that will receive the funds.
   string destination = 4;
 }
-/// Prepares a transaction to close a UserProfile account.
+
+/// A request to prepare a `user_close_profile` transaction.
 message PrepareUserCloseProfileRequest {
-  /// The public key of the user's wallet (`authority`), who will receive the
-  /// rent and balance refund.
   string authority_pubkey = 1;
-  /// The public key of the `AdminProfile` **PDA** this user profile is linked
-  /// to.
   string admin_profile_pda = 2;
 }
-/// Prepares a transaction for a user to call a service's command.
+
+/// A request to prepare a `user_dispatch_command` transaction.
 message PrepareUserDispatchCommandRequest {
-  /// The public key of the user's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the target `AdminProfile` **PDA**.
   string target_admin_pda = 2;
-  /// The `u16` identifier for the command to execute.
   uint32 command_id = 3;
-  /// The price in lamports for the command, as signed by the oracle.
   uint64 price = 4;
-  /// The Unix timestamp from the oracle's signature.
   int64 timestamp = 5;
-  /// An opaque byte array for application-specific data.
   bytes payload = 6;
-  /// The public key of the oracle that signed the price data.
   string oracle_pubkey = 7;
-  /// The 64-byte Ed25519 signature from the oracle, as raw bytes.
   bytes oracle_signature = 8;
 }
-/// Prepares a transaction for a user to request an unban.
+
+/// A request to prepare a `user_request_unban` transaction.
 message PrepareUserRequestUnbanRequest {
-  /// The public key of the user's wallet (`authority`).
   string authority_pubkey = 1;
-  /// The public key of the `AdminProfile` **PDA** this user profile is linked to.
   string admin_profile_pda = 2;
+}
+
+/// A request to prepare a `log_action` transaction.
+message PrepareLogActionRequest {
+  string authority_pubkey = 1;
+  string user_profile_pda = 2;
+  string admin_profile_pda = 3;
+  uint64 session_id = 4;
+  uint32 action_code = 5;
 }
 
 // --- Messages for Event Streaming ---
@@ -213,6 +169,29 @@ enum EventSource {
 }
 
 // --- Event Messages (Mirrors of on-chain events) ---
+
+/// A generic wrapper that contains one of any possible event types from the
+/// program. This is used for unified event streams.
+message BridgeEvent {
+  oneof event {
+    AdminProfileRegistered admin_profile_registered = 1;
+    AdminConfigUpdated admin_config_updated = 3;
+    AdminFundsWithdrawn admin_funds_withdrawn = 4;
+    AdminProfileClosed admin_profile_closed = 5;
+    AdminCommandDispatched admin_command_dispatched = 6;
+    UserProfileCreated user_profile_created = 7;
+    UserCommKeyUpdated user_comm_key_updated = 8;
+    UserFundsDeposited user_funds_deposited = 9;
+    UserFundsWithdrawn user_funds_withdrawn = 10;
+    UserProfileClosed user_profile_closed = 11;
+    UserCommandDispatched user_command_dispatched = 12;
+    OffChainActionLogged off_chain_action_logged = 13;
+    AdminUnbanFeeUpdated admin_unban_fee_updated = 14;
+    UserBanned user_banned = 15;
+    UserUnbanned user_unbanned = 16;
+    UserUnbanRequested user_unban_requested = 17;
+  }
+}
 
 /// Emitted when a new `AdminProfile` PDA is created.
 message AdminProfileRegistered {
@@ -366,31 +345,6 @@ message OffChainActionLogged {
   uint32 action_code = 5;
   /// The Unix timestamp of the logged action.
   int64 ts = 6;
-}
-
-// --- Wrapper Event ---
-
-/// A generic wrapper that contains one of any possible event types from the
-/// program. This is used for unified event streams.
-message BridgeEvent {
-  oneof event {
-    AdminProfileRegistered admin_profile_registered = 1;
-    AdminConfigUpdated admin_config_updated = 3;
-    AdminFundsWithdrawn admin_funds_withdrawn = 4;
-    AdminProfileClosed admin_profile_closed = 5;
-    AdminCommandDispatched admin_command_dispatched = 6;
-    UserProfileCreated user_profile_created = 7;
-    UserCommKeyUpdated user_comm_key_updated = 8;
-    UserFundsDeposited user_funds_deposited = 9;
-    UserFundsWithdrawn user_funds_withdrawn = 10;
-    UserProfileClosed user_profile_closed = 11;
-    UserCommandDispatched user_command_dispatched = 12;
-    OffChainActionLogged off_chain_action_logged = 13;
-    AdminUnbanFeeUpdated admin_unban_fee_updated = 14;
-    UserBanned user_banned = 15;
-    UserUnbanned user_unbanned = 16;
-    UserUnbanRequested user_unban_requested = 17;
-  }
 }
 
 /// Emitted when an admin updates their profile configuration.

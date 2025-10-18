@@ -1,3 +1,63 @@
+//! # Event Manager & Background Workers
+//!
+//! This module defines the `EventManager`, which orchestrates all the background services
+//! required for robust on-chain event listening.
+//!
+//! ## Core Components
+//!
+//! - [`EventManager`]: The main struct that owns and runs the background workers. It is
+//!   consumed when its `run` method is called.
+//! - [`EventManagerHandle`]: A clonable, thread-safe handle that provides the public API
+//!   for interacting with the running services (e.g., creating listeners, shutting down).
+//! - **Workers**:
+//!   - `Synchronizer`: Continuously fetches and stores transaction signatures for all PDAs.
+//!   - `LiveWorker`: Subscribes to a WebSocket stream for real-time transaction updates.
+//!   - `CatchupWorker`: Fetches historical transactions for newly registered listeners.
+//!   - `Dispatcher`: Routes events from the workers to the correct listeners.
+//!
+//! ## Usage Pattern
+//!
+//! 1.  Create an `EventManager` instance along with its `EventManagerHandle`.
+//! 2.  Spawn the `event_manager.run()` method as a long-running background task.
+//! 3.  Use the `handle` throughout your application to create listeners and manage the service.
+//!
+//! ```rust
+//! use w3b2_solana_connector::{
+//!     workers::EventManager,
+//!     config::ConnectorConfig,
+//!     storage::MemoryStorage,
+//! };
+//! use solana_client::nonblocking::rpc_client::RpcClient;
+//! use std::sync::Arc;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // 1. Setup configuration
+//!     let config = Arc::new(ConnectorConfig::default());
+//!     let rpc_client = Arc::new(RpcClient::new("...".to_string()));
+//!     let storage = Arc::new(MemoryStorage::new());
+//!
+//!     // 2. Create the EventManager and its handle
+//!     let (event_manager, handle) = EventManager::new(
+//!         config.clone(),
+//!         rpc_client.clone(),
+//!         storage,
+//!     );
+//!
+//!     // 3. Spawn the workers to run in the background
+//!     tokio::spawn(async move {
+//!         event_manager.run().await;
+//!     });
+//!
+//!     // 4. Use the handle to create listeners in your application logic
+//!     let user_pda = // ... some user profile PDA
+//!     # solana_sdk::pubkey::new_rand();
+//!     let mut listener = handle.listen_as_user(user_pda);
+//!
+//!     // ... process events from the listener
+//! }
+//! ```
+
 mod catchup;
 mod live;
 mod synchronizer;
@@ -14,8 +74,10 @@ use solana_sdk::pubkey::Pubkey;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// A clonable, thread-safe handle for interacting with the EventManager's background services.
-/// This is the primary public entry point for applications using this connector.
+/// A clonable, thread-safe handle for interacting with the `EventManager`'s background services.
+///
+/// This handle is the primary public entry point for applications using the connector. It is
+/// obtained when an [`EventManager`] is created and can be cloned and passed across threads.
 #[derive(Debug, Clone)]
 pub struct EventManagerHandle {
     dispatcher: DispatcherHandle,
@@ -25,13 +87,16 @@ pub struct EventManagerHandle {
 impl EventManagerHandle {
     /// Sends a shutdown signal to the `EventManager`'s background services.
     ///
-    /// This will cause the `Dispatcher` and `Synchronizer` to gracefully terminate.
+    /// This will cause the `Dispatcher` and `Synchronizer` to gracefully terminate their loops.
     pub async fn stop(&self) {
         self.dispatcher.stop().await;
     }
 
-    /// Creates and returns a contextual listener for a user's profile PDA.
-    /// This is the primary method for applications to listen to user-specific events.
+    /// Creates and returns a contextual listener for a `UserProfile` PDA.
+    ///
+    /// This is the primary method for applications to listen to events for a specific user.
+    ///
+    /// # Arguments
     ///
     /// * `user_profile_pda` - The public key of the user's profile PDA to monitor.
     pub fn listen_as_user(&self, user_profile_pda: Pubkey) -> UserListener {
@@ -42,7 +107,9 @@ impl EventManagerHandle {
         )
     }
 
-    /// Creates and returns a contextual listener for an admin's profile PDA.
+    /// Creates and returns a contextual listener for an `AdminProfile` PDA.
+    ///
+    /// # Arguments
     ///
     /// * `admin_profile_pda` - The public key of the admin's profile PDA to monitor.
     pub fn listen_as_admin(&self, admin_profile_pda: Pubkey) -> AdminListener {
@@ -57,13 +124,29 @@ impl EventManagerHandle {
 /// The main background service manager for the connector.
 ///
 /// This struct orchestrates the `Synchronizer` and `Dispatcher` workers. It is created once,
-/// its `run` method is spawned as a background task, and it is then consumed.
+/// its [`run()`] method is spawned as a background task, and it is then consumed, leaving
+/// the [`EventManagerHandle`] as the only way to interact with the running services.
 pub struct EventManager {
     synchronizer: Synchronizer,
     dispatcher: Dispatcher,
 }
 
 impl EventManager {
+    /// Creates a new `EventManager` and its associated [`EventManagerHandle`].
+    ///
+    /// This method sets up the necessary communication channels between the internal workers
+    /// but does not start them. The returned `EventManager` instance must be started by
+    /// calling the [`run()`] method.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The shared connector configuration.
+    /// * `rpc_client` - A shared Solana RPC client.
+    /// * `storage` - A shared, thread-safe storage backend for persisting sync state.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the `EventManager` runner and its public `EventManagerHandle`.
     pub fn new(
         config: Arc<ConnectorConfig>,
         rpc_client: Arc<RpcClient>,
@@ -97,8 +180,9 @@ impl EventManager {
 
     /// Runs all background services of the connector.
     ///
-    /// This method should be spawned as a single, long-running background task by the application.
-    /// It will run until a shutdown is initiated or a critical error occurs in one of the workers.
+    /// This method consumes the `EventManager` and should be spawned as a single, long-running
+    /// background task. It will run until a shutdown is initiated via [`EventManagerHandle::stop()`]
+    /// or a critical error occurs in one of the workers.
     pub async fn run(self) {
         tracing::info!("Connector is running all background services.");
 
