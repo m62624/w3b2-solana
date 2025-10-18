@@ -11,37 +11,53 @@ import "types.proto";
 /// The gRPC service for the W3B2 toolset, providing a non-custodial
 /// interface for interacting with the on-chain program.
 ///
-/// ## Workflow
+/// ## Transaction Workflow
 /// 1. **Prepare**: The client calls a `prepare_*` method (e.g.,
 ///    `PrepareUserDeposit`).
 /// 2. **Receive**: The server returns an `UnsignedTransactionResponse`
 ///    containing the serialized transaction *message*.
-/// 3. **Sign**: The client deserializes the message, adds a recent blockhash,
-///    creates a `Transaction`, and signs it locally with its private key.
+/// 3. **Sign**: The client adds a recent blockhash to the message and signs it
+///    locally with its private key.
 /// 4. **Submit**: The client calls `SubmitTransaction` with the serialized,
 ///    signed transaction.
-/// 5. **Listen**: The client uses `ListenAsUser` or `ListenAsAdmin` to receive
-///    real-time confirmation and subsequent events.
+///
+/// ## Event Streaming Workflow
+/// The gateway provides two types of event streams for maximum flexibility:
+/// - **History (`Get...EventHistory`)**: A finite stream that sends all
+///   historical events for a PDA and then closes.
+/// - **Live (`Stream...LiveEvents`)**: A persistent stream that sends only new,
+///   real-time events.
+///
+/// A typical client will call both methods concurrently to get a complete and
+/// up-to-date view of an account's state.
 service BridgeGatewayService {
 
   // ===================================================================
   // == Event Streaming RPCs
   // ===================================================================
 
-  /// Subscribes to and streams all events for a specific UserProfile PDA.
-  /// This is a server-streaming RPC. The client makes a single request with the
-  /// PDA, and the server streams back all relevant historical (catch-up) and
-  /// real-time (live) events. The stream is closed when the client disconnects.
-  rpc ListenAsUser(ListenRequest) returns (stream EventStreamItem);
+  /// Subscribes to a stream of **live** events for a specific UserProfile PDA.
+  /// This stream does NOT include historical events. For history, use
+  /// `GetUserEventHistory`. The stream remains active until the client
+  /// disconnects or calls `Unsubscribe`.
+  rpc StreamUserLiveEvents(ListenRequest) returns (stream EventStreamItem);
 
-  /// Subscribes to and streams all categorized events for a specific Admin.
-  /// This is a server-streaming RPC. The client makes a single request with the
-  /// AdminProfile PDA, and the server streams back all relevant historical and
-  /// real-time events.
-  rpc ListenAsAdmin(ListenRequest) returns (stream EventStreamItem);
+  /// Subscribes to a stream of **live** events for a specific AdminProfile PDA.
+  /// For historical events, use `GetAdminEventHistory`.
+  rpc StreamAdminLiveEvents(ListenRequest) returns (stream EventStreamItem);
+
+  /// Fetches all **historical** events for a specific UserProfile PDA.
+  /// The stream will close automatically after all historical events have been
+  /// sent.
+  rpc GetUserEventHistory(ListenRequest) returns (stream EventStreamItem);
+
+  /// Fetches all **historical** events for a specific AdminProfile PDA.
+  /// The stream will close automatically after all historical events have been
+  /// sent.
+  rpc GetAdminEventHistory(ListenRequest) returns (stream EventStreamItem);
 
   /// Manually unsubscribes a client from an active event stream using its
-  /// unique subscription ID.
+  /// PDA. This terminates the corresponding `Stream...LiveEvents` call.
   rpc Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty);
 
   // ===================================================================
@@ -89,8 +105,7 @@ service BridgeGatewayService {
   // ===================================================================
 
   /// Submits a client-signed transaction to the Solana network.
-  rpc SubmitTransaction(SubmitTransactionRequest)
-      returns (TransactionResponse);
+  rpc SubmitTransaction(SubmitTransactionRequest) returns (TransactionResponse);
 
   // ===================================================================
   // == Utility RPCs

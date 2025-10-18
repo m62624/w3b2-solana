@@ -158,11 +158,12 @@ fn parse_pubkey(s: &str) -> Result<Pubkey, GatewayError> {
     Pubkey::from_str(s).map_err(GatewayError::from)
 }
 
-/// A generic helper to handle the logic for both `listen_as_user` and `listen_as_admin`.
+/// A helper to handle the logic for streaming **live** events.
 ///
-/// This function encapsulates the creation of an event listener, spawning a background
-/// task to bridge events to the gRPC stream, and managing the subscription lifecycle.
-async fn handle_listen_stream(
+/// This function registers a persistent listener and spawns a background task that
+/// forwards live events to the gRPC stream. It manages the subscription lifecycle,
+/// cleaning up when the client disconnects or unsubscribes.
+async fn handle_live_stream(
     state: &AppState,
     pda: Pubkey,
     mut listener: EventListener,
@@ -180,18 +181,7 @@ async fn handle_listen_stream(
     let active_subscriptions_clone = state.active_subscriptions.clone();
 
     tokio::spawn(async move {
-        // Phase 1: Drain all catchup events.
-        while let Some(event) = listener.next_catchup_event().await {
-            let item = gateway::EventStreamItem::from(event);
-            if tx.send(Ok(item)).await.is_err() {
-                tracing::warn!("Client for PDA {} disconnected during catchup.", pda);
-                active_subscriptions_clone.remove(&pda);
-                return;
-            }
-        }
-        tracing::info!("Catchup phase completed for PDA {}.", pda);
-
-        // Phase 2: Listen for live events and the stop signal.
+        // Listen for live events and the stop signal.
         loop {
             tokio::select! {
                 _ = stop_rx.changed() => {
@@ -199,18 +189,53 @@ async fn handle_listen_stream(
                     break;
                 }
                 Some(event) = listener.next_live_event() => {
-                    let item = gateway::EventStreamItem::from(event);
-                    if tx.send(Ok(item)).await.is_err() {
+                    if tx.send(Ok(gateway::EventStreamItem::from(event))).await.is_err() {
                         tracing::warn!("Client for PDA {} disconnected during live stream.", pda);
                         break;
                     }
                 }
-                else => break, // Event manager shut down.
+                else => {
+                    tracing::info!("Event manager shut down for PDA {}. Closing stream.", pda);
+                    break;
+                }
             }
         }
 
         active_subscriptions_clone.remove(&pda);
-        tracing::info!("Event stream for PDA {} has ended.", pda);
+        tracing::info!("Live event stream for PDA {} has ended.", pda);
+    });
+
+    Ok(Response::new(ReceiverStream::new(rx)))
+}
+
+/// A helper to handle the logic for streaming **historical** events.
+///
+/// This function creates a temporary listener, drains all events from its
+/// catch-up channel, and sends them to the client. The stream closes automatically
+/// once all historical events have been sent.
+async fn handle_history_stream(
+    state: &AppState,
+    pda: Pubkey,
+    mut listener: EventListener,
+) -> Result<Response<ReceiverStream<Result<EventStreamItem, Status>>>, Status> {
+    let (tx, rx) = mpsc::channel(state.config.connector.channels.listener_event_buffer);
+
+    tokio::spawn(async move {
+        // Drain all catchup events and send them to the client.
+        while let Some(event) = listener.next_catchup_event().await {
+            if tx
+                .send(Ok(gateway::EventStreamItem::from(event)))
+                .await
+                .is_err()
+            {
+                tracing::warn!("Client for PDA {} disconnected during history stream.", pda);
+                // No need to remove from active_subscriptions as this is a temporary listener.
+                break;
+            }
+        }
+        // Once the loop finishes, `tx` is dropped, and the client's stream will close gracefully.
+        tracing::info!("Event history stream for PDA {} has completed.", pda);
+        // The listener will be dropped here, automatically unsubscribing.
     });
 
     Ok(Response::new(ReceiverStream::new(rx)))
@@ -218,44 +243,69 @@ async fn handle_listen_stream(
 
 #[tonic::async_trait]
 impl BridgeGatewayService for GatewayServer {
-    type ListenAsUserStream = ReceiverStream<Result<EventStreamItem, Status>>;
+    type StreamUserLiveEventsStream = ReceiverStream<Result<EventStreamItem, Status>>;
 
-    /// Opens a server-side stream of on-chain events for a specific `UserProfile` PDA.
-    ///
-    /// The stream first delivers all historical events for the PDA ("catch-up" phase),
-    /// and then sends new events in real-time as they occur ("live" phase).
-    async fn listen_as_user(
+    /// Subscribes to a stream of **live** events for a specific UserProfile PDA.
+    /// This stream does NOT include historical events. For history, use
+    /// `GetUserEventHistory`.
+    async fn stream_user_live_events(
         &self,
         request: Request<ListenRequest>,
-    ) -> Result<Response<Self::ListenAsUserStream>, Status> {
+    ) -> Result<Response<Self::StreamUserLiveEventsStream>, Status> {
         let req = request.into_inner();
-        tracing::info!("Received ListenAsUser request for PDA: {}", req.pda);
+        tracing::info!("Received StreamUserLiveEvents request for PDA: {}", req.pda);
 
         let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
-        let event_manager = self.state.event_manager.clone();
 
-        let listener = event_manager.listen_as_user(pda);
-        handle_listen_stream(&self.state, pda, listener).await
+        let listener = self.state.event_manager.listen_as_user(pda);
+        handle_live_stream(&self.state, pda, listener).await
     }
 
-    type ListenAsAdminStream = ReceiverStream<Result<EventStreamItem, Status>>;
+    type StreamAdminLiveEventsStream = ReceiverStream<Result<EventStreamItem, Status>>;
 
-    /// Opens a server-side stream of on-chain events for a specific `AdminProfile` PDA.
-    ///
-    /// The stream first delivers all historical events for the PDA ("catch-up" phase),
-    /// and then sends new events in real-time as they occur ("live" phase).
-    async fn listen_as_admin(
+    /// Subscribes to a stream of **live** events for a specific AdminProfile PDA.
+    /// This stream does NOT include historical events. For history, use
+    /// `GetAdminEventHistory`.
+    async fn stream_admin_live_events(
         &self,
         request: Request<ListenRequest>,
-    ) -> Result<Response<Self::ListenAsAdminStream>, Status> {
+    ) -> Result<Response<Self::StreamAdminLiveEventsStream>, Status> {
         let req = request.into_inner();
-        tracing::info!("Received ListenAsAdmin request for PDA: {}", req.pda);
+        tracing::info!(
+            "Received StreamAdminLiveEvents request for PDA: {}",
+            req.pda
+        );
 
         let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
-        let event_manager = self.state.event_manager.clone();
 
-        let listener = event_manager.listen_as_admin(pda);
-        handle_listen_stream(&self.state, pda, listener).await
+        let listener = self.state.event_manager.listen_as_admin(pda);
+        handle_live_stream(&self.state, pda, listener).await
+    }
+
+    type GetUserEventHistoryStream = ReceiverStream<Result<EventStreamItem, Status>>;
+
+    async fn get_user_event_history(
+        &self,
+        request: Request<ListenRequest>,
+    ) -> Result<Response<Self::GetUserEventHistoryStream>, Status> {
+        let req = request.into_inner();
+        tracing::info!("Received GetUserEventHistory request for PDA: {}", req.pda);
+        let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
+        let listener = self.state.event_manager.listen_as_user(pda);
+        handle_history_stream(&self.state, pda, listener).await
+    }
+
+    type GetAdminEventHistoryStream = ReceiverStream<Result<EventStreamItem, Status>>;
+
+    async fn get_admin_event_history(
+        &self,
+        request: Request<ListenRequest>,
+    ) -> Result<Response<Self::GetAdminEventHistoryStream>, Status> {
+        let req = request.into_inner();
+        tracing::info!("Received GetAdminEventHistory request for PDA: {}", req.pda);
+        let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
+        let listener = self.state.event_manager.listen_as_admin(pda);
+        handle_history_stream(&self.state, pda, listener).await
     }
 
     /// Manually closes an active event stream subscription.
