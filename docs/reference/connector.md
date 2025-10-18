@@ -16,7 +16,7 @@ The connector's primary role is to provide a robust and persistent event streami
 
 The main entry point is the `EventManager`, which runs the background workers. You create it, spawn its `run` method, and then use the returned `handle` to create listeners.
 
-```rust,ignore
+```rust
 use w3b2_solana_connector::{
     workers::EventManager,
     config::ConnectorConfig,

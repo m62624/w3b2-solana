@@ -1,4 +1,4 @@
-# W3B2-Solana: Bridge Your Web2 Service with Web3 Security
+# W3B2-Solana: The Easiest Way to Connect Your Existing Service to the Solana Blockchain.
 
 W3B2-Solana is a toolset for developers looking to integrate their existing Web2 services with the security, transparency, and non-custodial nature of the Solana blockchain. It provides the on-chain programs and off-chain libraries to seamlessly blend high-performance, traditional backend infrastructure with the power of Web3.
 
@@ -10,9 +10,44 @@ The core value is enabling **two powerful interaction models** within a single, 
 
 This hybrid approach allows you to use the blockchain for what it's best at—security, auditability, and asset transfer—while leveraging your existing Web2 infrastructure for performance and scale.
 
+## High-Level Architecture
+
+```mermaid
+graph TD
+    subgraph "Service Provider Backend"
+        Oracle["Oracle (Any Language)"]
+        Signer["w3b2-solana-signer (C-ABI)"]
+        Gateway["gRPC Gateway"]
+
+        Oracle -- "1. Signs Payload via" --> Signer
+    end
+
+    subgraph "User's Device"
+        Client["Client App (Web/Mobile)"]
+    end
+
+    subgraph "Solana Network"
+        RPC["Solana RPC Node"]
+        Program["On-Chain Program"]
+    end
+
+    subgraph "Event Streaming (Optional)"
+        Connector["w3b2-solana-connector"]
+        Gateway -- "uses" --> Connector
+    end
+
+    Oracle -- "2. Sends Signed Payload to" --> Client
+    Client -- "3. Constructs & Signs Transaction" --> RPC
+    RPC -- "4. Processes Transaction" --> Program
+    Program -- "5. Emits Event" --> RPC
+    RPC -- "6. Forwards Event to" --> Connector
+    Connector -- "7. Streams to" --> Gateway
+    Gateway -- "8. Streams to Client" --> Client
+```
+
 ## How the Secure Handshake Works
 
-The on-chain program provides the instruments for this secure negotiation:
+For high-traffic services, the architecture above supports a "secure handshake" pattern. The on-chain program provides the instruments for this secure negotiation:
 -   **`communication_pubkey`**: Both admins and users store a public key on-chain for secure, hybrid encryption.
 -   **`dispatch` commands**: The `admin_dispatch_command` and `user_dispatch_command` instructions contain a flexible `payload` field.
 -   **The Flow**:

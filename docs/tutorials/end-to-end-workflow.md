@@ -1,102 +1,85 @@
-# Tutorial: Full End-to-End Workflow
+# Tutorial: A Hybrid Web2/Web3 Service Workflow
 
-This tutorial walks through a complete, conceptual lifecycle of a user interacting with a service powered by the W3B2 toolset. It follows the user from their initial registration to performing actions, getting banned, and finally closing their account.
+This tutorial walks through a conceptual, end-to-end lifecycle of a user, Alice, interacting with a hypothetical high-throughput service (e.g., a non-custodial AI image generation service) built with the W3B2-Solana toolset.
 
-Each step will mention the on-chain instruction that a client application (using a library like `anchorpy` or `@coral-xyz/anchor`) would call to initiate the action.
+The service has two main features:
+1.  **Simple, On-Chain API**: A low-rate API to check account status, which costs a small, fixed amount of SOL.
+2.  **High-Throughput Service**: A GPU-intensive image generation service that requires a direct, off-chain connection to a dedicated server for performance.
 
 ---
 
 ### 1. Setup: The Admin Registers
 
-Before any users can join, the service provider (the "Admin") must create their on-chain presence by creating an `AdminProfile`.
+The service provider ("the Admin") creates their on-chain presence.
 
--   **Action**: The Admin uses a client application to send a transaction to the Solana network.
--   **On-Chain Instruction**: `admin_register_profile`
--   **Result**: An `AdminProfile` PDA is created on-chain. The admin can now configure it, for example, by calling `admin_set_config` to set an `unban_fee`.
-
----
-
-### 2. A New User Arrives: Profile Creation
-
-A new user, Alice, decides to use the service. Her first step is to create her own on-chain `UserProfile`, which links her wallet to the admin's service.
-
--   **Action**: Alice's client application sends a transaction to create her `UserProfile`.
--   **On-Chain Instruction**: `user_create_profile`
--   **Result**: An on-chain `UserProfile` PDA is created, owned by Alice but linked to the admin's profile.
+-   **Action**: The Admin calls `admin_register_profile`, providing a `communication_pubkey` that their backend will use for decrypting user requests.
+-   **Result**: An `AdminProfile` PDA is created. The Admin then calls `admin_set_config` to set prices and fees.
 
 ---
 
-### 3. Funding the Account: Making a Deposit
+### 2. A New User Arrives: Alice Creates Her Profile
 
-Alice needs to pay for actions. To do this, she pre-funds her account by depositing `1 SOL`.
+Alice wants to use the service. She creates her on-chain profile, linking her wallet to the service.
 
--   **Action**: Alice authorizes a deposit transaction.
--   **On-Chain Instruction**: `user_deposit` (with `amount: 1000000000`)
--   **Result**: `1 SOL` is transferred from Alice's wallet to her `UserProfile` PDA. Her on-chain `deposit_balance` is now `1 SOL`. The funds are still hers, but are now available for the program to use for payments she authorizes.
-
----
-
-### 4. Using the Service: A Paid Command
-
-Alice now performs a paid action, which costs `0.1 SOL`. The service's backend oracle signs the price and command details.
-
--   **Action**: Alice's client builds a transaction containing the oracle's signature verification and the command itself, then signs and sends it.
--   **On-Chain Instruction**: `user_dispatch_command` (with `price: 100000000`)
--   **Result**: The on-chain program verifies the oracle's signature. It then atomically transfers `0.1 SOL` from Alice's `UserProfile` PDA to the `AdminProfile` PDA. Alice's `deposit_balance` is now `0.9 SOL`.
+-   **Action**: Alice calls `user_create_profile`, providing her own `communication_pubkey`.
+-   **Result**: A `UserProfile` PDA is created, owned by Alice and linked to the Admin's service.
 
 ---
 
-### 5. A Misstep: The Ban
+### 3. Funding the Account
 
-The admin determines that Alice has violated the terms of service and bans her.
+Alice deposits `1 SOL` into her profile to pay for future actions.
 
--   **Action**: The Admin sends a transaction to ban Alice's profile.
--   **On-Chain Instruction**: `admin_ban_user` (targeting Alice's `UserProfile` PDA)
--   **Result**: The `banned` flag on Alice's `UserProfile` is set to `true`.
-
----
-
-### 6. The Consequence: A Failed Action
-
-Alice, perhaps unaware she's been banned, tries to perform another paid action.
-
--   **Action**: She attempts to call `UserDispatchCommand` again.
--   **On-Chain Instruction**: `user_dispatch_command`
--   **Result**: The transaction **fails**. The on-chain program checks the `banned` flag at the beginning of the instruction and returns a `UserIsBanned` error. No funds are moved.
+-   **Action**: Alice calls `user_deposit` with `amount: 1000000000`.
+-   **Result**: `1 SOL` is transferred from her wallet to her `UserProfile` PDA. Her `deposit_balance` is now `1 SOL`.
 
 ---
 
-### 7. The Appeal: Requesting an Unban
+### 4. Simple On-Chain Interaction: Checking Status
 
-Alice realizes she is banned and decides to appeal. The admin has set a `0.05 SOL` fee for unban requests.
+Alice makes a simple, low-rate API call to check her account status. This is a standard on-chain transaction.
 
--   **Action**: Alice calls the instruction to request an unban.
--   **On-Chain Instruction**: `user_request_unban`
--   **Result**: The program checks that Alice has sufficient funds. It transfers `0.05 SOL` from her `deposit_balance` to the admin's balance and sets the `unban_requested` flag on her profile to `true`. Alice's balance is now `0.85 SOL`.
--   **Important**: Alice is **still banned**. This action only signals her request for a manual review.
-
----
-
-### 8. The Verdict: The Unban
-
-The admin's backend is notified of the `UserUnbanRequested` event via the gRPC event stream. The admin reviews the case and decides to grant the appeal.
-
--   **Action**: The admin calls the instruction to unban Alice.
--   **On-Chain Instruction**: `admin_unban_user`
--   **Result**: The `banned` and `unban_requested` flags on Alice's `UserProfile` are set back to `false`. Alice can now use the service again.
+-   **Action**:
+    1. The Admin's oracle signs a message containing the `command_id` (e.g., `1` for "check status") and `price` (e.g., `0.001 SOL`).
+    2. Alice's client receives the signed data and calls `user_dispatch_command`.
+-   **Result**: The program validates the oracle signature and transfers `0.001 SOL` from Alice's `UserProfile` to the `AdminProfile`. Her `deposit_balance` is now `0.999 SOL`.
 
 ---
 
-### 9. Moving On: Withdrawing Funds and Closing
+### 5. Secure Handshake for a High-Throughput Service
 
-Alice decides to stop using the service. She withdraws her remaining balance and closes her account.
+Now, Alice wants to generate an AI image. This requires a powerful, dedicated GPU server. Transmitting the job data over Solana would be impossible. Instead, they use the secure handshake pattern.
 
-1.  **Withdrawal**:
-    -   **Action**: Alice withdraws her remaining `0.85 SOL`.
-    -   **On-Chain Instruction**: `user_withdraw` (with `amount: 850000000`)
-    -   **Result**: Her entire remaining `deposit_balance` is transferred from the `UserProfile` PDA back to her wallet.
+-   **Action**:
+    1.  **Client-Side**: Alice's client application generates a temporary, one-time secret for this session. It constructs a JSON payload containing the image prompt and this secret: `{"prompt": "a cat in a hat", "secret": "..."}`.
+    2.  **Encryption**: The client encrypts this JSON payload using the Admin's on-chain `communication_pubkey`.
+    3.  **On-Chain Handshake**: Alice calls `user_dispatch_command`. The `price` is `0` (as the real cost is tied to off-chain compute), and the encrypted JSON is placed in the `payload` field.
+-   **Off-Chain Reaction**:
+    1.  **Event Listening**: The Admin's backend, listening via the `w3b2-solana-connector`, receives the `UserCommandDispatched` event containing the encrypted payload.
+    2.  **Decryption**: The backend uses its private communication key to decrypt the payload, revealing the image prompt and Alice's one-time secret.
+    3.  **Connection**: The backend now knows what Alice wants to do. It provisions a GPU server and establishes a direct, private off-chain connection with Alice's client (e.g., via WebSocket), authenticating her with the one-time secret.
+-   **Result**: Alice's client and the Admin's GPU server now have a direct, high-speed connection for the image generation job, completely bypassing the blockchain. The on-chain transaction serves as a verifiable audit log that this session was initiated.
 
-2.  **Closure**:
-    -   **Action**: Alice closes her now-empty profile to reclaim the rent she paid for its on-chain storage.
-    -   **On-Chain Instruction**: `user_close_profile`
-    -   **Result**: The `UserProfile` PDA is deleted from the blockchain, and the lamports held for rent are refunded to Alice's wallet. Her lifecycle with the service is now complete.
+---
+
+### 6. Logging Off-Chain Progress
+
+The AI generation is an off-chain process. To maintain an audit trail, the Admin's service logs key milestones to the blockchain.
+
+-   **Action**:
+    1.  The GPU server finishes rendering the image and sends it to Alice over the direct off-chain channel.
+    2.  The server then calls `log_action` with `session_id` (linking it to the initial handshake) and `action_code` (e.g., `200` for "OK").
+-   **Result**: An `OffChainActionLogged` event is emitted on-chain. This creates an immutable record that the service verifiably completed the off-chain work requested in the handshake. This is crucial for dispute resolution and transparency.
+
+---
+
+### 7. Lifecycle: Ban, Appeal, and Withdrawal
+
+The tutorial proceeds as before with the ban/unban cycle:
+-   The Admin bans Alice with `admin_ban_user`.
+-   Alice's next `user_dispatch_command` fails with a `UserIsBanned` error.
+-   Alice appeals by paying a fee with `user_request_unban`.
+-   The Admin reviews the appeal (notified by the `UserUnbanRequested` event) and unbans her with `admin_unban_user`.
+-   Finally, Alice withdraws her remaining funds with `user_withdraw` and closes her account with `user_close_profile` to reclaim the rent.
+
+This complete workflow demonstrates how the toolset combines the security of on-chain transactions with the performance of off-chain services.

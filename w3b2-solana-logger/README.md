@@ -30,12 +30,12 @@ output = "stdout"   # "stdout" or "file"
 
 In your application's `main.rs`, initialize the logger early in the startup process.
 
-```rust,ignore
+```rust
 use w3b2_solana_logger::{init, LogConfig};
 use tracing::info;
 
 // Assume 'config.logging' is the LogConfig struct loaded from a file
-let log_config: LogConfig = // ... load from config file ...
+let log_config: LogConfig = Default::default();
 init(&log_config).expect("Failed to initialize logger");
 
 info!("Logger initialized successfully. The application is starting.");

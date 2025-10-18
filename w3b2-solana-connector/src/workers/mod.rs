@@ -21,7 +21,7 @@
 //! 2.  Spawn the `event_manager.run()` method as a long-running background task.
 //! 3.  Use the `handle` throughout your application to create listeners and manage the service.
 //!
-//! ```rust,ignore
+//! ```rust
 //! use w3b2_solana_connector::{
 //!     workers::EventManager,
 //!     config::ConnectorConfig,
@@ -51,6 +51,7 @@
 //!
 //!     // 4. Use the handle to create listeners in your application logic
 //!     let user_pda = // ... some user profile PDA
+//!     # solana_sdk::pubkey::new_rand();
 //!     let mut listener = handle.listen_as_user(user_pda);
 //!
 //!     // ... process events from the listener
