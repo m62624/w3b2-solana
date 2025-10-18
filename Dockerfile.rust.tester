@@ -1,0 +1,12 @@
+# --- Tester ---
+# This Dockerfile is for running integration tests.
+# It leverages the pre-built `w3b2-builder` image to reuse its dependency cache,
+# making test runs significantly faster.
+
+FROM w3b2-builder AS tester
+
+WORKDIR /project
+
+# The builder image only has stubs for dependency caching.
+# Copy the full, actual source code to be able to compile and run the tests.
+COPY . .

@@ -106,6 +106,42 @@ services:
         /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
       "
 
+  tester:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust.tester
+    image: w3b2-tester
+    pull_policy: never
+    profiles: ["tester", "full"]
+    depends_on:
+      gateway:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - GATEWAY_HOST=gateway
+      - GATEWAY_PORT=${GATEWAY_PORT}
+      - RUST_LOG=info
+    volumes:
+      - ./artifacts:/project/artifacts
+    command: >
+      bash -c "
+        echo '--- Preparing test environment ---' &&
+        # 1. Read the Program ID from the build artifacts, just like the gateway does.
+        export W3B2_CONNECTOR__PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
+        echo 'Running tests with PROGRAM_ID='$$W3B2_CONNECTOR__PROGRAM_ID &&
+        # 2. Create a symlink so that tests can find the compiled .so file.
+        #    Tests look for it in `../target/deploy`, which resolves to `/project/target/deploy`.
+        mkdir -p /project/target/deploy &&
+        ln -sf /project/artifacts/w3b2_solana_program.so /project/target/deploy/w3b2_solana_program.so &&
+        echo 'Symlink for program artifacts created.' &&
+        
+        echo '--- Running all unit and documentation tests ---' &&
+        cargo test --workspace -- --nocapture &&
+        echo '--- Running all ignored (integration) tests ---' &&
+        cargo test --workspace -- --ignored --nocapture
+      "
+
   docs:
     build:
       context: .
