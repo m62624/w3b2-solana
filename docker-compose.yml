@@ -116,41 +116,6 @@ services:
     volumes:
       - ./docs:/project/docs # Mount the entire docs directory
       - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
-
-  example-client:
-    image: w3b2-hybrid-social-network-client
-    build:
-      context: .
-      dockerfile: Dockerfile.example-client
-    pull_policy: never
-    profiles: ["full", "client"]
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./artifacts:/app/artifacts
-    environment:
-      - GATEWAY_HOST=gateway # Service name inside Docker network
-      - GATEWAY_PORT=${GATEWAY_PORT}
-      - SOLANA_RPC_URL=http://solana-validator:${SOLANA_VALIDATOR_RPC_PORT:-8899}
-      - STREAMLIT_SERVER_ENABLE_CORS=false
-      - STREAMLIT_CLIENT_VERIFY_SSL=false
-      - PYTHONUNBUFFERED=1 # Force python to output logs without buffering
-    command: >
-      bash -c "
-        # Wait for the gRPC gateway to be ready before starting the client.
-        while ! nc -z gateway ${GATEWAY_PORT}; do
-          echo 'Waiting for gRPC gateway to be available...';
-          sleep 2;
-        done;
-        while [ ! -f /app/artifacts/w3b2_solana_program.json ]; do
-          echo 'Waiting for program artifacts...';
-          sleep 2;
-        done;
-        export PROGRAM_ID=$$(cat /app/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
-        echo 'Starting client with PROGRAM_ID='$$PROGRAM_ID;
-        node solana/app.js
-      "
-
 volumes:
   solana-ledger:
   gateway-data:
