@@ -1,18 +1,19 @@
-//! # On-Chain Transaction Builder
+//! # Legacy Transaction Builder
 //!
 //! This module provides the [`TransactionBuilder`], a utility for creating unsigned
-//! Solana transactions for the `w3b2-solana-program`.
+//! Solana transaction messages for the `w3b2-solana-program`.
 //!
 //! ## Use Case
 //!
-//! This builder is intended for use by **off-chain Rust services** (e.g., an oracle,
-//! a custom admin tool, or other backend processes) that need to interact with the
-//! on-chain program. It simplifies the process of constructing valid instructions
-//! and transactions.
+//! This builder is a helper for **off-chain Rust services** (e.g., an oracle,
+//! a custom admin tool) that need to construct instructions programmatically in Rust.
+//! It simplifies the process of building valid `Message` objects that can then be
+//! signed and sent to the blockchain.
 //!
-//! It is **not** used by the gRPC gateway, as clients are now expected to build
-//! their own transactions using the program's IDL and a library like `anchor-ts`
-//! or `anchorpy`.
+//! It is **not** the primary or recommended way for typical clients to interact with
+//! the on-chain program. Standard clients (web, mobile) should use the program's IDL
+//! with mainstream libraries like `@coral-xyz/anchor` (TypeScript) or `anchorpy` (Python).
+//! This builder is also **not** used by the gRPC gateway.
 //!
 //! ## Features
 //!

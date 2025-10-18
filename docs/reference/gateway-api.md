@@ -1,77 +1,86 @@
 # gRPC Gateway API Reference
 
-The gRPC gateway provides a focused, high-performance service for streaming on-chain events from the W3B2 program. Its sole responsibility is to allow clients to subscribe to real-time event feeds for specific on-chain accounts.
+The gRPC gateway provides a focused, high-performance service for streaming on-chain events from the `w3b2-solana-program`. Its sole responsibility is to allow clients to subscribe to event feeds for specific on-chain accounts.
+
+**Note:** This gateway **only** handles event streaming. For creating and submitting transactions, clients should use a standard library for their language, such as `anchorpy` for Python or `@coral-xyz/anchor` for TypeScript, along with the program's IDL.
+
+## API Philosophy: Live vs. History
+
+The gateway provides two distinct types of event streams for both `User` and `Admin` profiles to enable robust state synchronization:
+
+1.  **Live Streams (`stream_*_live_events`)**: Opens a persistent, long-lived connection that forwards events in real-time as they are confirmed on-chain. This is ideal for applications that need immediate updates.
+2.  **History Streams (`get_*_event_history`)**: Fetches all historical events for a given PDA from its creation. This is a "one-shot" stream that closes automatically after the last historical event has been delivered.
+
+A typical client would first drain the history stream to build its initial state, and then subscribe to the live stream for ongoing updates.
 
 ## API Methods
 
-The API is focused exclusively on event streaming. For creating and submitting transactions, clients should use a standard library for their language, such as `anchorpy` for Python or `@coral-xyz/anchor` for TypeScript, along with the program's IDL. This is the recommended and most robust approach for interacting with the on-chain program.
+The full Protobuf definition can be found in `proto/gateway.proto`.
 
-### Event Streaming
+---
 
-These are server-side streaming methods that allow a client to subscribe to a persistent stream of on-chain events for a specific PDA. The gateway uses the underlying `EventListener` from the `w3b2-solana-connector`, meaning it provides the same "catch-up then live" event delivery guarantees.
+### Live Event Streams
 
-*   **`ListenAsUser(ListenRequest) returns (stream EventStreamItem)`**
-    Opens a stream for events related to a specific `UserProfile` PDA.
+#### `StreamUserLiveEvents(ListenRequest) returns (stream EventStreamItem)`
+Subscribes to a stream of **live** events for a specific `UserProfile` PDA. The stream remains open until the client disconnects or an `Unsubscribe` request is sent.
 
-*   **`ListenAsAdmin(ListenRequest) returns (stream EventStreamItem)`**
-    Opens a stream for events related to a specific `AdminProfile` PDA.
+#### `StreamAdminLiveEvents(ListenRequest) returns (stream EventStreamItem)`
+Subscribes to a stream of **live** events for a specific `AdminProfile` PDA.
 
-*   **`Unsubscribe(UnsubscribeRequest)`**
-    Manually closes an active event stream subscription.
+---
 
-#### Client Integration Example
+### Historical Event Streams
 
-To connect to the gateway's event stream, you should use the provided `.proto` files to generate a gRPC client in your programming language of choice.
+#### `GetUserEventHistory(ListenRequest) returns (stream EventStreamItem)`
+Fetches all historical events for a specific `UserProfile` PDA. The stream closes automatically once the full history has been delivered.
 
-1.  **Locate the Protobuf Definitions**: The API definitions are located in the `proto/` directory at the root of the repository. The main service is defined in `gateway.proto`.
+#### `GetAdminEventHistory(ListenRequest) returns (stream EventStreamItem)`
+Fetches all historical events for a specific `AdminProfile` PDA. The stream closes automatically once the full history has been delivered.
 
-2.  **Generate Client Code**: Use your language's standard gRPC code generation tools (e.g., `grpc-tools` for Python, `protoc-gen-go-grpc` for Go) to create client stubs from the `.proto` files.
+---
 
-3.  **Implement the Listener**: Use the generated client to call the `ListenAsUser` or `ListenAsAdmin` methods. These are server-streaming RPCs, so your client will receive a stream of `EventStreamItem` messages.
+### Utility
 
-Your client logic should iterate over this stream to process events as they arrive. The `source` field in `EventStreamItem` allows you to distinguish between historical (`CATCHUP`) and real-time (`LIVE`) events.
+#### `Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty)`
+Manually closes an active **live** event stream subscription. This is not needed for history streams.
 
-#### Conceptual Client Example (Python)
+## Example Client Workflow (Conceptual Python)
 
 ```python
-# Assuming 'gateway_pb2' and 'gateway_pb2_grpc' are generated
+# Assuming 'gateway_pb2' and 'gateway_pb2_grpc' are generated from .proto files
 import gateway_pb2
 import gateway_pb2_grpc
 import grpc
 
+# --- Setup ---
 channel = grpc.insecure_channel('localhost:50051')
 stub = gateway_pb2_grpc.BridgeGatewayServiceStub(channel)
+pda_to_listen = "Hq1q2y3..." # Base-58 encoded PDA of the UserProfile
 
-user_pda_to_listen = "..." # The PDA of the user profile
-
-request = gateway_pb2.ListenRequest(pda=user_pda_to_listen)
-
+# --- 1. Hydrate state with historical events ---
+print(f"Fetching event history for {pda_to_listen}...")
+history_request = gateway_pb2.ListenRequest(pda=pda_to_listen)
 try:
-    for item in stub.ListenAsUser(request):
-        print(f"Received event from source: {item.source}")
-        # Process item.event based on its type
+    for item in stub.GetUserEventHistory(history_request):
+        # Process historical event to build local state
+        print(f"  [History] Event received: {item.event}")
+    print("History sync complete.")
 except grpc.RpcError as e:
-    print(f"An error occurred: {e.details()}")
-```
+    print(f"An RPC error occurred during history fetch: {e.details()}")
 
-**Response Stream:**
 
-The server will stream back `EventStreamItem` messages. The first events will be historical (from the catch-up worker), followed by live events.
+# --- 2. Subscribe to live events for real-time updates ---
+print(f"Subscribing to live events for {pda_to_listen}...")
+live_request = gateway_pb2.ListenRequest(pda=pda_to_listen)
+try:
+    for item in stub.StreamUserLiveEvents(live_request):
+        # Process live event
+        print(f"  [Live] Event received: {item.event}")
+except grpc.RpcError as e:
+    # This will be hit if the stream is closed by the server or a network error occurs
+    print(f"Live stream ended: {e.details()}")
 
-```json
-{
-  "userProfileCreated": {
-    "authority": "USER_WALLET_PUBKEY",
-    "userPda": "USER_PROFILE_PDA_PUBKEY",
-    // ... other fields
-  }
-}
-{
-  "userFundsDeposited": {
-    "authority": "USER_WALLET_PUBKEY",
-    "userProfilePda": "USER_PROFILE_PDA_PUBKEY",
-    "amount": "100000000",
-    // ... other fields
-  }
-}
+# To close the live stream from the client:
+# unsubscribe_request = gateway_pb2.UnsubscribeRequest(pda=pda_to_listen)
+# stub.Unsubscribe(unsubscribe_request)
 ```
