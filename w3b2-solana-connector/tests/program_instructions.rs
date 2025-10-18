@@ -657,3 +657,111 @@ async fn test_log_action_by_user() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "Requires a compiled BPF program"]
+async fn test_full_ban_unban_cycle() -> anyhow::Result<()> {
+    // === 1. Arrange: Create Admin and User, set an unban fee ===
+    let mut context = setup_test_environment().await;
+    let (transaction_builder, (admin_authority, admin_pda), (user_authority, user_pda)) =
+        setup_user_profile(&mut context).await?;
+
+    let unban_fee = 100_000;
+
+    let message_bytes = transaction_builder.prepare_admin_set_config(
+        admin_authority.pubkey(),
+        None,
+        None,
+        None,
+        Some(unban_fee),
+    );
+    let mut set_config_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    set_config_message.recent_blockhash = context.last_blockhash;
+    let mut set_config_tx = Transaction::new_unsigned(set_config_message);
+    set_config_tx.sign(&[&admin_authority], context.last_blockhash);
+    context
+        .banks_client
+        .process_transaction(set_config_tx)
+        .await?;
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
+
+    // === 2. Act: Admin bans the user ===
+    let message_bytes =
+        transaction_builder.prepare_admin_ban_user(admin_authority.pubkey(), user_pda);
+    let mut ban_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    ban_message.recent_blockhash = context.last_blockhash;
+    let mut ban_tx = Transaction::new_unsigned(ban_message);
+    ban_tx.sign(&[&admin_authority], context.last_blockhash);
+    context.banks_client.process_transaction(ban_tx).await?;
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
+
+    // === 3. Assert: User is banned ===
+    let user_account = context.banks_client.get_account(user_pda).await?.unwrap();
+    let user_profile = w3b2_solana_program::state::UserProfile::try_deserialize(
+        &mut user_account.data.as_slice(),
+    )?;
+    assert!(user_profile.banned);
+    println!("✅ Ban successful: User is now banned.");
+
+    // === 4. Act: User deposits funds and requests an unban ===
+    // Deposit funds to pay the fee
+    let message_bytes =
+        transaction_builder.prepare_user_deposit(user_authority.pubkey(), admin_pda, unban_fee);
+    let mut deposit_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    deposit_message.recent_blockhash = context.last_blockhash;
+    let mut deposit_tx = Transaction::new_unsigned(deposit_message);
+    deposit_tx.sign(&[&user_authority], context.last_blockhash);
+    context.banks_client.process_transaction(deposit_tx).await?;
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
+
+    // Request the unban
+    let message_bytes =
+        transaction_builder.prepare_user_request_unban(user_authority.pubkey(), admin_pda);
+    let mut request_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    request_message.recent_blockhash = context.last_blockhash;
+    let mut request_tx = Transaction::new_unsigned(request_message);
+    request_tx.sign(&[&user_authority], context.last_blockhash);
+    context.banks_client.process_transaction(request_tx).await?;
+    context.last_blockhash = context.banks_client.get_latest_blockhash().await?;
+
+    // === 5. Assert: Unban is requested and fee is paid ===
+    let user_account_after_req = context.banks_client.get_account(user_pda).await?.unwrap();
+    let user_profile_after_req = w3b2_solana_program::state::UserProfile::try_deserialize(
+        &mut user_account_after_req.data.as_slice(),
+    )?;
+    assert!(user_profile_after_req.unban_requested);
+    assert_eq!(user_profile_after_req.deposit_balance, 0);
+
+    let admin_account_after_req = context.banks_client.get_account(admin_pda).await?.unwrap();
+    let admin_profile_after_req =
+        AdminProfile::try_deserialize(&mut admin_account_after_req.data.as_slice())?;
+    assert_eq!(admin_profile_after_req.balance, unban_fee);
+    println!("✅ Unban request successful: Fee paid and request flag set.");
+
+    // === 6. Act: Admin unbans the user ===
+    let message_bytes =
+        transaction_builder.prepare_admin_unban_user(admin_authority.pubkey(), user_pda);
+    let mut unban_message: Message =
+        bincode::serde::borrow_decode_from_slice(&message_bytes, bincode::config::standard())?.0;
+    unban_message.recent_blockhash = context.last_blockhash;
+    let mut unban_tx = Transaction::new_unsigned(unban_message);
+    unban_tx.sign(&[&admin_authority], context.last_blockhash);
+    context.banks_client.process_transaction(unban_tx).await?;
+
+    // === 7. Assert: User is no longer banned ===
+    let user_account_final = context.banks_client.get_account(user_pda).await?.unwrap();
+    let user_profile_final = w3b2_solana_program::state::UserProfile::try_deserialize(
+        &mut user_account_final.data.as_slice(),
+    )?;
+    assert!(!user_profile_final.banned);
+    assert!(!user_profile_final.unban_requested); // Flag should be reset
+    println!("✅ Unban successful: User is no longer banned.");
+
+    println!("✅ Test passed: Full ban/unban cycle completed successfully.");
+
+    Ok(())
+}
