@@ -20,6 +20,7 @@ idl-build = ["anchor-lang/idl-build"]
 [dependencies]
 # --- Anchor Framework ---
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
+solana-sdk-ids = "2.2.1"
 
 [dev-dependencies]
 # --- Solana ---

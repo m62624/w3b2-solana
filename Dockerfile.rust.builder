@@ -1,5 +1,5 @@
 # --- Builder ---
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.90-slim-bookworm AS builder
 
 ARG SOLANA_VERSION
 ARG ANCHOR_VERSION
@@ -29,12 +29,14 @@ COPY w3b2-solana-program/*.toml ./w3b2-solana-program/
 COPY w3b2-solana-connector/*.toml ./w3b2-solana-connector/
 COPY w3b2-solana-gateway/*.toml ./w3b2-solana-gateway/
 COPY w3b2-solana-logger/*.toml ./w3b2-solana-logger/
+COPY w3b2-solana-signer/*.toml ./w3b2-solana-signer/
 
 
-RUN mkdir -p w3b2-solana-program/src w3b2-solana-connector/src w3b2-solana-gateway/src w3b2-solana-logger/src && \
+RUN mkdir -p w3b2-solana-program/src w3b2-solana-connector/src w3b2-solana-gateway/src w3b2-solana-logger/src w3b2-solana-signer/src && \
     touch w3b2-solana-program/src/lib.rs && \
     touch w3b2-solana-connector/src/lib.rs && \
     touch w3b2-solana-logger/src/lib.rs && \
+    touch w3b2-solana-signer/src/lib.rs && \
     echo "fn main() {}" > w3b2-solana-gateway/src/main.rs && \
     # Build an empty binary to cache dependencies for the whole workspace
     cargo build --workspace --release --bin w3b2-solana-gateway && \

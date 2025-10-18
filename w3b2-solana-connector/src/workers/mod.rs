@@ -15,48 +15,6 @@
 //!   - `CatchupWorker`: Fetches historical transactions for newly registered listeners.
 //!   - `Dispatcher`: Routes events from the workers to the correct listeners.
 //!
-//! ## Usage Pattern
-//!
-//! 1.  Create an `EventManager` instance along with its `EventManagerHandle`.
-//! 2.  Spawn the `event_manager.run()` method as a long-running background task.
-//! 3.  Use the `handle` throughout your application to create listeners and manage the service.
-//!
-//! ```rust
-//! use w3b2_solana_connector::{
-//!     workers::EventManager,
-//!     config::ConnectorConfig,
-//!     storage::MemoryStorage,
-//! };
-//! use solana_client::nonblocking::rpc_client::RpcClient;
-//! use std::sync::Arc;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     // 1. Setup configuration
-//!     let config = Arc::new(ConnectorConfig::default());
-//!     let rpc_client = Arc::new(RpcClient::new("...".to_string()));
-//!     let storage = Arc::new(MemoryStorage::new());
-//!
-//!     // 2. Create the EventManager and its handle
-//!     let (event_manager, handle) = EventManager::new(
-//!         config.clone(),
-//!         rpc_client.clone(),
-//!         storage,
-//!     );
-//!
-//!     // 3. Spawn the workers to run in the background
-//!     tokio::spawn(async move {
-//!         event_manager.run().await;
-//!     });
-//!
-//!     // 4. Use the handle to create listeners in your application logic
-//!     let user_pda = // ... some user profile PDA
-//!     # solana_sdk::pubkey::new_rand();
-//!     let mut listener = handle.listen_as_user(user_pda);
-//!
-//!     // ... process events from the listener
-//! }
-//! ```
 
 mod catchup;
 mod live;

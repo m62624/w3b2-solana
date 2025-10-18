@@ -12,30 +12,6 @@
 //!     application has a complete and consistent view of the PDA's state.
 //!
 //! 2.  **Live Stream**: Delivers all new events that occur in real-time while the listener is active.
-//!
-//! ## Example
-//!
-//! ```rust
-//! // Assume `handle` is an EventManagerHandle from `EventManager::new()`
-//! let handle = // ...
-//! # w3b2_solana_connector::workers::EventManager::new(Default::default(), Default::default(), Default::default()).1;
-//!
-//! // Create a listener for a specific UserProfile PDA
-//! let user_pda = solana_sdk::pubkey::new_rand();
-//! let mut user_listener = handle.listen_as_user(user_pda);
-//!
-//! async move {
-//!     // Process historical events first to sync state
-//!     while let Some(event) = user_listener.next_catchup_event().await {
-//!         println!("Historical event: {:?}", event);
-//!     }
-//!
-//!     // Then, process live events as they arrive
-//!     while let Some(event) = user_listener.next_live_event().await {
-//!         println!("Live event: {:?}", event);
-//!     }
-//! };
-//! ```
 
 use crate::dispatcher::{DispatcherCommand, DispatcherHandle, ListenerChannels};
 pub use crate::events::BridgeEvent;

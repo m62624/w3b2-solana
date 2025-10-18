@@ -17,7 +17,7 @@ w3b2-solana-logger = { path = "w3b2-solana-logger" }
 w3b2-solana-signer = { path = "w3b2-solana-signer" }
 
 # external
-anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 borsh = "0.10.4"
 
 solana-sdk = { version = "2.3.1", features = ["full"] }

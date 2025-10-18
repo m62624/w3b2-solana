@@ -19,6 +19,7 @@ use solana_program::{
     system_instruction,
     sysvar::instructions::{load_current_index_checked, load_instruction_at_checked},
 };
+use solana_sdk_ids::ed25519_program;
 
 /// The maximum size in bytes for the `payload` in dispatch instructions.
 pub const MAX_PAYLOAD_SIZE: usize = 1000;
@@ -656,7 +657,7 @@ pub fn user_dispatch_command(
     // Check that it's an ed25519 program instruction.
     require_keys_eq!(
         verify_ix.program_id,
-        solana_program::ed25519_program::ID,
+        ed25519_program::ID,
         BridgeError::InstructionMismatch
     );
 

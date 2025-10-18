@@ -1,8 +1,7 @@
-# обязательно ставим 2.1.*, почему то новое API ещё не стабильно
 [toolchain]
 package_manager = "yarn"
-anchor_version = "0.31.1"
-solana_version = "2.1.0"
+anchor_version = "0.32.1"
+solana_version = "2.3.13"
 
 [features]
 resolution = true
