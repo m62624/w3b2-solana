@@ -1,22 +1,26 @@
 # Welcome to the W3B2-Solana Documentation
 
-W3B2-Solana is a toolset for building hybrid services that bridge traditional off-chain infrastructure with the Solana blockchain. It provides an on-chain smart contract, Rust libraries for backend integration, a gRPC gateway for event streaming, and a C-ABI signing library for multi-language support.
+W3B2-Solana is a toolset for developers looking to integrate their existing Web2 services with the security, transparency, and non-custodial nature of the Solana blockchain. It provides the on-chain programs and off-chain libraries to seamlessly blend high-performance, traditional backend infrastructure with the power of Web3.
 
-The toolset is designed for developers who need to integrate specific on-chain functionality—such as payments, verifiable logging, or state management—into existing applications without migrating their entire stack.
+The core value is enabling **two powerful interaction models** within a single, unified framework:
 
-## Core Philosophy: The Developer-Owned Oracle
+1.  **Direct On-Chain Transactions**: For simple, low-data interactions like micropayments or logging critical audit data, your application can interact directly with the on-chain program. This is the classic Web3 model.
 
-The central pattern is the **"developer-owned oracle"**. The service provider runs an off-chain oracle that signs business-critical data (e.g., API usage, payment amounts). This signature is consumed by the client, which includes it in a transaction sent to the on-chain program. The program verifies the oracle's signature, ensuring the action is authorized, while the user retains final control via their own signature.
+2.  **Secure Off-Chain Handshake for Heavy Traffic**: For high-bandwidth Web2 services (e.g., video streaming, large file transfers), this toolset allows you to use the blockchain as a **secure message bus** to negotiate a direct, off-chain connection between your service and the user.
 
-This site provides detailed guides, API references, and architecture diagrams for the entire toolset.
+This hybrid approach allows you to use the blockchain for what it's best at—security and asset transfer—while leveraging your existing Web2 infrastructure for performance and scale.
 
-## What Can You Do With This Toolset?
+This site provides detailed guides, API references, and architecture diagrams for the entire toolset. Use the navigation to explore the different components and concepts.
 
--   **Non-Custodial Paid APIs**: Charge users in SOL for API calls, authorized by your oracle.
--   **Verifiable Audit Trails**: Log critical off-chain actions to the Solana blockchain as an immutable record.
--   **User-Managed Deposits**: Allow users to pre-fund an account for your service, with funds that only they can approve for spending.
+---
+
+## Core Use Cases
+
+-   **Non-Custodial Paid APIs**: Charge users in SOL for API calls, authorized by your service's oracle.
+-   **Verifiable Audit Trails**: Log critical off-chain actions to the Solana blockchain as an immutable record using the `log_action` instruction.
+-   **Secure Connection Brokering**: Use the on-chain `dispatch` commands to securely establish direct, high-throughput off-chain communication channels with your users.
 -   **On-Chain User Management**: Implement transparent, on-chain banning and moderation systems.
 
-## High-Level System Overview
+---
 
-The system consists of the on-chain program and several off-chain crates that facilitate interaction with it. For a more detailed breakdown, see the [Architecture](architecture/concepts.md) section.
+To dive deeper, start with the [Core Concepts](architecture/concepts.md).

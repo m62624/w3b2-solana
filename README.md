@@ -1,89 +1,40 @@
-# W3B2-Solana: A Toolset for Hybrid On-Chain/Off-Chain Services
+# W3B2-Solana: Bridge Your Web2 Service with Web3 Security
 
-W3B2-Solana provides a collection of interoperable Rust crates for building services that bridge traditional off-chain infrastructure with the Solana blockchain. The toolset is designed for developers who need to integrate specific on-chain functionality—such as payments, verifiable logging, or state management—into existing applications without migrating their entire stack.
+W3B2-Solana is a toolset for developers looking to integrate their existing Web2 services with the security, transparency, and non-custodial nature of the Solana blockchain. It provides the on-chain programs and off-chain libraries to seamlessly blend high-performance, traditional backend infrastructure with the power of Web3.
 
-The core philosophy is the **"developer-owned oracle"** pattern. In this model, the service provider is responsible for running an off-chain oracle that signs business-critical data (e.g., API usage, payment amounts, event outcomes). This signature is then consumed by the client, which includes it in a transaction sent to the on-chain program. The program verifies the oracle's signature, ensuring that the action is authorized by the service provider, while the user retains final control over their assets and data via their own signature.
+The core value is enabling **two powerful interaction models** within a single, unified framework:
 
-> **Note**: This `README.md` provides a high-level overview. For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**. Instructions to run it locally are in the [Local Development](#local-development-with-docker) section.
+1.  **Direct On-Chain Transactions**: For simple, low-data interactions like micropayments, voting, or logging critical audit data, your application can interact directly with the on-chain program. This is the classic Web3 model, providing maximum transparency and security for well-defined, atomic operations.
 
-## High-Level Architecture
+2.  **Secure Off-Chain Handshake for Heavy Traffic**: For high-bandwidth Web2 services (e.g., video streaming, large file transfers, real-time data feeds), using the blockchain for every packet of data is inefficient and costly. This toolset allows you to use the blockchain as a **secure message bus** to negotiate a direct, off-chain connection between your service and the user. The on-chain transaction becomes a verifiable, auditable "handshake" that establishes a secure, private communication channel, while the heavy data lifting happens off-chain.
 
-The system consists of a core on-chain program and several off-chain crates that facilitate interaction with it.
+This hybrid approach allows you to use the blockchain for what it's best at—security, auditability, and asset transfer—while leveraging your existing Web2 infrastructure for performance and scale.
 
--   **On-Chain Program (`w3b2-solana-program`)**: The Anchor-based smart contract that serves as the single source of truth for all on-chain state and logic.
--   **Service Provider Backend / Oracle**: An off-chain service, run by the developer, that signs data payloads. It can be written in any language.
--   **Client Application**: The end-user's application (e.g., web, mobile) that constructs and signs transactions. It interacts directly with the Solana network.
--   **Signer (`w3b2-solana-signer`)**: A C-ABI compatible library that allows non-Rust backends (e.g., Python, Node.js, Go) to sign messages using a Solana keypair, enabling them to act as oracles.
--   **Gateway (`w3b2-solana-gateway`)**: An optional gRPC server that provides a real-time stream of on-chain events emitted by the program.
+## How the Secure Handshake Works
 
-```mermaid
-graph TD
-    subgraph "Service Provider Backend"
-        Oracle["Oracle (Python/Node.js/Go/etc.)"]
-        Signer["w3b2-solana-signer (C-ABI)"]
-        Oracle -- "1. Signs Payload via" --> Signer
-    end
+The on-chain program provides the instruments for this secure negotiation:
+-   **`communication_pubkey`**: Both admins and users store a public key on-chain for secure, hybrid encryption.
+-   **`dispatch` commands**: The `admin_dispatch_command` and `user_dispatch_command` instructions contain a flexible `payload` field.
+-   **The Flow**:
+    1.  A party (e.g., the user) initiates a connection by calling a `dispatch` command.
+    2.  The `payload` of this command contains a connection configuration, encrypted for the recipient using their on-chain `communication_pubkey`.
+    3.  The recipient's backend service, listening for on-chain events via the `w3b2-solana-connector`, receives this encrypted config.
+    4.  After decrypting the config, the service can establish a direct, off-chain connection (e.g., a WebSocket, TCP socket) with the user, completely bypassing the blockchain for the actual data transfer.
 
-    subgraph "User's Device"
-        Client["Client App (Web/Mobile)"]
-    end
-
-    subgraph "Solana Network"
-        RPC["Solana RPC Node"]
-        Program["w3b2-solana-program"]
-    end
-    
-    subgraph "Optional: Event Streaming"
-        Gateway["w3b2-solana-gateway"]
-        Connector["w3b2-solana-connector"]
-        Gateway -- "uses" --> Connector
-    end
-
-    Oracle -- "2. Sends Signed Payload" --> Client
-    Client -- "3. Constructs & Signs Transaction" --> RPC
-    RPC -- "4. Processes Transaction" --> Program
-    Program -- "5. Emits Event" --> RPC
-    RPC -- "6. Forwards Event to" --> Connector
-    Connector -- "7. Streams to" --> Gateway
-    Gateway -- "8. Streams to Client" --> Client
-```
+The `w3b2-solana-program/src/protocols.rs` file provides a reference implementation for a configuration payload, but developers are free to implement any protocol they need.
 
 ## Crate Overview
 
 This workspace contains the following crates:
 
 -   `w3b2-solana-program`: The core on-chain Anchor program.
--   `w3b2-solana-connector`: A Rust library for interacting with the on-chain program and listening to events. Used by the gateway and other Rust-based backends.
--   `w3b2-solana-gateway`: A standalone gRPC gateway that streams on-chain events to clients.
--   `w3b2-solana-signer`: A C-ABI compatible library for signing Solana messages from any programming language. Essential for building oracles in non-Rust environments.
--   `w3b2-solana-logger`: A simple library for logging events to the blockchain.
+-   `w3b2-solana-connector`: A Rust library for listening to on-chain events.
+-   `w3b2-solana-gateway`: An optional gRPC server that streams on-chain events to clients.
+-   `w3b2-solana-signer`: A C-ABI compatible library for signing messages from any programming language, useful for building oracles.
+-   `w3b2-solana-logger`: A simple logging utility for the Rust services.
+
+> **Note**: For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**. Instructions to run it locally are in the [Local Development](#local-development-with-docker) section.
 
 ## Local Development with Docker
 
-The recommended development environment is managed via Docker and Docker Compose.
-
-> **Note:** The repository does **not** include any private keys. You must provide your own Solana program keypair.
-
-### Prerequisites
-
-*   Docker & Docker Compose
-
-### Quickstart
-
-1.  **Generate a Program Keypair**: The build process requires a keypair for the on-chain program. The `builder` service includes the Solana CLI for this purpose.
-    ```bash
-    # This creates ./keys/program-keypair.json on your host machine
-    docker compose run --rm builder solana-keygen new --outfile /keys/program-keypair.json
-    ```
-
-2.  **Build and Run Services**: Use Docker Compose profiles to manage the stack. To build the program, start a validator, deploy the program, and run the gateway:
-    ```bash
-    # This builds and runs the 'builder', 'validator', 'deployer', and 'gateway' services
-    docker compose --profile '*' up --build
-    ```
-
-3.  **Run the Documentation Site**: The MkDocs documentation site can be served locally.
-    ```bash
-    docker compose --profile docs up
-    ```
-    Once started, you can access the documentation site at `http://localhost:8000`.
+The recommended development environment is managed via Docker and Docker Compose. See the full documentation for details on getting started.
