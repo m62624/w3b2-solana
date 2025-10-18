@@ -170,6 +170,29 @@ enum EventSource {
 
 // --- Event Messages (Mirrors of on-chain events) ---
 
+/// A generic wrapper that contains one of any possible event types from the
+/// program. This is used for unified event streams.
+message BridgeEvent {
+  oneof event {
+    AdminProfileRegistered admin_profile_registered = 1;
+    AdminConfigUpdated admin_config_updated = 3;
+    AdminFundsWithdrawn admin_funds_withdrawn = 4;
+    AdminProfileClosed admin_profile_closed = 5;
+    AdminCommandDispatched admin_command_dispatched = 6;
+    UserProfileCreated user_profile_created = 7;
+    UserCommKeyUpdated user_comm_key_updated = 8;
+    UserFundsDeposited user_funds_deposited = 9;
+    UserFundsWithdrawn user_funds_withdrawn = 10;
+    UserProfileClosed user_profile_closed = 11;
+    UserCommandDispatched user_command_dispatched = 12;
+    OffChainActionLogged off_chain_action_logged = 13;
+    AdminUnbanFeeUpdated admin_unban_fee_updated = 14;
+    UserBanned user_banned = 15;
+    UserUnbanned user_unbanned = 16;
+    UserUnbanRequested user_unban_requested = 17;
+  }
+}
+
 /// Emitted when a new `AdminProfile` PDA is created.
 message AdminProfileRegistered {
   /// The public key of the admin's wallet (`authority`).
@@ -322,31 +345,6 @@ message OffChainActionLogged {
   uint32 action_code = 5;
   /// The Unix timestamp of the logged action.
   int64 ts = 6;
-}
-
-// --- Wrapper Event ---
-
-/// A generic wrapper that contains one of any possible event types from the
-/// program. This is used for unified event streams.
-message BridgeEvent {
-  oneof event {
-    AdminProfileRegistered admin_profile_registered = 1;
-    AdminConfigUpdated admin_config_updated = 3;
-    AdminFundsWithdrawn admin_funds_withdrawn = 4;
-    AdminProfileClosed admin_profile_closed = 5;
-    AdminCommandDispatched admin_command_dispatched = 6;
-    UserProfileCreated user_profile_created = 7;
-    UserCommKeyUpdated user_comm_key_updated = 8;
-    UserFundsDeposited user_funds_deposited = 9;
-    UserFundsWithdrawn user_funds_withdrawn = 10;
-    UserProfileClosed user_profile_closed = 11;
-    UserCommandDispatched user_command_dispatched = 12;
-    OffChainActionLogged off_chain_action_logged = 13;
-    AdminUnbanFeeUpdated admin_unban_fee_updated = 14;
-    UserBanned user_banned = 15;
-    UserUnbanned user_unbanned = 16;
-    UserUnbanRequested user_unban_requested = 17;
-  }
 }
 
 /// Emitted when an admin updates their profile configuration.

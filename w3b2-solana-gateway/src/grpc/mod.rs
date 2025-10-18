@@ -44,6 +44,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
+use w3b2_solana_connector::listener::EventListener;
 use w3b2_solana_connector::workers::{EventManager, EventManagerHandle};
 
 use w3b2_solana_connector::client::{TransactionBuilder, UserDispatchCommandArgs};
@@ -157,6 +158,64 @@ fn parse_pubkey(s: &str) -> Result<Pubkey, GatewayError> {
     Pubkey::from_str(s).map_err(GatewayError::from)
 }
 
+/// A generic helper to handle the logic for both `listen_as_user` and `listen_as_admin`.
+///
+/// This function encapsulates the creation of an event listener, spawning a background
+/// task to bridge events to the gRPC stream, and managing the subscription lifecycle.
+async fn handle_listen_stream(
+    state: &AppState,
+    pda: Pubkey,
+    mut listener: EventListener,
+) -> Result<Response<ReceiverStream<Result<EventStreamItem, Status>>>, Status> {
+    let (tx, rx) = mpsc::channel(state.config.connector.channels.listener_event_buffer);
+
+    // Create a watch channel to signal termination for this specific stream.
+    let (stop_tx, mut stop_rx) = watch::channel(());
+    if state.active_subscriptions.insert(pda, stop_tx).is_some() {
+        return Err(Status::already_exists(format!(
+            "A listener for PDA {pda} is already active"
+        )));
+    }
+
+    let active_subscriptions_clone = state.active_subscriptions.clone();
+
+    tokio::spawn(async move {
+        // Phase 1: Drain all catchup events.
+        while let Some(event) = listener.next_catchup_event().await {
+            let item = gateway::EventStreamItem::from(event);
+            if tx.send(Ok(item)).await.is_err() {
+                tracing::warn!("Client for PDA {} disconnected during catchup.", pda);
+                active_subscriptions_clone.remove(&pda);
+                return;
+            }
+        }
+        tracing::info!("Catchup phase completed for PDA {}.", pda);
+
+        // Phase 2: Listen for live events and the stop signal.
+        loop {
+            tokio::select! {
+                _ = stop_rx.changed() => {
+                    tracing::info!("Unsubscribe signal received for PDA {}. Closing stream.", pda);
+                    break;
+                }
+                Some(event) = listener.next_live_event() => {
+                    let item = gateway::EventStreamItem::from(event);
+                    if tx.send(Ok(item)).await.is_err() {
+                        tracing::warn!("Client for PDA {} disconnected during live stream.", pda);
+                        break;
+                    }
+                }
+                else => break, // Event manager shut down.
+            }
+        }
+
+        active_subscriptions_clone.remove(&pda);
+        tracing::info!("Event stream for PDA {} has ended.", pda);
+    });
+
+    Ok(Response::new(ReceiverStream::new(rx)))
+}
+
 #[tonic::async_trait]
 impl BridgeGatewayService for GatewayServer {
     type ListenAsUserStream = ReceiverStream<Result<EventStreamItem, Status>>;
@@ -173,64 +232,10 @@ impl BridgeGatewayService for GatewayServer {
         tracing::info!("Received ListenAsUser request for PDA: {}", req.pda);
 
         let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
+        let event_manager = self.state.event_manager.clone();
 
-        let mut listener = self.state.event_manager.listen_as_user(pda);
-        let (tx, rx) = mpsc::channel(self.state.config.connector.channels.listener_event_buffer);
-
-        // Create a watch channel to signal termination for this specific stream.
-        let (stop_tx, mut stop_rx) = watch::channel(());
-        if self
-            .state
-            .active_subscriptions
-            .insert(pda, stop_tx)
-            .is_some()
-        {
-            return Err(Status::already_exists(format!(
-                "A listener for PDA {pda} is already active"
-            )));
-        }
-
-        let tx_clone = tx.clone();
-        let active_subscriptions_clone = self.state.active_subscriptions.clone();
-
-        tokio::spawn(async move {
-            // Phase 1: Drain all catchup events.
-            while let Some(event) = listener.next_catchup_event().await {
-                let item = gateway::EventStreamItem::from(event);
-                if tx_clone.send(Ok(item)).await.is_err() {
-                    tracing::warn!("Client for PDA {} disconnected during catchup.", pda);
-                    active_subscriptions_clone.remove(&pda);
-                    return;
-                }
-            }
-            tracing::info!("Catchup phase completed for user PDA {}.", pda);
-
-            // Phase 2: Listen for live events and the stop signal.
-            loop {
-                tokio::select! {
-                    // Stop if an unsubscribe signal is received.
-                    _ = stop_rx.changed() => {
-                        tracing::info!("Unsubscribe signal received for user PDA {}. Closing stream.", pda);
-                        break;
-                    }
-                    // Forward live events.
-                    Some(event) = listener.next_live_event() => {
-                        let item = gateway::EventStreamItem::from(event);
-                        if tx_clone.send(Ok(item)).await.is_err() {
-                            tracing::warn!("Client for PDA {} disconnected during live stream.", pda);
-                            break;
-                        }
-                    }
-                    // Stop if the event manager shuts down.
-                    else => break,
-                }
-            }
-
-            active_subscriptions_clone.remove(&pda);
-            tracing::info!("Event stream for user PDA {} has ended.", pda);
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
+        let listener = event_manager.listen_as_user(pda);
+        handle_listen_stream(&self.state, pda, listener).await
     }
 
     type ListenAsAdminStream = ReceiverStream<Result<EventStreamItem, Status>>;
@@ -247,62 +252,10 @@ impl BridgeGatewayService for GatewayServer {
         tracing::info!("Received ListenAsAdmin request for PDA: {}", req.pda);
 
         let pda = parse_pubkey(&req.pda).map_err(Status::from)?;
-        let mut listener = self.state.event_manager.listen_as_admin(pda);
-        let (tx, rx) = mpsc::channel(self.state.config.connector.channels.listener_event_buffer);
+        let event_manager = self.state.event_manager.clone();
 
-        // Create a watch channel to signal termination.
-        let (stop_tx, mut stop_rx) = watch::channel(());
-        if self
-            .state
-            .active_subscriptions
-            .insert(pda, stop_tx)
-            .is_some()
-        {
-            return Err(Status::already_exists(format!(
-                "A listener for PDA {pda} is already active"
-            )));
-        }
-
-        let tx_clone = tx.clone();
-        let active_subscriptions_clone = self.state.active_subscriptions.clone();
-
-        tokio::spawn(async move {
-            // Phase 1: Drain all catchup events.
-            while let Some(event) = listener.next_catchup_event().await {
-                let item = gateway::EventStreamItem::from(event);
-                if tx_clone.send(Ok(item)).await.is_err() {
-                    tracing::warn!("Client for admin PDA {} disconnected during catchup.", pda);
-                    active_subscriptions_clone.remove(&pda);
-                    return;
-                }
-            }
-            tracing::info!("Catchup phase completed for admin PDA {}.", pda);
-
-            // Phase 2: Listen for live events and the stop signal.
-            loop {
-                tokio::select! {
-                    _ = stop_rx.changed() => {
-                        tracing::info!("Unsubscribe signal received for admin PDA {}. Closing stream.", pda);
-                        break;
-                    }
-
-                    Some(event) = listener.next_live_event() => {
-                        let item = gateway::EventStreamItem::from(event);
-                        if tx_clone.send(Ok(item)).await.is_err() {
-                            tracing::warn!("Client for admin PDA {} disconnected during live stream.", pda);
-                            break;
-                        }
-                    }
-
-                    else => break,
-                }
-            }
-
-            active_subscriptions_clone.remove(&pda);
-            tracing::info!("Event stream for admin PDA {} has ended.", pda);
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
+        let listener = event_manager.listen_as_admin(pda);
+        handle_listen_stream(&self.state, pda, listener).await
     }
 
     /// Manually closes an active event stream subscription.

@@ -29,11 +29,10 @@ use async_trait::async_trait;
 use solana_client::{client_error::ClientError, nonblocking::rpc_client::RpcClient};
 use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_sdk::instruction::Instruction;
-use solana_sdk::message::Message;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 use solana_sdk::{hash::Hash, signature::Signature};
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use std::sync::Arc;
 use w3b2_solana_program::{accounts, instruction};
 
@@ -74,30 +73,6 @@ where
     /// Submits a signed transaction and waits for confirmation.
     pub async fn submit_transaction(&self, tx: &Transaction) -> Result<Signature, ClientError> {
         self.rpc_client.send_and_confirm_transaction(tx).await
-    }
-
-    /// A helper that takes a `Message`, fetches a recent blockhash, creates a
-    /// `Transaction`, signs it, and submits it to the network.
-    ///
-    /// This is useful for internal tools and tests where the full prepare-sign-submit
-    /// flow is handled in one place.
-    pub async fn build_sign_and_submit(
-        &self,
-        mut message: Message,
-        signers: &[&Keypair],
-    ) -> Result<Signature, ClientError> {
-        let blockhash = self.rpc_client.get_latest_blockhash().await?;
-        message.recent_blockhash = blockhash;
-
-        let mut tx = Transaction::new_unsigned(message);
-
-        tx.sign(signers, blockhash);
-
-        self.submit_transaction(&tx).await
-    }
-
-    pub fn rpc_client(&self) -> Arc<C> {
-        self.rpc_client.clone()
     }
 
     /// A private helper to create a message from a vector of instructions.
