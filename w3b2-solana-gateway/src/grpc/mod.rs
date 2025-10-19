@@ -895,14 +895,14 @@ impl BridgeGatewayService for GatewayServer {
         _request: Request<()>,
     ) -> Result<Response<BlockhashResponse>, Status> {
         let result: Result<Response<BlockhashResponse>, GatewayError> = (async {
-            tracing::info!("Received GetLatestBlockhash request");
-
             let blockhash = self
                 .state
                 .rpc_client
                 .get_latest_blockhash()
                 .await
                 .map_err(|e| GatewayError::Connector(Box::new(e)))?;
+
+            tracing::info!("Received GetLatestBlockhash request (hash={})", blockhash);
 
             Ok(Response::new(BlockhashResponse {
                 blockhash: blockhash.to_bytes().to_vec(),

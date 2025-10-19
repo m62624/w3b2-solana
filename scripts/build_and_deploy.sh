@@ -19,11 +19,16 @@ ARTIFACTS_DIR="$PWD/artifacts"
 
 # --- Cleanup and Permissions ---
 fix_permissions() {
-    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
-        echo "Changing ownership of generated files to $HOST_UID:$HOST_GID..."
-        # Use chown on directories that are known to be created or modified.
-        # Adding || true to prevent the script from failing if a directory doesn't exist yet.
-        chown -R "$HOST_UID:$HOST_GID" "$ARTIFACTS_DIR" "target" "$(dirname "$PROGRAM_KEYPAIR_PATH")" || true
+    # Default to user 1000 if HOST_UID/GID are not set. This is the standard first user in most Linux distros.
+    local uid=${HOST_UID:-1000}
+    local gid=${HOST_GID:-1000}
+
+    echo "Fixing permissions for generated files to $uid:$gid..."
+    # Use chown on directories that are known to be created or modified by the container.
+    # Adding `|| true` prevents the script from failing if a directory doesn't exist yet.
+    chown -R "$uid:$gid" "$ARTIFACTS_DIR" "$(dirname "$PROGRAM_KEYPAIR_PATH")" || true
+    if [ -d "target" ]; then
+        chown -R "$uid:$gid" "target" || true
     fi
 }
 

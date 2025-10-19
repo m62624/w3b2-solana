@@ -6,8 +6,7 @@ services:
       args:
         SOLANA_VERSION: ${SOLANA_VERSION}
         ANCHOR_VERSION: ${ANCHOR_VERSION}
-        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
-    image: w3b2-builder
+    image: w3b2-builder:latest
     pull_policy: never
     env_file:
       - .env
@@ -19,7 +18,7 @@ services:
     working_dir: /app
     command: >
       bash -c "
-        HOST_UID=${UID:-1000} HOST_GID=${GID:-1000} /usr/local/bin/build_and_deploy.sh --build-only
+        /usr/local/bin/build_and_deploy.sh --build-only
       "
 
   solana-validator:
@@ -39,7 +38,7 @@ services:
       bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
 
   deployer:
-    image: w3b2-builder
+    image: w3b2-builder:latest
     pull_policy: never
     profiles: ["deploy", "full"]
     depends_on:
@@ -58,7 +57,7 @@ services:
     command: /usr/local/bin/build_and_deploy.sh --deploy
 
   gateway:
-    image: w3b2-builder
+    image: w3b2-builder:latest
     pull_policy: never
     profiles: ["gateway", "full"]
     depends_on:
@@ -80,11 +79,13 @@ services:
     command: /usr/local/bin/run_gateway.sh
 
   tester:
-    image: w3b2-builder
+    image: w3b2-builder:latest
     pull_policy: never
     profiles: ["tester", "full"]
     depends_on:
       gateway:
+        condition: service_started
+      solana-validator:
         condition: service_started
       builder:
         condition: service_completed_successfully
@@ -93,6 +94,7 @@ services:
     environment:
       - GATEWAY_HOST=gateway # Service name inside docker network
       - GATEWAY_PORT=${GATEWAY_PORT_INTERNAL}
+      - SOLANA_RPC_HOST=solana-validator # For tests running inside docker
       - RUST_LOG=info
     volumes:
       # Mount all necessary directories

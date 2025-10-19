@@ -80,16 +80,11 @@ where
     ///
     /// This function encapsulates the boilerplate of creating a new message
     /// with a specified fee payer.
-    pub fn create_message_with_instructions(
-        payer: &Pubkey,
-        instructions: Vec<Instruction>,
-    ) -> Vec<u8> {
-        let placeholder = Hash::default();
-        let msg = solana_sdk::message::Message::new_with_blockhash(
-            &instructions,
-            Some(payer),
-            &placeholder,
-        );
+    fn create_message_with_instructions(payer: &Pubkey, instructions: Vec<Instruction>) -> Vec<u8> {
+        // Using `Message::new` is more robust as it correctly deduces the fee payer
+        // from the first account in the first instruction that is a signer.
+        // We ensure the payer is the first signer account for clarity.
+        let msg = solana_sdk::message::Message::new(&instructions, Some(payer));
         bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap()
     }
 }
