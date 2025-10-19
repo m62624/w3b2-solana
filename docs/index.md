@@ -6,7 +6,7 @@ The core value is enabling **two powerful interaction models** within a single, 
 
 1.  **Direct On-Chain Transactions**: For simple, low-data interactions like micropayments or logging critical audit data, your application can interact directly with the on-chain program. This is the classic Web3 model.
 
-2.  **Secure Off-Chain Handshake for Heavy Traffic**: For high-bandwidth Web2 services (e.g., video streaming, large file transfers), this toolset allows you to use the blockchain as a **secure message bus** to negotiate a direct, off-chain connection between your service and the user.
+2.  **Secure Off-Chain Handshake for Heavy Traffic**: For high-bandwidth Web2 services (e.g., private data feeds, session-based services), this toolset allows you to use the blockchain as a **secure message bus** to negotiate a direct, off-chain connection between your service and the user.
 
 This hybrid approach allows you to use the blockchain for what it's best at—security and asset transfer—while leveraging your existing Web2 infrastructure for performance and scale.
 

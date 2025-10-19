@@ -1,6 +1,6 @@
 # Connector Library Reference
 
-The `w3b2-solana-connector` crate is a high-level, asynchronous Rust library for building backend services that listen to events from the `w3b2-solana-program`. It is the core component that powers the `w3b2-solana-gateway` and is the recommended tool for any Rust-based service that needs to react to on-chain activity.
+The `w3b2-solana-connector` crate is a high-level, asynchronous Rust library for building **native Rust backend services** that listen to events from the `w3b2-solana-program`. It is the core component that powers the `w3b2-solana-gateway` and is the recommended tool for developers who require more flexibility than the gRPC gateway provides.
 
 ## Core Purpose: Event Listening
 
@@ -61,9 +61,9 @@ tokio::spawn(async move {
 });
 ```
 
-## Secondary Utility: `TransactionBuilder`
+## Core Utility: `TransactionBuilder`
 
-The connector also includes a `TransactionBuilder`, a legacy utility for creating unsigned transaction messages in Rust.
+Alongside event listening, the connector provides a `TransactionBuilder`, a primary utility for creating unsigned transaction messages in Rust.
 
--   **Use Case**: This is a helper for **off-chain Rust services** (e.g., an oracle, a custom admin tool) that need to construct instructions programmatically in Rust.
--   **Not for General Use**: It is **not** the primary or recommended way for typical clients to interact with the on-chain program. Standard clients (web, mobile) should use the program's IDL with libraries like `@coral-xyz/anchor` (TypeScript) or `anchorpy` (Python).
+-   **Use Case**: This is a powerful helper for **off-chain Rust services** (e.g., an oracle, a custom admin tool) that need to construct program instructions and transaction messages programmatically.
+-   **Target Audience**: This component is specifically designed for Rust-based backend environments. Standard clients (web, mobile) should use the program's IDL with libraries like `@coral-xyz/anchor` (TypeScript) or `anchorpy` (Python) to build and sign transactions.

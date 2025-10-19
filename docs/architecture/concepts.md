@@ -6,7 +6,7 @@ The W3B2 toolset is built on a set of fundamental principles designed to provide
 
 The entire system is designed around an asynchronous, event-driven model. The on-chain program's primary role is to validate state transitions, enforce financial rules, and emit verifiable events. It does not directly "call" or "trigger" off-chain systems.
 
-Instead, backend services (like the `w3b2-solana-connector`) listen for these on-chain events (e.g., `UserCommandDispatched`, `UserUnbanRequested`) and react to them. This decoupled architecture provides several advantages:
+Instead, backend services listen for these on-chain events and react to them. For most languages, this is done by connecting to the `w3b2-solana-gateway` gRPC stream. For native Rust services, this can be done by using the `w3b2-solana-connector` library directly. This decoupled architecture provides several advantages:
 - **Resilience**: If a backend service is temporarily down, it can catch up on missed events once it comes back online.
 - **Scalability**: Multiple, independent services can listen to the same stream of on-chain events and perform different tasks in parallel.
 - **Verifiability**: The on-chain program serves as the single source of truth. Backend systems synchronize their state based on the immutable log of events on the Solana ledger.
@@ -59,7 +59,7 @@ The `unban_fee` is not a payment for an unban; it's a **fee for the admin's time
 
 ## Secure Handshake for High-Traffic Off-Chain Services
 
-While the blockchain is excellent for simple, atomic transactions, it is not suitable for high-throughput data transfer (e.g., video streaming, large file sharing, real-time game data). For these use cases, W3B2-Solana provides the tools to use the blockchain as a **secure message bus** to negotiate a direct, off-chain communication channel.
+While the blockchain is excellent for simple, atomic transactions, it is not suitable for high-throughput data transfer (e.g., private data feeds, session-based services). For these use cases, W3B2-Solana provides the tools to use the blockchain as a **secure message bus** to negotiate a direct, off-chain communication channel.
 
 This pattern allows you to leverage your existing high-performance Web2 infrastructure while using the blockchain for what it excels at: authentication, authorization, and auditing.
 
@@ -73,7 +73,7 @@ The core of this pattern lies in using the `dispatch` instructions (`user_dispat
 
 3.  **The Dispatch "Handshake"**: The encrypted configuration is placed into the `payload` field of a `dispatch` command and sent as an on-chain transaction.
 
-4.  **Off-Chain Event Listening**: The recipient's backend service, using `w3b2-solana-connector`, is constantly listening for `...CommandDispatched` events. When it sees the handshake transaction, it receives the encrypted payload.
+4.  **Off-Chain Event Listening**: The recipient's backend service is constantly listening for `...CommandDispatched` events via the `w3b2-solana-gateway`. When it sees the handshake transaction, it receives the encrypted payload from the gRPC stream.
 
 5.  **Decryption and Connection**: The backend service uses its corresponding private key to decrypt the payload. Now possessing the connection details, it can grant the user access to the high-throughput, off-chain service.
 

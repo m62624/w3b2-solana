@@ -1,21 +1,41 @@
-# High-Level Architecture
+# Architecture Overview
 
-The W3B2-Solana toolset facilitates a clear separation of concerns between the user's client, the service provider's backend, and the Solana network.
+W3B2-Solana provides a complete, bidirectional architecture for interacting with the on-chain program. You can both listen for events and submit transactions through a flexible set of tools designed to accommodate any backend language.
 
-The diagram below illustrates the flow for a typical paid, user-initiated command, leveraging the "developer-owned oracle" pattern.
+The recommended approach for all developers, including those using Rust, is to use the `w3b2-solana-gateway`. It provides a comprehensive gRPC interface for all on-chain operations, allowing you to focus on your application's logic instead of the low-level details of Solana integration.
+
+The diagram below illustrates the complete interaction flow, from transaction creation to event reception.
 
 ```mermaid
 graph TD
-    subgraph "Service Provider Backend"
-        Oracle["Oracle (Python/Node.js/etc.)"]
-        Signer["w3b2-solana-signer (C-ABI)"]
-        Gateway["gRPC Gateway"]
+    subgraph "Client Application (Your Backend)"
+        direction LR
+        subgraph "Transaction Creation"
+            A["Anchor CLI<br>(from IDL)"]
+            B["Rust Client<br>(w3b2-solana-connector)"]
+            C["gRPC Client<br>(Recommended for All Languages)"]
+        end
 
-        Oracle -- "1. Signs Payload via" --> Signer
+        subgraph "Transaction Signing"
+            D["Native Solana Library<br>(e.g., solana-py, @solana/web3.js)"]
+            E["FFI Signer<br>(w3b2-solana-signer)"]
+        end
+
+        Oracle["Your Custom Oracle"]
+
+        C -- "1. Prepare Tx" --> Gateway
+        A -- "Generates" --> UnsignedTx
+        B -- "Builds" --> UnsignedTx
+        Gateway -- "2. Returns Unsigned Tx" --> UnsignedTx
+        UnsignedTx -- "3. Sign with" --> D
+        UnsignedTx -- "or" --> E
+        Oracle -- "Provides Data for" --> UnsignedTx
     end
 
-    subgraph "User's Device"
-        Client["Client App (Web/Mobile)"]
+    subgraph "W3B2-Solana Infrastructure"
+        Gateway["w3b2-solana-gateway"]
+        Connector["w3b2-solana-connector"]
+        Gateway -- "uses" --> Connector
     end
 
     subgraph "Solana Network"
@@ -23,26 +43,34 @@ graph TD
         Program["On-Chain Program"]
     end
 
-    subgraph "Event Streaming (Optional)"
-        Connector["w3b2-solana-connector"]
-        Gateway -- "uses" --> Connector
-    end
+    D -- "4. Submit Signed Tx" --> RPC
+    E -- "4. Submit Signed Tx" --> RPC
 
-    Oracle -- "2. Sends Signed Payload to" --> Client
-    Client -- "3. Constructs & Signs Transaction" --> RPC
-    RPC -- "4. Processes Transaction" --> Program
-    Program -- "5. Emits Event" --> RPC
-    RPC -- "6. Forwards Event to" --> Connector
-    Connector -- "7. Streams to" --> Gateway
-    Gateway -- "8. Streams to Client" --> Client
+    RPC -- "5. Processes Tx" --> Program
+    Program -- "6. Emits Event" --> RPC
+    RPC -- "7. Forwards Event" --> Connector
+    Connector -- "8. Streams to" --> Gateway
+    Gateway -- "9. Streams to" --> C
 ```
 
-### Component Roles
+### Component Roles & Interaction Flow
 
--   **Client Application**: The end-user's application (e.g., web, mobile). It is responsible for communicating with the service provider's Oracle to get signed data, constructing transactions using a standard library (like `@coral-xyz/anchor`), signing them with the user's wallet, and submitting them directly to a Solana RPC node.
--   **Oracle**: A backend service run by the developer. Its job is to enforce business logic (e.g., pricing, rate-limiting) and produce a signed data payload that authorizes a specific on-chain action. It can be written in any language.
--   **`w3b2-solana-signer`**: A C-ABI compatible Rust library that can be compiled into a shared object (`.so`, `.dll`, `.dylib`). It allows Oracles written in non-Rust languages to securely sign messages with a Solana keypair. It should only be used if a native keypair library is unavailable for the oracle's language.
--   **`w3b2-solana-program`**: The core on-chain Anchor program. It is the single source of truth, responsible for verifying the oracle's signature, enforcing rules, managing state, and transferring funds.
--   **`w3b2-solana-gateway`**: An optional gRPC server that provides a persistent, real-time stream of on-chain events to clients. Its sole responsibility is event streaming.
--   **`w3b2-solana-connector`**: The underlying Rust library that powers the gateway's event listening capabilities. It can also be used directly in Rust-based backend services.
--   **Solana RPC Node**: The public gateway to the Solana network. Both clients and the service provider's backend connect to an RPC node to send transactions and subscribe to account changes.
+1.  **Transaction Creation**: There are three primary ways to construct a transaction to interact with the on-chain program.
+    -   **`w3b2-solana-gateway` (gRPC)**: This is the **recommended method for all languages**. The gateway exposes a `prepare_*` gRPC method for every on-chain instruction. Your client application calls the appropriate method, and the gateway uses the underlying `w3b2-solana-connector` to build and return a serialized, unsigned transaction message.
+    -   **`w3b2-solana-connector` (Rust Native)**: For developers building services in Rust who require maximum control, the `TransactionBuilder` within the connector can be used directly to construct transactions.
+    -   **Anchor CLI**: For manual testing or simple scripting, the Anchor CLI can be used with the program's IDL to generate transactions.
+
+2.  **Oracle**: Your custom, self-hosted backend service. It is responsible for enforcing your application's business logic, such as validating requests, determining pricing, or providing data that will be included in the on-chain transaction. It is a critical component for most real-world applications.
+
+3.  **Transaction Signing**: Before a transaction can be submitted, it must be cryptographically signed by the appropriate user or admin keypair.
+    -   **Native Solana Libraries**: The preferred method is to use a well-audited, native library for your language (e.g., `@solana/web3.js` for TypeScript, `solana-py` for Python).
+    -   **`w3b2-solana-signer` (FFI)**: This C-ABI library is provided as a fallback. It should only be used if a native signing library is not available for your language or if you are having difficulty deserializing the transaction `Message` struct for signing.
+
+4.  **Transaction Submission & Processing**:
+    -   The client application submits the now-signed transaction to a **Solana RPC Node**.
+    -   The RPC node forwards the transaction to the **On-Chain Program** for processing.
+
+5.  **Event Emission & Streaming**:
+    -   After successfully processing the transaction, the **On-Chain Program** emits an event containing the results of the operation.
+    -   The **`w3b2-solana-connector`**, which is running as part of the gateway, is listening for these events via the RPC node.
+    -   The **`w3b2-solana-gateway`** receives the event from the connector and streams it to all subscribed gRPC clients. This completes the round trip, allowing your backend service to react to the on-chain action it initiated.

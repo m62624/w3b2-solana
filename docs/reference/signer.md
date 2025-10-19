@@ -28,11 +28,15 @@ Instead of reimplementing keypair and signing logic in your language of choice (
 
 ### Usage
 
-The `w3b2-solana-signer` library is universal. Since it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that can work with external C libraries.
+The `w3b2-solana-signer` library is universal. Because it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that knows how to work with external C libraries.
 
-The general workflow is:
-1.  Load the compiled shared library.
-2.  Define the function signatures for the C-ABI functions you intend to use (e.g., `load_key`, `sign_with_handle`, `free_buffer`).
-3.  Call the functions, being careful to manage memory correctly by passing pointers and freeing any returned buffers with the provided `free_buffer` function.
+This is especially useful in cases where creating a keypair or deserializing a `Message` is not possible. With this crate, you can download the repository and add the necessary bindings to connect to other languages.
+
+#### When to Use This Crate
+
+-   **Fallback for Missing Native Implementations**: You should only use `w3b2-solana-signer` if a native, well-audited Solana keypair implementation is not available for your programming language. For mainstream languages like TypeScript (`@solana/web3.js`) and Python (`solana-py`), using their native libraries is preferred.
+-   **Difficulty with `Message` Deserialization**: If you are having trouble deserializing Solana's `Message` structure in your language, this crate is an ideal solution. It allows you to provide a pointer to the necessary message, and the crate will sign it and return the signed transaction for you.
+
+To get a better understanding of the principles of operation and the oracle system, please refer to the crate's tests.
 
 For a complete list of all available C-ABI functions and their specific signatures, please refer to the well-documented source code in `w3b2-solana-signer/src/ffi.rs`.

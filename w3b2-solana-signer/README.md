@@ -56,11 +56,13 @@ You can now link to this library from your application.
 
 ## Usage
 
-The `w3b2-solana-signer` library is universal. Since it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that can work with external C libraries.
+The `w3b2-solana-signer` library is universal. Because it provides a C-compatible interface (C-ABI), it can be used in almost any modern programming language that knows how to work with external C libraries.
 
-You will need to:
-1.  Load the compiled shared library (`.so`, `.dll`, or `.dylib`).
-2.  Define the function signatures for the C-ABI functions you intend to use.
-3.  Call the functions, being careful to manage memory correctly by passing pointers and freeing returned buffers with `free_buffer`.
+This is especially useful in cases where creating a keypair or deserializing a `Message` is not possible. With this crate, you can download the repository and add the necessary bindings to connect to other languages.
 
-> **Important**: You should only use `w3b2-solana-signer` if a native, well-audited Solana keypair implementation is not available for your programming language. For mainstream languages like TypeScript (`@solana/web3.js`) and Python (`solana-py`), using the native libraries is preferred.
+### When to Use This Crate
+
+-   **Fallback for Missing Native Implementations**: You should only use `w3b2-solana-signer` if a native, well-audited Solana keypair implementation is not available for your programming language. For mainstream languages like TypeScript (`@solana/web3.js`) and Python (`solana-py`), using their native libraries is preferred.
+-   **Difficulty with `Message` Deserialization**: If you are having trouble deserializing Solana's `Message` structure in your language, this crate is an ideal solution. It allows you to provide a pointer to the necessary message, and the crate will sign it and return the signed transaction for you.
+
+To get a better understanding of the principles of operation and the oracle system, please refer to the crate's tests.

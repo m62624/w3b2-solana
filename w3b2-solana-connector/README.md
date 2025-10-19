@@ -1,6 +1,6 @@
 # W3B2 Solana Connector
 
-This crate provides a high-level, asynchronous Rust library for building backend services that interact with the `w3b2-solana-program`. It is the primary tool for Rust-based services (like oracles, administrative tools, or the gRPC gateway) to listen for on-chain events.
+This crate provides a high-level, asynchronous Rust library for building **native Rust backend services** that interact with the `w3b2-solana-program`. It serves as the underlying engine for the `w3b2-solana-gateway` and is the recommended tool for developers who need more control than the gRPC gateway provides.
 
 The connector's main responsibility is to provide a robust and persistent event streaming system that allows an application to monitor the activity of any `AdminProfile` or `UserProfile` PDA.
 
@@ -69,3 +69,10 @@ tokio::spawn(async move {
 ```
 
 For more detailed information, please refer to the Rustdoc comments within the source code.
+
+## Core Utility: `TransactionBuilder`
+
+Alongside event listening, the connector provides a `TransactionBuilder`, a primary utility for creating unsigned transaction messages in Rust.
+
+-   **Use Case**: This is a powerful helper for **off-chain Rust services** (e.g., an oracle, a custom admin tool) that need to construct program instructions and transaction messages programmatically.
+-   **Target Audience**: This component is specifically designed for Rust-based backend environments. Standard clients (web, mobile) should use the program's IDL with libraries like `@coral-xyz/anchor` (TypeScript) or `anchorpy` (Python) to build and sign transactions.
