@@ -6,13 +6,16 @@ set -e
 DEPLOYER_KEYPAIR_PATH="${DEPLOYER_KEYPAIR_PATH:-/keys/deployer-keypair.json}"
 PROGRAM_KEYPAIR_PATH="${PROGRAM_KEYPAIR_PATH:?Error: PROGRAM_KEYPAIR_PATH is not set.}"
 SOLANA_RPC_URL="${SOLANA_RPC_URL:-http://localhost:8899}"
+PROGRAM_NAME="${PROGRAM_NAME:-w3b2_solana_program}"
+PROGRAM_DIR_NAME="${PROGRAM_DIR_NAME:-w3b2-solana-program}"
+PROGRAM_IDL_FILENAME="${PROGRAM_IDL_FILENAME:-w3b2_solana_program.idl.json}"
+PROGRAM_SO_FILENAME="${PROGRAM_SO_FILENAME:-w3b2_solana_program.so}"
 
-PROGRAM_DIR="w3b2-solana-program"
-LIB_RS_PATH="$PROGRAM_DIR/src/lib.rs"
-ANCHOR_TOML_PATH="Anchor.toml"
-IDL_PATH_TEMPLATE="target/idl/w3b2_solana_program.json"
-DEPLOY_SO_PATH="target/deploy/w3b2_solana_program.so"
-ARTIFACTS_DIR="artifacts"
+LIB_RS_PATH="$PWD/$PROGRAM_DIR_NAME/src/lib.rs"
+ANCHOR_TOML_PATH="$PWD/Anchor.toml"
+IDL_SOURCE_PATH="$PWD/target/idl/${PROGRAM_NAME}.json" # Anchor always generates a .json file without suffix
+DEPLOY_SO_PATH="$PWD/target/deploy/${PROGRAM_NAME}.so"
+ARTIFACTS_DIR="$PWD/artifacts"
 
 # --- Helper Functions ---
 print_help() {
@@ -65,7 +68,7 @@ if [[ "$MODE" == "--deploy" ]]; then
     echo "✅ Airdrop successful."
 
     echo "🚀 Deploying program to $SOLANA_RPC_URL..."
-    solana program deploy "$ARTIFACTS_DIR/w3b2_solana_program.so" \
+    solana program deploy "$ARTIFACTS_DIR/$PROGRAM_SO_FILENAME" \
         --program-id "$PROGRAM_KEYPAIR_PATH" \
         --url "$SOLANA_RPC_URL" \
         --keypair "$DEPLOYER_KEYPAIR_PATH" # Explicitly specify the fee payer
@@ -89,7 +92,7 @@ elif [[ "$MODE" == "--build-only" ]]; then
 
     echo " Patching source files with Program ID..."
     sed -i -E 's/(declare_id!\s*\(\s*").*("\)\s*;)/\1'"$PROGRAM_ID"'\2/' "$LIB_RS_PATH"
-    sed -i -E 's/(w3b2_solana_program\s*=\s*\").*(\")/\1'"$PROGRAM_ID"'\2/' "$ANCHOR_TOML_PATH"
+    sed -i -E 's/('"$PROGRAM_NAME"'\s*=\s*\").*(\")/\1'"$PROGRAM_ID"'\2/' "$ANCHOR_TOML_PATH"
     echo "✅ Source files patched."
 
     echo "🚀 Building Anchor workspace...BUILD IN PROGRESS — PLEASE WAIT FOR NEW LOGS FROM builder-1.
@@ -100,7 +103,7 @@ This may take some time. Other containers such as solana-validator-1 and docs-1 
     echo "✅ Builds successful."
 
     echo "🔄 Finalizing artifacts..."
-    jq ".metadata.address = \"$PROGRAM_ID\"" "$IDL_PATH_TEMPLATE" > "$ARTIFACTS_DIR/w3b2_solana_program.json"
+    jq ".metadata.address = \"$PROGRAM_ID\"" "$IDL_SOURCE_PATH" > "$ARTIFACTS_DIR/$PROGRAM_IDL_FILENAME"
     cp "$DEPLOY_SO_PATH" "$ARTIFACTS_DIR/"
 
     echo "✅ Artifacts created in $ARTIFACTS_DIR/"

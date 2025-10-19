@@ -3,16 +3,11 @@ FROM python:3.9-slim
 
 WORKDIR /project
 
-# Copy requirements and install dependencies
+# Copy only the requirements file to leverage Docker layer caching.
 COPY ./docs/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy docs content
-COPY ./docs ./docs
-
-# Copy mkdocs.yml
-COPY ./docs/mkdocs.yml .
-
 EXPOSE 8000
 
+# The content will be mounted via docker-compose.
 CMD ["mkdocs", "serve", "-a", "0.0.0.0:8000"]

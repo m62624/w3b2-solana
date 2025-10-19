@@ -2,7 +2,7 @@ services:
   builder:
     build:
       context: .
-      dockerfile: Dockerfile.rust.builder
+      dockerfile: docker/Dockerfile.rust.builder
       args:
         SOLANA_VERSION: ${SOLANA_VERSION}
         ANCHOR_VERSION: ${ANCHOR_VERSION}
@@ -13,10 +13,10 @@ services:
       - .env
     profiles: ["builder", "deploy", "full"]
     volumes:
-      - ./artifacts:/project/artifacts
-      - ./target:/project/target
+      - ./artifacts:/app/artifacts
+      - ./target:/app/target
       - ./keys:/keys
-    working_dir: /project
+    working_dir: /app
     command: >
       bash -c "
         HOST_UID=${UID:-1000} HOST_GID=${GID:-1000} /usr/local/bin/build_and_deploy.sh --build-only
@@ -25,30 +25,20 @@ services:
   solana-validator:
     build:
       context: .
-      dockerfile: Dockerfile.validator
+      dockerfile: docker/Dockerfile.validator
       args:
         SOLANA_VERSION: ${SOLANA_VERSION}
-    env_file:
-      - .env
     profiles: ["validator", "deploy", "full"]
     ports:
-      - "${SOLANA_VALIDATOR_RPC_PORT:-8899}:8899" # RPC
-      - "${SOLANA_VALIDATOR_WS_PORT:-8900}:8900" # Websocket
-      - "8901:8901" # Faucet
+      - "${SOLANA_VALIDATOR_RPC_PORT_EXTERNAL}:${SOLANA_VALIDATOR_RPC_PORT_INTERNAL}" # RPC
+      - "${SOLANA_VALIDATOR_WS_PORT_EXTERNAL}:${SOLANA_VALIDATOR_WS_PORT_INTERNAL}" # Websocket
+      - "${SOLANA_VALIDATOR_FAUCET_PORT_EXTERNAL}:${SOLANA_VALIDATOR_FAUCET_PORT_INTERNAL}" # Faucet
     volumes:
       - solana-ledger:/ledger
     command: >
       bash -c "solana-test-validator --ledger /ledger --reset 2>&1 | awk '{if (!p) print; fflush()} /Processed Slot/ {p=1}'"
 
-
   deployer:
-    build:
-      context: .
-      dockerfile: Dockerfile.rust.builder
-      args:
-        SOLANA_VERSION: ${SOLANA_VERSION}
-        ANCHOR_VERSION: ${ANCHOR_VERSION}
-        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
     image: w3b2-builder
     pull_policy: never
     profiles: ["deploy", "full"]
@@ -62,19 +52,12 @@ services:
     environment:
       - SOLANA_RPC_URL=http://solana-validator:8899
     volumes:
-      - ./artifacts:/project/artifacts
+      - ./artifacts:/app/artifacts
       - ./keys:/keys
-    working_dir: /project
+    working_dir: /app
     command: /usr/local/bin/build_and_deploy.sh --deploy
 
   gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.rust.builder
-      args:
-        SOLANA_VERSION: ${SOLANA_VERSION}
-        ANCHOR_VERSION: ${ANCHOR_VERSION}
-        PROGRAM_KEYPAIR_PATH: ${PROGRAM_KEYPAIR_PATH:-/keys/program-keypair.json}
     image: w3b2-builder
     pull_policy: never
     profiles: ["gateway", "full"]
@@ -83,72 +66,48 @@ services:
         condition: service_started
       deployer:
         condition: service_completed_successfully
-    ports:
-      - "${GATEWAY_PORT}:50051"
     env_file:
       - .env
+    ports:
+      - "${GATEWAY_PORT_EXTERNAL}:${GATEWAY_PORT_INTERNAL}"
     volumes:
-      - ./artifacts:/project/artifacts 
-      - ./target:/project/target
+      - ./artifacts:/app/artifacts 
+      - ./target:/app/target
       - ./keys:/keys
-      - ./config.docker.toml:/project/config.docker.toml
+      - ./${GATEWAY_CONFIG_PATH}:/app/${GATEWAY_CONFIG_PATH}
       - gateway-data:/data
-    working_dir: /project
-    command: >
-      bash -c "
-        # The PROGRAM_ID might be empty on the first run, so we read it from the IDL.
-        if [ -z \"$${PROGRAM_ID}\" ]; then
-          export PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
-        fi;
-        # Update the connector's PROGRAM_ID in the environment for the gateway process
-        export W3B2_CONNECTOR__PROGRAM_ID=$${PROGRAM_ID};
-        echo 'Starting gateway with PROGRAM_ID='$${PROGRAM_ID};
-        /project/target/release/w3b2-solana-gateway run --config /project/config.docker.toml
-      "
+    working_dir: /app
+    command: /usr/local/bin/run_gateway.sh
 
   tester:
-    build:
-      context: .
-      dockerfile: Dockerfile.rust.tester
-    image: w3b2-tester
+    image: w3b2-builder
     pull_policy: never
     profiles: ["tester", "full"]
     depends_on:
       gateway:
         condition: service_started
+      builder:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
-      - GATEWAY_HOST=gateway
-      - GATEWAY_PORT=${GATEWAY_PORT}
+      - GATEWAY_HOST=gateway # Service name inside docker network
+      - GATEWAY_PORT=${GATEWAY_PORT_INTERNAL}
       - RUST_LOG=info
     volumes:
-      - ./artifacts:/project/artifacts
-    command: >
-      bash -c "
-        echo '--- Preparing test environment ---' &&
-        # 1. Read the Program ID from the build artifacts, just like the gateway does.
-        export W3B2_CONNECTOR__PROGRAM_ID=$$(cat /project/artifacts/w3b2_solana_program.json | jq -r .metadata.address);
-        echo 'Running tests with PROGRAM_ID='$$W3B2_CONNECTOR__PROGRAM_ID &&
-        # 2. Create a symlink so that tests can find the compiled .so file.
-        #    Tests look for it in `../target/deploy`, which resolves to `/project/target/deploy`.
-        mkdir -p /project/target/deploy &&
-        ln -sf /project/artifacts/w3b2_solana_program.so /project/target/deploy/w3b2_solana_program.so &&
-        echo 'Symlink for program artifacts created.' &&
-        
-        echo '--- Running all unit and documentation tests ---' &&
-        cargo test --workspace -- --nocapture &&
-        echo '--- Running all ignored (integration) tests ---' &&
-        cargo test --workspace -- --ignored --nocapture
-      "
+      # Mount all necessary directories
+      - ./artifacts:/app/artifacts
+      - ./target:/app/target
+    working_dir: /app
+    command: /usr/local/bin/run_tests.sh
 
   docs:
     build:
       context: .
-      dockerfile: Dockerfile.docs
+      dockerfile: docker/Dockerfile.docs
     profiles: ["docs", "full"]
     ports:
-      - "${DOCS_PORT}:8000"
+      - "${DOCS_PORT_EXTERNAL}:${DOCS_PORT_INTERNAL}"
     volumes:
       - ./docs:/project/docs # Mount the entire docs directory
       - ./docs/mkdocs.yml:/project/mkdocs.yml # The config file is now inside docs
