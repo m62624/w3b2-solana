@@ -17,12 +17,25 @@ IDL_SOURCE_PATH="$PWD/target/idl/${PROGRAM_NAME}.json" # Anchor always generates
 DEPLOY_SO_PATH="$PWD/target/deploy/${PROGRAM_NAME}.so"
 ARTIFACTS_DIR="$PWD/artifacts"
 
+# --- Cleanup and Permissions ---
+fix_permissions() {
+    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+        echo "Changing ownership of generated files to $HOST_UID:$HOST_GID..."
+        # Use chown on directories that are known to be created or modified.
+        # Adding || true to prevent the script from failing if a directory doesn't exist yet.
+        chown -R "$HOST_UID:$HOST_GID" "$ARTIFACTS_DIR" "target" "$(dirname "$PROGRAM_KEYPAIR_PATH")" || true
+    fi
+}
+
+# Set a trap to run the permission fix function on script exit (normal or error).
+trap fix_permissions EXIT
+
 # --- Helper Functions ---
 print_help() {
     echo "Usage: $0 [MODE]"
     echo "Modes:"
-    echo "  --build-only    Build the Anchor program and update IDL (default)."
-    echo "  --deploy        Build and deploy the program to a validator."
+    echo "  --build-only    Build the Anchor program and gateway binary (default)."
+    echo "  --deploy        Deploy the pre-built program to a validator."
     echo "  --help          Show this help message."
 }
 
@@ -109,14 +122,6 @@ This may take some time. Other containers such as solana-validator-1 and docs-1 
     echo "✅ Artifacts created in $ARTIFACTS_DIR/"
     echo "✅ Build complete."
 
-    # --- Final Permission Fix ---
-    # After all files are created by the root user inside the container,
-    # change their ownership to the host user's UID/GID.
-    # HOST_UID and HOST_GID are passed from the docker-compose command.
-    if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
-        echo "Changing ownership of generated files to $HOST_UID:$HOST_GID..."
-        chown -R "$HOST_UID:$HOST_GID" "$ARTIFACTS_DIR" "target" "$(dirname "$PROGRAM_KEYPAIR_PATH")"
-    fi
 fi
 
 echo "Program ID: $PROGRAM_ID"
