@@ -1,20 +1,24 @@
-# W3B2-Solana: The Easiest Way to Connect Your Existing Service to the Solana Blockchain.
+# W3B2-Solana
 
-W3B2-Solana is a toolset for developers integrating existing services with the Solana blockchain. Its core philosophy is to use the blockchain not as a general-purpose database, but as a **secure, verifiable message bus**. This approach allows you to build backend services that listen for on-chain events and react to them, creating a powerful bridge between Web2 and Web3.
+W3B2-Solana is a Rust-based toolkit for integrating existing Web2 backend services with the Solana blockchain. Its core purpose is to use the blockchain as a **secure, verifiable message bus** rather than as a primary database. This allows you to connect your traditional services to Web3 capabilities without a complete architectural overhaul.
 
-Instead of forcing all application logic onto the chain, this model uses the chain for what it does best:
-- **Verifiable State Transitions**: Securely managing ownership, payments, and permissions.
-- **Audit Trail**: Emitting events that serve as an immutable log of critical actions.
+## Core Logic: Connecting Your Web2 Service
 
-Your backend services can then consume these events to trigger complex, high-throughput, or private off-chain actions.
+The system is event-driven. Instead of exposing a traditional public API, your backend service listens for on-chain events to trigger actions. This shifts the security model: actions are initiated from the blockchain network itself, not from direct, open requests. The entire process is managed through two key on-chain accounts created by the `w3b2-solana-program`:
 
-## Architecture Overview
+1.  **AdminProfile**: An on-chain account that stores the service provider's configuration, such as public keys and the oracle address.
+2.  **UserProfile**: An on-chain account for each end-user. It holds their non-custodial deposit and manages their status.
 
-W3B2-Solana provides a complete, bidirectional architecture for interacting with the on-chain program. You can both listen for events and submit transactions through a flexible set of tools designed to accommodate any backend language.
+The workflow is as follows:
+1.  A user deposits funds into their `UserProfile`. Your service listens for this on-chain event via the `w3b2-solana-gateway` and recognizes the user.
+2.  To use a service, a transaction is authorized on-chain. Your service receives this authorized command as an event.
+3.  For high-throughput needs (e.g., data streams, game sessions), the on-chain command can serve as a secure handshake. After the blockchain grants approval, your service provides the user with credentials for a direct, off-chain connection (like a WebSocket), bypassing the blockchain for heavy traffic.
 
-The recommended approach for all developers, including those using Rust, is to use the `w3b2-solana-gateway`. It provides a comprehensive gRPC interface for all on-chain operations, allowing you to focus on your application's logic instead of the low-level details of Solana integration.
+This hybrid model uses the blockchain for secure authorization and coordination, while using your traditional infrastructure for performance-intensive tasks.
 
-The diagram below illustrates the complete interaction flow, from transaction creation to event reception.
+## Architecture
+
+The diagram below shows the interaction flow between the components.
 
 ```mermaid
 graph TD
@@ -37,7 +41,16 @@ graph TD
         A -- "Generates" --> UnsignedTx
         B -- "Builds" --> UnsignedTx
         Gateway -- "2. Returns Unsigned Tx" --> UnsignedTx
-        UnsignedTx -- "3. Sign with" --> D
+
+        subgraph "Blockhash Fetch (Option A)"
+            C -- "3a. Get Latest Blockhash" --> Gateway
+        end
+
+        subgraph "Blockhash Fetch (Option B)"
+            D -- "3b. Get Latest Blockhash" --> RPC
+        end
+
+        UnsignedTx -- "4. Sign with Blockhash" --> D
         UnsignedTx -- "or" --> E
         Oracle -- "Provides Data for" --> UnsignedTx
     end
@@ -53,70 +66,101 @@ graph TD
         Program["On-Chain Program"]
     end
 
-    D -- "4. Submit Signed Tx" --> RPC
-    E -- "4. Submit Signed Tx" --> RPC
+    D -- "5. Submit Signed Tx" --> RPC
+    E -- "5. Submit Signed Tx" --> RPC
 
-    RPC -- "5. Processes Tx" --> Program
-    Program -- "6. Emits Event" --> RPC
-    RPC -- "7. Forwards Event" --> Connector
-    Connector -- "8. Streams to" --> Gateway
-    Gateway -- "9. Streams to" --> C
+    RPC -- "6. Processes Tx" --> Program
+    Program -- "7. Emits Event" --> RPC
+    RPC -- "8. Forwards Event" --> Connector
+    Connector -- "9. Streams to" --> Gateway
+    Gateway -- "10. Streams to" --> C
 ```
 
-### Key Interaction Points
+## W3B2-Solana Components
 
-1.  **Transaction Creation**:
-    -   **gRPC Gateway (Recommended)**: The `w3b2-solana-gateway` provides `prepare_*` methods for every on-chain instruction. Your client calls these methods to get a serialized, unsigned transaction message. This is the simplest and most robust method.
-    -   **`w3b2-solana-connector` (Rust)**: If you are building a native Rust service, you can use the `TransactionBuilder` in the connector library directly for maximum control.
-    -   **Anchor CLI**: For manual testing or scripting, you can generate instructions directly from the on-chain program's IDL.
+### w3b2-solana-program: The On-Chain Logic
 
-2.  **Oracle & Signing**:
-    -   Your custom **Oracle** is responsible for providing any necessary off-chain data and logic (e.g., pricing, validation) required for a transaction.
-    -   The unsigned transaction must be signed by the user's keypair. You can use a **native Solana library** in your language or, as a fallback, the **`w3b2-solana-signer`** FFI library if a native option is unavailable or you cannot easily deserialize the transaction message.
+| Aspect             | Description                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary Purpose**| Acts as the source of truth, manages on-chain state, enforces payment rules, verifies oracle signatures, and emits events.         |
+| **Target User**    | The foundational layer used by the off-chain connector and gateway components, not end-developers.               |
+| **Architectural Role**| The core on-chain smart contract that all off-chain components interact with.                                           |
 
-3.  **Submission & Event Streaming**:
-    -   The signed transaction is sent to a Solana **RPC Node**.
-    -   The on-chain **Program** processes the transaction and emits an event.
-    -   The **Connector** listens for this event and streams it through the **Gateway** back to your **gRPC Client**.
+The `w3b2-solana-program` is the main on-chain smart contract, built with the Anchor framework. It functions as the system's financial arbiter, and its actions are publicly verifiable on the Solana ledger.
 
-### How the Secure Handshake Works
-For high-traffic services, the architecture above supports a "secure handshake" pattern. The on-chain program provides the instruments for this secure negotiation:
+Key responsibilities:
 
-- **communication_pubkey**: Both admins and users store a public key on-chain for secure, hybrid encryption.
-- **dispatch commands**: The admin_dispatch_command and user_dispatch_command instructions contain a flexible payload field.
+*   **State Management**: Creates and manages `AdminProfile` and `UserProfile` Program-Derived Addresses (PDAs). These accounts are controlled by the program, not a single private key.
+*   **Rule Enforcement**: Enforces non-custodial payment rules. A service provider cannot withdraw funds from a user's account without an authorized, oracle-verified command from the user.
+*   **Security & Verification**: Verifies cryptographic signatures from an off-chain oracle, allowing for off-chain business logic (like pricing) while maintaining on-chain security.
+*   **Event Emission**: Emits a detailed event for every significant action (deposit, payment, etc.), creating an immutable audit trail.
 
-**The Flow:**
-1. A party (e.g., the user) initiates a connection by calling a dispatch command.
-2. The payload of this command contains a connection configuration, encrypted for the recipient using their on-chain communication_pubkey.
-3. The recipient's backend service, listening for on-chain events via the w3b2-solana-connector, receives this encrypted config.
-4. After decrypting the config, the service can establish a direct, off-chain connection (e.g., a WebSocket, TCP socket) with the user, completely bypassing the blockchain for the actual data transfer.
+### w3b2-solana-gateway: The gRPC Interface
 
-The `w3b2-solana-program/src/protocols.rs` file provides a reference implementation for a configuration payload, but developers are free to implement any protocol they need.
+| Aspect      | Description                                                                                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary Purpose**| A gRPC server that streams on-chain events and prepares unsigned transactions, simplifying Solana RPC node interaction. |
+| **Target User**    | Developers building backend services in non-Rust languages (e.g., Python, Node.js, Go, C#). This is the recommended entry point.                            |
+| **Architectural Role**| A language-agnostic entry point for listening to on-chain events and preparing unsigned transactions via gRPC.                                                  |
 
-## Crate Overview
+The `w3b2-solana-gateway` is a gRPC server that provides an interface to the on-chain program. It is the recommended entry point for non-Rust services as it simplifies Solana interaction.
 
-This workspace provides the tools to build this architecture:
+The gateway has two main functions:
 
--   `w3b2-solana-program`: The core on-chain Anchor program that manages state and emits events.
--   `w3b2-solana-gateway`: A ready-to-use gRPC server that streams on-chain events. **This is the recommended entry point for non-Rust services.**
--   `w3b2-solana-connector`: A Rust library for building off-chain services. It provides the core logic for the gateway and can be used directly for native Rust development.
--   `w3b2-solana-signer`: A C-ABI compatible library for signing messages from any programming language, useful for building oracles.
--   `w3b2-solana-logger`: A simple logging utility for the Rust services.
+1.  **Preparing Transactions**: Provides `prepare_*` methods for each on-chain instruction. Your client calls the gRPC method, and the gateway constructs and returns the unsigned transaction message. The client then signs it locally and submits it.
+2.  **Streaming Events**: Makes on-chain events available to any backend service through two stream types:
+    *   **History Stream (`Get...EventHistory`)**: A one-shot stream that fetches all historical events for an account. Used to build initial state.
+    *   **Live Stream (`Stream...LiveEvents`)**: A persistent stream that forwards new events in real-time.
 
-> **Note**: For detailed guides, API references, and architecture diagrams, please see the **Full Documentation Site**.
+The gateway also provides an endpoint to get the **latest blockhash**, which is needed just before signing to ensure the transaction is valid. The gateway is powered by the `w3b2-solana-connector`.
 
-## Local Development with Docker
+### w3b2-solana-connector: The Rust Library
 
-The recommended development environment is managed via Docker and Docker Compose. For the best onboarding experience, we recommend starting the documentation server first to explore the project's concepts and API references in detail.
+| Aspect      | Description                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Primary Purpose**| A high-level, async Rust library for building native off-chain services that listen for events and build transactions. |
+| **Target User**    | Rust developers who need maximum control and performance.                       |
+| **Architectural Role**| The underlying engine that powers the gateway and serves as the direct blockchain interface for native Rust applications. |
+
+The `w3b2-solana-connector` is a Rust library for building backend services that interact with the on-chain program. It contains the core logic for communicating with the Solana network and powers the gateway. Using the connector directly provides the highest performance for Rust developers.
+
+Key features:
+
+*   **Event Handling**: Provides persistent event streams for both historical and live events. It uses local storage to track processed transactions, ensuring no data is missed if the service restarts.
+*   **TransactionBuilder**: A utility for programmatically creating unsigned transaction messages. Useful for building off-chain services like oracles or admin tools.
+
+### w3b2-solana-signer: The Signing Utility
+
+| Aspect      | Description                                                                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Primary Purpose**| A C-compatible Foreign Function Interface (FFI) for signing Solana transactions from non-Rust applications.               |
+| **Target User**    | Developers using languages (e.g., Go, C++, Swift) that lack a mature native Solana signing library.               |
+| **Architectural Role**| A fallback solution for signing transactions in specific tech stacks.               |
+
+The `w3b2-solana-signer` crate is a tool that provides a C-compatible FFI, allowing applications in other languages to sign Solana transactions using Rust's cryptographic libraries. It includes security features like locking private keys in memory with `mlock()`.
+
+This is a **fallback solution**. It should be used only when a mature native Solana library is not available for your language. For languages like TypeScript or Python, use their native libraries (`@solana/web3.js` or `solana-py`).
+
+### Component Summary
+
+|                    | `w3b2-solana-program`                                                                                                      | `w3b2-solana-gateway`                                                                                                                                        | `w3b2-solana-connector`                                                                                                                               | `w3b2-solana-signer`                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Analogy**        | On-Chain Logic                                                                                                      | gRPC Interface                                                                                                                                      | Rust Library                                                                                                                             | Signing Utility                                                                                                                            |
+| **Core Function**  | Manages on-chain state, enforces payment rules, verifies signatures, and emits events.                                   | Streams on-chain events and prepares unsigned transactions over a gRPC interface.                 | Provides event handling and transaction building for native Rust services.                                                          | Signs Solana transactions via C-FFI for languages without mature native libraries.                                                                 |
+| **When to Use It** | The mandatory on-chain foundation for all other components.                                       | The recommended method for any backend to listen for events and prepare transactions without needing native Rust tooling.                                  | When building a high-performance backend service, oracle, or admin tool in Rust.                                                                      | As a fallback when your language lacks a good native signing library.                                                                |
+
+## Local Development
+
+The development environment is managed with Docker and Docker Compose. To view the full documentation site locally, run:
 
 ```bash
 docker compose --profile docs up
 ```
 
-See the full documentation for details on getting started with other services.
+## API Status
 
-!!! warning "Alpha Version"
+Please be aware that the API is not yet standardized. You are welcome to use this repository as a foundation for your own projects.
 
-    Please be aware that this project is currently in an early development stage. The API is not yet stable and is subject to breaking changes without notice.
+## License
 
-    You are welcome to experiment with the software, but we strongly advise against using it in production environments at this time. We greatly appreciate any feedback and contributions
+See the [LICENSE.md](https://github.com/m62624/w3b2-solana/blob/main/LICENSE.md) file for details.
