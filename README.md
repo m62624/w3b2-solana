@@ -2,9 +2,19 @@
 
 W3B2-Solana is a Rust-based toolkit for integrating existing Web2 backend services with the Solana blockchain. Its core purpose is to use the blockchain as a **secure, verifiable message bus** rather than as a primary database. This allows you to connect your traditional services to Web3 capabilities without a complete architectural overhaul.
 
-## Core Logic: Connecting Your Web2 Service
+## Core Logic: Blockchain-First Integration
 
-The system is event-driven. Instead of exposing a traditional public API, your backend service listens for on-chain events to trigger actions. This shifts the security model: actions are initiated from the blockchain network itself, not from direct, open requests. The entire process is managed through two key on-chain accounts created by the `w3b2-solana-program`:
+The system is designed around a **blockchain-first** security model. It does **not** expose a traditional, public-facing API endpoint. Instead, all interactions are initiated on-chain, and your backend service acts as a listener, reacting to verified blockchain events. This fundamentally shifts the security paradigm: your service's entry point is the secure and verifiable Solana network, not a mutable API that must be defended.
+
+### Security Model: No Public API
+
+This architecture provides key security advantages:
+
+*   **No Public Attack Surface**: Since there is no public API endpoint, your service is not exposed to common web-based attacks like DDoS or unauthorized API requests.
+*   **On-Chain Authorization**: Every action is pre-authorized on the blockchain. Your backend only acts on commands that have already been verified and paid for according to the on-chain rules.
+*   **Secure Handshake**: For high-traffic, real-time interactions, the on-chain transaction serves as a secure, one-time handshake. Once verified, your service can grant the user credentials for a direct, off-chain communication channel (e.g., a WebSocket or dedicated gRPC stream), keeping high-frequency traffic off the blockchain while retaining initial on-chain security.
+
+The entire process is managed through two key on-chain accounts created by the `w3b2-solana-program`:
 
 1.  **AdminProfile**: An on-chain account that stores the service provider's configuration, such as public keys and the oracle address.
 2.  **UserProfile**: An on-chain account for each end-user. It holds their non-custodial deposit and manages their status.
