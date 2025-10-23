@@ -2,17 +2,17 @@
 
 W3B2-Solana is a Rust-based toolkit for integrating existing Web2 backend services with the Solana blockchain. Its core purpose is to use the blockchain as a **secure, verifiable message bus** rather than as a primary database. This allows you to connect your traditional services to Web3 capabilities without a complete architectural overhaul.
 
-## Core Logic: Blockchain-First Integration
+## Core Logic: How It Works
 
-The system is designed around a **blockchain-first** security model. It does **not** expose a traditional, public-facing API endpoint. Instead, all interactions are initiated on-chain, and your backend service acts as a listener, reacting to verified blockchain events. This fundamentally shifts the security paradigm: your service's entry point is the secure and verifiable Solana network, not a mutable API that must be defended.
+This system uses a **blockchain-first** model. It does **not** have a normal public API. Instead, your backend service listens for events on the Solana blockchain and reacts to them. This makes the system more secure because its entry point is the Solana network, not a traditional API that needs to be defended from attacks.
 
-### Security Model: No Public API
+### Security: No Public API
 
-This architecture provides key security advantages:
+This approach has several security benefits:
 
-*   **No Public Attack Surface**: Since there is no public API endpoint, your service is not exposed to common web-based attacks like DDoS or unauthorized API requests.
-*   **On-Chain Authorization**: Every action is pre-authorized on the blockchain. Your backend only acts on commands that have already been verified and paid for according to the on-chain rules.
-*   **Secure Handshake**: For high-traffic, real-time interactions, the on-chain transaction serves as a secure, one-time handshake. Once verified, your service can grant the user credentials for a direct, off-chain communication channel (e.g., a WebSocket or dedicated gRPC stream), keeping high-frequency traffic off the blockchain while retaining initial on-chain security.
+*   **No Public Attack Surface**: Without a public API, your service is protected from common web attacks like DDoS.
+*   **On-Chain Authorization**: Your backend only responds to actions that have already been approved and verified on the blockchain.
+*   **Secure Handshake for Off-Chain Communication**: For tasks that need a lot of data transfer, you can use an on-chain transaction as a secure, one-time handshake. After the handshake is verified, your service can give the user access to a direct, off-chain connection (like a WebSocket). This keeps heavy traffic off the blockchain but still uses its security for the initial connection.
 
 The entire process is managed through two key on-chain accounts created by the `w3b2-solana-program`:
 
